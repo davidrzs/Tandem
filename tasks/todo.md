@@ -2,6 +2,11 @@
 
 Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Hocuspocus (Yjs) · MCP — one Node runtime, monorepo.
 
+## Local dev DB: PGlite (Postgres-in-WASM), prod: Postgres
+- `createDatabase` branches on DATABASE_URL: `postgres://` -> real server (prod/CI); else PGlite in-process (dev, persisted to `<repo>/.pglite`; `memory://` for tests). Same SQL + tsvector FTS, full parity. No SQLite (would fork schema + search).
+- `pnpm db:migrate` runs the right migrator for the active driver. Tests use in-memory PGlite, migrated fresh — no external DB needed.
+- Scripts auto-load `.env` via `--env-file-if-exists`.
+
 ## Architecture invariants (do not violate)
 - One shared domain layer (`packages/core`). Web API + MCP + Hocuspocus persistence all call it. No duplicated doc logic.
 - Yjs is the live WRITE model; markdown (`content_md`) is the derived READ model.

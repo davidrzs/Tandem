@@ -9,15 +9,17 @@
   },
   "scripts": {
     "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
+    "migrate": "node --env-file-if-exists=../../.env --import tsx src/migrate-run.ts",
     "push": "drizzle-kit push",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.2.17",
     "drizzle-orm": "^0.38.3",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30.1"
+    "drizzle-kit": "^0.30.1",
+    "tsx": "^4.19.2"
   }
 }

@@ -1,23 +1,21 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createDatabase } from "@realtime/db";
+import { createDatabase, migrateDatabase } from "@realtime/db";
 import { CollectionService } from "./services/collections.js";
 import { DocumentService } from "./services/documents.js";
 import { normalizeMarkdown } from "./markdown.js";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL required to run core tests");
-
-const db = createDatabase(url);
+// Self-contained: in-memory PGlite, migrated fresh. No external DB needed.
+const db = createDatabase("memory://");
 const collections = new CollectionService(db);
 const documents = new DocumentService(db);
 
 before(async () => {
-  await db.$client`truncate table documents, collections cascade`;
+  await migrateDatabase(db);
 });
 
 after(async () => {
-  await db.$client.end();
+  await db.$dispose();
 });
 
 test("markdown round-trips through the document model", () => {

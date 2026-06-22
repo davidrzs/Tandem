@@ -17,7 +17,6 @@ export function createServices(db: Database): Services {
 }
 
 export function servicesFromEnv(): Services {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is required");
-  return createServices(createDatabase(url));
+  // createDatabase reads DATABASE_URL itself and falls back to in-memory PGlite.
+  return createServices(createDatabase(process.env.DATABASE_URL));
 }

@@ -108,7 +108,7 @@ importers:
         version: link:../db
       drizzle-orm:
         specifier: ^0.38.3
-        version: 0.38.4(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
+        version: 0.38.4(@electric-sql/pglite@0.2.17)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
       prosemirror-markdown:
         specifier: ^1.13.1
         version: 1.13.4
@@ -125,9 +125,12 @@ importers:
 
   packages/db:
     dependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.2.17
+        version: 0.2.17
       drizzle-orm:
         specifier: ^0.38.3
-        version: 0.38.4(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
+        version: 0.38.4(@electric-sql/pglite@0.2.17)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
       postgres:
         specifier: ^3.4.5
         version: 3.4.9
@@ -135,6 +138,9 @@ importers:
       drizzle-kit:
         specifier: ^0.30.1
         version: 0.30.6
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
 
 packages:
 
@@ -223,6 +229,9 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@electric-sql/pglite@0.2.17':
+    resolution: {integrity: sha512-qEpKRT2oUaWDH6tjRxLHjdzMqRUGYDnGZlKrnL4dJ77JVMcP2Hpo3NYnOSPKdZdeec57B6QPprCUFg0picx5Pw==}
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
@@ -2343,6 +2352,8 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
+  '@electric-sql/pglite@0.2.17': {}
+
   '@esbuild-kit/core-utils@3.3.2':
     dependencies:
       esbuild: 0.18.20
@@ -3182,8 +3193,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.38.4(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1):
+  drizzle-orm@0.38.4(@electric-sql/pglite@0.2.17)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1):
     optionalDependencies:
+      '@electric-sql/pglite': 0.2.17
       '@types/react': 18.3.31
       postgres: 3.4.9
       react: 18.3.1

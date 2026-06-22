@@ -2,14 +2,12 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase } from "@realtime/db";
+import { createDatabase, migrateDatabase } from "@realtime/db";
 import { createServices } from "./services.js";
 import { createMcpServer } from "./mcp.js";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL required");
-
-const db = createDatabase(url);
+// Self-contained: in-memory PGlite, migrated fresh. No external DB needed.
+const db = createDatabase("memory://");
 const services = createServices(db);
 const client = new Client({ name: "test", version: "0.0.0" });
 
@@ -20,7 +18,7 @@ function payload(res: any): any {
 }
 
 before(async () => {
-  await db.$client`truncate table documents, collections cascade`;
+  await migrateDatabase(db);
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await createMcpServer(services).connect(serverT);
   await client.connect(clientT);
@@ -28,7 +26,7 @@ before(async () => {
 
 after(async () => {
   await client.close();
-  await db.$client.end();
+  await db.$dispose();
 });
 
 test("tools are advertised", async () => {
