@@ -3,18 +3,26 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./trpc": "./src/trpc.ts"
+  },
   "bin": {
     "realtime-mcp": "./src/mcp-stdio.ts"
   },
   "scripts": {
     "mcp": "node --import tsx src/mcp-stdio.ts",
+    "serve": "node --import tsx src/serve.ts",
+    "dev": "node --import tsx --watch src/serve.ts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cors": "^10.0.1",
     "@modelcontextprotocol/sdk": "^1.13.0",
     "@realtime/core": "workspace:*",
     "@realtime/db": "workspace:*",
+    "@trpc/server": "^11.0.0",
+    "fastify": "^5.2.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

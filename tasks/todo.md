@@ -22,9 +22,13 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] Verified: 3/3 in-memory client tests + live stdio JSON-RPC handshake, typecheck clean
 - [ ] Block-scoped write tools (append_section, replace_block, insert_after_heading) — deferred to land with Y.Doc write path in Phase 3
 
-## Phase 2 — Editor UI
-- [ ] `apps/web` Vite+React+TipTap, doc tree sidebar, slash commands, markdown I/O
-- [ ] tRPC API in Fastify
+## Phase 2 — Editor UI (DONE except slash menu)
+- [x] tRPC API in Fastify (`apps/server`: trpc.ts router + http.ts + serve.ts), CORS, /health
+- [x] `apps/web` Vite+React+TipTap: collections + nested doc-tree sidebar, create collection/doc
+- [x] Editor: TipTap StarterKit + tiptap-markdown, title input, debounced autosave, markdown input rules
+- [x] Markdown I/O: client serializes via tiptap-markdown; server stores via core; markdown is the interchange
+- [x] Verified: typecheck (4 pkgs) + unit tests (5) + production build + Playwright browser e2e (create->type->autosave->reload->persisted, heading round-trips to <h1>)
+- [ ] Dedicated slash (/) command menu — markdown input rules cover formatting now; slash menu is polish
 
 ## Phase 3 — Realtime + remote
 - [ ] Hocuspocus mounted in Fastify (/collab), Yjs persistence -> ydoc_state + derived content_md
@@ -46,3 +50,10 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - `.mcp.json` at repo root registers it for Claude Code as `realtime-wiki`.
 - Verified: 3/3 in-memory `Client` tests (tool list, full create→get→search→update→tree lifecycle, error path) + live stdio JSON-RPC handshake advertising all 9 tools. Typecheck clean.
 - Deferred deliberately: block-scoped write tools — they belong with the Y.Doc write path (Phase 3) so agent edits funnel through the single write path rather than full-body replace.
+
+### Phase 2 (complete)
+- API: `apps/server` now also hosts a tRPC router (collections + documents) on Fastify (`serve.ts`, port 3001). Same `createServices` as MCP — one core, two adapters. The MCP server and tRPC API expose the same operations.
+- Web: `apps/web` Vite + React 18 + TipTap (StarterKit + tiptap-markdown). Outline-style two-pane layout: sidebar with collections + recursive document tree, main editor pane. Debounced autosave (title 500ms, body 700ms); markdown is the client<->server interchange.
+- Decision recorded: markdown is the interchange format between editor and server (sidesteps TipTap-vs-prosemirror-markdown schema mismatch). content_json stays a server-side normalized cache; Phase 3's Yjs hook will rewrite it in TipTap-schema JSON. A single shared ProseMirror schema (TipTap + server) is the Phase 3 prerequisite for y-prosemirror conversions.
+- Verified: all 4 packages typecheck; 5 unit/integration tests pass; web production build succeeds; Playwright browser e2e proves the full UI->tRPC->core->Postgres loop persists across reload and markdown round-trips (heading -> <h1>).
+- Dev: `pnpm --filter @realtime/server dev` (API) + `pnpm --filter @realtime/web dev` (UI on :5173, proxies /trpc). e2e: `bash apps/web/e2e/run.sh`.
