@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "realtime-wiki": {
+      "command": "pnpm",
+      "args": ["--filter", "@realtime/server", "exec", "node", "--import", "tsx", "src/mcp-stdio.ts"],
+      "env": {
+        "DATABASE_URL": "postgres://postgres:postgres@localhost:5432/realtime"
+      }
+    }
+  }
+}

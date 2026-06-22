@@ -1,0 +1,24 @@
+{
+  "name": "@realtime/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "realtime-mcp": "./src/mcp-stdio.ts"
+  },
+  "scripts": {
+    "mcp": "node --import tsx src/mcp-stdio.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.0",
+    "@realtime/core": "workspace:*",
+    "@realtime/db": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
