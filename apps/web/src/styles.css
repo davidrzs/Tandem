@@ -226,6 +226,13 @@ body {
   font-size: 13px;
 }
 
+.consent-scopes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* Slash command menu */
 .slash-menu {
   display: flex;

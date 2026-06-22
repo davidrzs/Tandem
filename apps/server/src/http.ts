@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import formbody from "@fastify/formbody";
 import websocket from "@fastify/websocket";
 import {
   type CreateFastifyContextOptions,
@@ -36,6 +37,8 @@ export async function buildHttpServer() {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
     credentials: true,
   });
+  // OAuth token requests are form-encoded; parse them so /api/auth/* accepts them.
+  await app.register(formbody);
   await app.register(websocket);
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
@@ -54,13 +57,25 @@ export async function buildHttpServer() {
   });
 
   // Bridge a Fastify request/reply to the WHATWG Request/Response that Better
-  // Auth's handlers speak.
-  const toWebRequest = (request: FastifyRequest): Request =>
-    new Request(new URL(request.url, `http://${request.headers.host}`), {
+  // Auth's handlers speak. Re-encode the parsed body to match its content-type
+  // (OAuth token requests are form-encoded; everything else is JSON).
+  const toWebRequest = (request: FastifyRequest): Request => {
+    const headers = fromNodeHeaders(request.headers);
+    let body: string | undefined;
+    if (request.body) {
+      const isForm = (headers.get("content-type") ?? "").includes(
+        "application/x-www-form-urlencoded",
+      );
+      body = isForm
+        ? new URLSearchParams(request.body as Record<string, string>).toString()
+        : JSON.stringify(request.body);
+    }
+    return new Request(new URL(request.url, `http://${request.headers.host}`), {
       method: request.method,
-      headers: fromNodeHeaders(request.headers),
-      ...(request.body ? { body: JSON.stringify(request.body) } : {}),
+      headers,
+      ...(body !== undefined ? { body } : {}),
     });
+  };
   const sendWebResponse = async (reply: FastifyReply, response: Response) => {
     reply.status(response.status);
     response.headers.forEach((value, key) => reply.header(key, value));

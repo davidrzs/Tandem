@@ -18,6 +18,11 @@ export function createAuth(db: Database) {
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:5173",
     trustedOrigins: [process.env.WEB_ORIGIN ?? "http://localhost:5173"],
-    plugins: [mcp({ loginPage: "/" })],
+    plugins: [
+      mcp({
+        loginPage: "/",
+        oidcConfig: { loginPage: "/", consentPage: "/oauth/consent" },
+      }),
+    ],
   });
 }

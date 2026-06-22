@@ -56,7 +56,8 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] e2e isolation: run.sh uses a fresh .pglite-e2e DB per run -> deterministic (fixed the two-client navigation flake at root). smoke + collab both stable (6/6).
 - [x] MCP OAuth: Better Auth mcp() plugin (OAuth 2.1 provider — discovery, dynamic client registration, token issuance). /mcp gated by auth.api.getMcpSession (401 + WWW-Authenticate resource-metadata challenge). Root /.well-known/oauth-{authorization-server,protected-resource}. Tables oauth_application/access_token/consent (migration 0002). Verified: metadata + 401 challenge + DCR. NOTE: interactive consent UI is a frontend follow-up; OAuth-capable clients (Claude Code) drive the full flow.
 - [x] Slash (/) command menu in the editor (client-only): @tiptap/suggestion + tippy; headings, lists, code, quote, divider. Verified by e2e.
-- [ ] Consent UI for the OAuth authorize flow; per-resource authz (ownership/RLS); Redis pub/sub when scaling out (later)
+- [x] OAuth consent UI: consentPage "/oauth/consent" + SPA ConsentScreen (Allow/Deny -> POST /oauth2/consent -> navigate to redirectURI); login-resume re-navigates to /api/auth/mcp/authorize after sign-in (no router). Vite proxies /mcp + /.well-known. Fastify form-body parser + content-type-aware request bridge (OAuth token endpoint is form-encoded). Verified: full server flow (DCR->PKCE->consent->token->authed /mcp) + browser consent-screen e2e.
+- [ ] Per-resource authz (ownership/teams + Postgres RLS); Redis pub/sub when scaling out (later)
 - Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
 - Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 
