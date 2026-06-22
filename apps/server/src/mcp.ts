@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Document } from "@realtime/db";
+import type { CollabWriter } from "./collab-writer.js";
 import type { Services } from "./services.js";
 
 /** Compact, machine-friendly document shape (drops binary/search internals). */
@@ -29,7 +30,7 @@ function notFound(what: string) {
  * Build the MCP server exposing the wiki content. Every tool delegates to the
  * shared core services — no document logic lives here.
  */
-export function createMcpServer(services: Services): McpServer {
+export function createMcpServer(services: Services, writer?: CollabWriter): McpServer {
   const { documents, collections } = services;
   const server = new McpServer({ name: "realtime-wiki", version: "0.1.0" });
 
@@ -121,17 +122,45 @@ export function createMcpServer(services: Services): McpServer {
     {
       title: "Update document",
       description:
-        "Update a document's title and/or markdown body. Replaces the whole body.",
+        "Update a document's title and/or markdown body. Replaces the whole body. " +
+        "Body edits funnel through the live collaborative document.",
       inputSchema: {
         id: z.string().uuid(),
         title: z.string().optional(),
         markdown: z.string().optional(),
       },
     },
-    async ({ id, ...patch }) => {
-      const doc = await documents.update(id, patch);
-      if (!doc) return notFound("document");
-      return json(publicDoc(doc));
+    async ({ id, title, markdown }) => {
+      if (!(await documents.get(id))) return notFound("document");
+      if (title !== undefined) await documents.update(id, { title });
+      if (markdown !== undefined) {
+        // Through the live Y.Doc (one write path) when in-process; else DB.
+        if (writer) await writer.replaceBody(id, markdown);
+        else await documents.update(id, { markdown });
+      }
+      return json(publicDoc((await documents.get(id))!));
+    },
+  );
+
+  server.registerTool(
+    "append_section",
+    {
+      title: "Append section",
+      description:
+        "Append markdown to the end of a document. Block-scoped, so it merges " +
+        "cleanly with concurrent human edits via the live collaborative document.",
+      inputSchema: { id: z.string().uuid(), markdown: z.string().min(1) },
+    },
+    async ({ id, markdown }) => {
+      const existing = await documents.get(id);
+      if (!existing) return notFound("document");
+      if (writer) {
+        await writer.appendSection(id, markdown);
+      } else {
+        const body = existing.contentMd ? `${existing.contentMd}\n\n${markdown}` : markdown;
+        await documents.update(id, { markdown: body });
+      }
+      return json(publicDoc((await documents.get(id))!));
     },
   );
 

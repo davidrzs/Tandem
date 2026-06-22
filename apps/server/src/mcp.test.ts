@@ -33,6 +33,7 @@ test("tools are advertised", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "append_section",
     "archive_document",
     "create_collection",
     "create_document",
