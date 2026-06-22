@@ -5,6 +5,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { trpc } from "../trpc.js";
+import { SlashCommand } from "./slash-command.js";
 
 function useDebounced<A extends unknown[]>(fn: (...args: A) => void, delay: number) {
   const ref = useRef(fn);
@@ -48,6 +49,7 @@ export function Editor({ docId }: { docId: string }) {
       // History is disabled — Collaboration manages undo via Yjs.
       StarterKit.configure({ history: false }),
       Collaboration.configure({ document: ydoc, field: "default" }),
+      SlashCommand,
     ],
   });
 
