@@ -54,7 +54,9 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] 3d. Client editor -> collab: @tiptap/extension-collaboration (v2) + HocuspocusProvider; body via Yjs, title via tRPC. Provider lifecycle in useEffect (StrictMode-safe). Two-browser e2e proves bidirectional live sync; single-client e2e proves persistence across reload.
 - [x] 3e. MCP uniform write path: collab-writer.ts (replaceBody/appendSection via openDirectConnection); update_document body + new append_section route through the live Y.Doc. MCP-over-HTTP mounted in Fastify (/mcp, stateless, shares hocuspocus+writer; optional MCP_TOKEN bearer; OAuth still TODO). Verified by in-process MCP test (write -> live Y.Doc) + HTTP MCP client smoke.
 - [x] e2e isolation: run.sh uses a fresh .pglite-e2e DB per run -> deterministic (fixed the two-client navigation flake at root). smoke + collab both stable (6/6).
-- [ ] MCP OAuth (production gate for /mcp); Redis pub/sub when scaling out (later)
+- [x] MCP OAuth: Better Auth mcp() plugin (OAuth 2.1 provider — discovery, dynamic client registration, token issuance). /mcp gated by auth.api.getMcpSession (401 + WWW-Authenticate resource-metadata challenge). Root /.well-known/oauth-{authorization-server,protected-resource}. Tables oauth_application/access_token/consent (migration 0002). Verified: metadata + 401 challenge + DCR. NOTE: interactive consent UI is a frontend follow-up; OAuth-capable clients (Claude Code) drive the full flow.
+- [x] Slash (/) command menu in the editor (client-only): @tiptap/suggestion + tippy; headings, lists, code, quote, divider. Verified by e2e.
+- [ ] Consent UI for the OAuth authorize flow; per-resource authz (ownership/RLS); Redis pub/sub when scaling out (later)
 - Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
 - Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 

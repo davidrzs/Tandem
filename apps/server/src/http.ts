@@ -7,7 +7,11 @@ import {
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createDatabase } from "@realtime/db";
 import { fromNodeHeaders } from "better-auth/node";
-import Fastify from "fastify";
+import {
+  oAuthDiscoveryMetadata,
+  oAuthProtectedResourceMetadata,
+} from "better-auth/plugins";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
@@ -49,23 +53,38 @@ export async function buildHttpServer() {
     );
   });
 
-  // Better Auth handles all /api/auth/* routes (sign-up, sign-in, session…).
+  // Bridge a Fastify request/reply to the WHATWG Request/Response that Better
+  // Auth's handlers speak.
+  const toWebRequest = (request: FastifyRequest): Request =>
+    new Request(new URL(request.url, `http://${request.headers.host}`), {
+      method: request.method,
+      headers: fromNodeHeaders(request.headers),
+      ...(request.body ? { body: JSON.stringify(request.body) } : {}),
+    });
+  const sendWebResponse = async (reply: FastifyReply, response: Response) => {
+    reply.status(response.status);
+    response.headers.forEach((value, key) => reply.header(key, value));
+    return reply.send(response.body ? await response.text() : null);
+  };
+
+  // Better Auth handles all /api/auth/* routes (sign-up, sign-in, session, and
+  // the MCP OAuth endpoints: /mcp/authorize, /mcp/token, /mcp/register, …).
   app.route({
     method: ["GET", "POST"],
     url: "/api/auth/*",
-    async handler(request, reply) {
-      const url = new URL(request.url, `http://${request.headers.host}`);
-      const req = new Request(url, {
-        method: request.method,
-        headers: fromNodeHeaders(request.headers),
-        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
-      });
-      const response = await auth.handler(req);
-      reply.status(response.status);
-      response.headers.forEach((value, key) => reply.header(key, value));
-      return reply.send(response.body ? await response.text() : null);
-    },
+    handler: async (request, reply) =>
+      sendWebResponse(reply, await auth.handler(toWebRequest(request))),
   });
+
+  // OAuth discovery — MUST be at the domain root for MCP clients to find it.
+  const discovery = oAuthDiscoveryMetadata(auth);
+  const protectedResource = oAuthProtectedResourceMetadata(auth);
+  app.get("/.well-known/oauth-authorization-server", async (req, reply) =>
+    sendWebResponse(reply, await discovery(toWebRequest(req))),
+  );
+  app.get("/.well-known/oauth-protected-resource", async (req, reply) =>
+    sendWebResponse(reply, await protectedResource(toWebRequest(req))),
+  );
 
   await app.register(fastifyTRPCPlugin, {
     prefix: "/trpc",
@@ -81,12 +100,23 @@ export async function buildHttpServer() {
   });
 
   // MCP over HTTP, in-process with Hocuspocus so agent writes use the live
-  // write path. Stateless JSON responses; OAuth is the production gate (todo),
-  // an optional MCP_TOKEN bearer guards it meanwhile.
-  const mcpToken = process.env.MCP_TOKEN;
+  // write path. Gated by Better Auth's MCP OAuth (bearer access token); the
+  // 401 carries the resource-metadata challenge MCP clients follow.
   app.post("/mcp", async (req, reply) => {
-    if (mcpToken && req.headers.authorization !== `Bearer ${mcpToken}`) {
-      return reply.code(401).send({ error: "unauthorized" });
+    const token = await auth.api.getMcpSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    if (!token) {
+      const challenge = `Bearer resource_metadata="http://${req.headers.host}/.well-known/oauth-protected-resource"`;
+      return reply
+        .code(401)
+        .header("WWW-Authenticate", challenge)
+        .header("Access-Control-Expose-Headers", "WWW-Authenticate")
+        .send({
+          jsonrpc: "2.0",
+          error: { code: -32000, message: "Unauthorized: authentication required" },
+          id: null,
+        });
     }
     reply.hijack();
     const transport = new StreamableHTTPServerTransport({

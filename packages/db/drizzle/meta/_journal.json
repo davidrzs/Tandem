@@ -15,6 +15,13 @@
       "when": 1782133717042,
       "tag": "0001_modern_kitty_pryde",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782141104285,
+      "tag": "0002_puzzling_siren",
+      "breakpoints": true
     }
   ]
 }
