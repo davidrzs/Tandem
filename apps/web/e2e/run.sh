@@ -17,4 +17,4 @@ for _ in $(seq 1 40); do
   sleep 0.5
 done
 
-node "$ROOT/apps/web/e2e/smoke.mjs"
+node "$ROOT/apps/web/e2e/${1:-smoke}.mjs"

@@ -1,12 +1,11 @@
 import { Hocuspocus } from "@hocuspocus/server";
-import { session } from "@realtime/db";
 import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, schema } from "@realtime/editor";
-import { eq } from "drizzle-orm";
 import {
   prosemirrorJSONToYDoc,
   yXmlFragmentToProsemirrorJSON,
 } from "y-prosemirror";
 import * as Y from "yjs";
+import type { Auth } from "./auth.js";
 import type { Services } from "./services.js";
 
 /**
@@ -15,20 +14,19 @@ import type { Services } from "./services.js";
  * is enforced per-connection. All edits — human and (Phase 3e) agent — flow
  * through this single Y.Doc, so there is exactly one write path.
  */
-export function createHocuspocus(services: Services, opts: { debounce?: number } = {}) {
+export function createHocuspocus(
+  services: Services,
+  auth: Auth,
+  opts: { debounce?: number } = {},
+) {
   return new Hocuspocus({
     debounce: opts.debounce ?? 2000,
-    // Verify the Better Auth session token the provider sends (it equals the
-    // value in the session table — same token the auth cookie carries).
-    async onAuthenticate({ token }) {
-      const [row] = await services.db
-        .select({ userId: session.userId, expiresAt: session.expiresAt })
-        .from(session)
-        .where(eq(session.token, token));
-      if (!row || row.expiresAt.getTime() < Date.now()) {
-        throw new Error("Unauthorized");
-      }
-      return { userId: row.userId };
+    // Authenticate the socket via the Better Auth session cookie carried on the
+    // WebSocket handshake (same-origin through the dev proxy).
+    async onAuthenticate({ requestHeaders }) {
+      const session = await auth.api.getSession({ headers: requestHeaders });
+      if (!session) throw new Error("Unauthorized");
+      return { userId: session.user.id };
     },
 
     // Hydrate the Y.Doc: restore CRDT state, or seed once from stored markdown.

@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       "/trpc": "http://localhost:3001",
       "/api/auth": "http://localhost:3001",
+      "/collab": { target: "ws://localhost:3001", ws: true },
     },
   },
 });

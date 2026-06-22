@@ -3,12 +3,13 @@ import { after, before, test } from "node:test";
 import { createDatabase, migrateDatabase } from "@realtime/db";
 import { COLLAB_FIELD, markdownToJSON, schema } from "@realtime/editor";
 import { prosemirrorJSONToYXmlFragment } from "y-prosemirror";
+import { createAuth } from "./auth.js";
 import { createHocuspocus } from "./collab.js";
 import { createServices } from "./services.js";
 
 const db = createDatabase("memory://");
 const services = createServices(db);
-const hocuspocus = createHocuspocus(services, { debounce: 50 });
+const hocuspocus = createHocuspocus(services, createAuth(db), { debounce: 50 });
 
 let docId = "";
 

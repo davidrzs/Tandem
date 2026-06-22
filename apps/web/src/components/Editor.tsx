@@ -1,7 +1,9 @@
+import { HocuspocusProvider } from "@hocuspocus/provider";
+import Collaboration from "@tiptap/extension-collaboration";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Markdown } from "tiptap-markdown";
+import * as Y from "yjs";
 import { trpc } from "../trpc.js";
 
 function useDebounced<A extends unknown[]>(fn: (...args: A) => void, delay: number) {
@@ -17,63 +19,61 @@ function useDebounced<A extends unknown[]>(fn: (...args: A) => void, delay: numb
   );
 }
 
+function collabUrl(): string {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}/collab`;
+}
+
 export function Editor({ docId }: { docId: string }) {
   const utils = trpc.useUtils();
   const doc = trpc.documents.get.useQuery({ id: docId });
   const update = trpc.documents.update.useMutation();
 
-  const [title, setTitle] = useState("");
-  const [saved, setSaved] = useState<"saved" | "saving">("saved");
-  const loaded = useRef(false);
+  // Stable Y.Doc for the editor binding (Editor is keyed by docId, so one per
+  // open document). The provider lives in an effect so StrictMode's mount/
+  // unmount/mount cycle recreates it cleanly instead of leaving it destroyed.
+  const [ydoc] = useState(() => new Y.Doc());
+  useEffect(() => {
+    const provider = new HocuspocusProvider({
+      url: collabUrl(),
+      name: docId,
+      token: "cookie", // real auth is the session cookie on the handshake
+      document: ydoc,
+    });
+    return () => provider.destroy();
+  }, [ydoc, docId]);
 
   const editor = useEditor({
-    extensions: [StarterKit, Markdown.configure({ html: false })],
-    content: "",
+    extensions: [
+      // History is disabled — Collaboration manages undo via Yjs.
+      StarterKit.configure({ history: false }),
+      Collaboration.configure({ document: ydoc, field: "default" }),
+    ],
   });
 
-  // Hydrate once when the document loads.
+  // Title is independent of the Yjs body; persist it via tRPC.
+  const [title, setTitle] = useState("");
+  const [saved, setSaved] = useState<"saved" | "saving">("saved");
+  const titleLoaded = useRef(false);
   useEffect(() => {
-    if (!editor || !doc.data || loaded.current) return;
-    setTitle(doc.data.title);
-    editor.commands.setContent(doc.data.contentMd, false);
-    loaded.current = true;
-  }, [editor, doc.data]);
+    if (!titleLoaded.current && doc.data) {
+      setTitle(doc.data.title);
+      titleLoaded.current = true;
+    }
+  }, [doc.data]);
 
-  const save = useCallback(
-    (patch: { title?: string; markdown?: string }) => {
-      setSaved("saving");
-      update.mutate(
-        { id: docId, ...patch },
-        {
-          onSuccess: () => {
-            setSaved("saved");
-            // Title changes affect the sidebar label.
-            if (patch.title !== undefined) utils.documents.tree.invalidate();
-          },
+  const saveTitle = useDebounced((t: string) => {
+    setSaved("saving");
+    update.mutate(
+      { id: docId, title: t },
+      {
+        onSuccess: () => {
+          setSaved("saved");
+          utils.documents.tree.invalidate();
         },
-      );
-    },
-    [docId, update, utils],
-  );
-
-  const debouncedSaveBody = useDebounced(
-    (markdown: string) => save({ markdown }),
-    700,
-  );
-  const debouncedSaveTitle = useDebounced((t: string) => save({ title: t }), 500);
-
-  // Persist body edits.
-  useEffect(() => {
-    if (!editor) return;
-    const handler = () => {
-      if (!loaded.current) return;
-      debouncedSaveBody(editor.storage.markdown.getMarkdown());
-    };
-    editor.on("update", handler);
-    return () => {
-      editor.off("update", handler);
-    };
-  }, [editor, debouncedSaveBody]);
+      },
+    );
+  }, 500);
 
   if (doc.isLoading) return <div className="empty">Loading…</div>;
   if (!doc.data) return <div className="empty">Document not found.</div>;
@@ -87,10 +87,10 @@ export function Editor({ docId }: { docId: string }) {
           placeholder="Untitled"
           onChange={(e) => {
             setTitle(e.target.value);
-            debouncedSaveTitle(e.target.value);
+            saveTitle(e.target.value);
           }}
         />
-        <span className="save-state">{saved === "saving" ? "Saving…" : "Saved"}</span>
+        <span className="save-state">{saved === "saving" ? "Saving…" : "Synced"}</span>
       </div>
       <EditorContent className="prose" editor={editor} />
     </div>

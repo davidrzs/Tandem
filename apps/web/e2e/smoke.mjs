@@ -41,13 +41,10 @@ try {
   await page.press(".ProseMirror", "Enter");
   await page.type(".ProseMirror", "Install pnpm first.");
 
-  // Wait for autosave to settle. "Saved" can flip transiently between the
-  // title and body debounces, so settle past both (700ms) plus the request.
-  await page.waitForFunction(
-    () => document.querySelector(".save-state")?.textContent === "Saved",
-    { timeout: 15000 },
-  );
-  await page.waitForTimeout(1200);
+  // Body persists via Yjs/Hocuspocus (debounced ~2s server-side). Confirm the
+  // heading rendered, then settle past the store debounce before reloading.
+  await page.waitForSelector(".ProseMirror h1");
+  await page.waitForTimeout(3000);
 
   // Reload and re-open the document from scratch.
   await page.reload();

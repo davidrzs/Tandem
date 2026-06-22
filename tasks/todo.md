@@ -47,13 +47,14 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - drizzle-kit can't rewrite .js->.ts across files, so config lists both schema files and index.ts merges app+auth schema at runtime.
 - Deferred: authorization model (ownership/teams columns + Postgres RLS), MCP HTTP OAuth — land with Phase 3.
 
-## Phase 3 — Realtime + remote (in progress)
-- [ ] 3a. `packages/editor`: shared TipTap extension list + getSchema() (one ProseMirror schema for client + server) + markdown serializer/parser for that schema. Unit-test round-trip.
-- [ ] 3b. Unify core markdown on packages/editor schema (server-derived markdown matches editor)
-- [ ] 3c. Hocuspocus mounted in Fastify (/collab) via @fastify/websocket; onAuthenticate (Better Auth session), onLoadDocument (hydrate Y.Doc from ydoc_state, else seed from content_md), onStoreDocument (persist ydoc_state + derive content_md/json)
-- [ ] 3d. Client editor -> collab: @tiptap/extension-collaboration + HocuspocusProvider; body via Yjs (title still tRPC). Two-browser e2e proves live sync.
-- [ ] 3e. MCP uniform write path: writes via openDirectConnection so agent edits funnel through the same Y.Doc; block-scoped tools (append_section, replace_block)
+## Phase 3 — Realtime + remote (3a-3d DONE)
+- [x] 3a. `packages/editor`: shared TipTap StarterKit extension list + getSchema() (one ProseMirror schema for client + server) + markdown serializer/parser. 3/3 round-trip tests.
+- [x] 3b. core markdown re-exports @realtime/editor (server-derived markdown == editor output)
+- [x] 3c. Hocuspocus v4 in Fastify (/collab via @fastify/websocket); onAuthenticate (Better Auth cookie on handshake), onLoadDocument (hydrate from ydoc_state else seed from content_md), onStoreDocument (persist ydoc_state + derive content_md/json). Verified via direct-connection server test.
+- [x] 3d. Client editor -> collab: @tiptap/extension-collaboration (v2) + HocuspocusProvider; body via Yjs, title via tRPC. Provider lifecycle in useEffect (StrictMode-safe). Two-browser e2e proves bidirectional live sync; single-client e2e proves persistence across reload.
+- [ ] 3e. MCP uniform write path: writes via openDirectConnection so agent edits funnel through the same Y.Doc; block-scoped tools (append_section, replace_block). NOTE: needs MCP in the same process as Hocuspocus -> mount MCP-over-HTTP in Fastify (the stdio MCP is a separate process and can't openDirectConnection).
 - [ ] HTTP/SSE MCP transport + OAuth; Redis pub/sub when scaling out (later)
+- Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
 - Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 
 ## Review

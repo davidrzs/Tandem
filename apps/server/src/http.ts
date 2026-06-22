@@ -21,7 +21,7 @@ export async function buildHttpServer() {
   const db = createDatabase(process.env.DATABASE_URL);
   const services = createServices(db);
   const auth = createAuth(db);
-  const hocuspocus = createHocuspocus(services);
+  const hocuspocus = createHocuspocus(services, auth);
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
