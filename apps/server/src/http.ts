@@ -4,11 +4,14 @@ import {
   type CreateFastifyContextOptions,
   fastifyTRPCPlugin,
 } from "@trpc/server/adapters/fastify";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createDatabase } from "@realtime/db";
 import { fromNodeHeaders } from "better-auth/node";
 import Fastify from "fastify";
 import { createAuth } from "./auth.js";
+import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
+import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
 import { appRouter } from "./trpc.js";
 
@@ -22,6 +25,7 @@ export async function buildHttpServer() {
   const services = createServices(db);
   const auth = createAuth(db);
   const hocuspocus = createHocuspocus(services, auth);
+  const collabWriter = createCollabWriter(hocuspocus);
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
@@ -74,6 +78,28 @@ export async function buildHttpServer() {
         return { services, user: session?.user ?? null };
       },
     },
+  });
+
+  // MCP over HTTP, in-process with Hocuspocus so agent writes use the live
+  // write path. Stateless JSON responses; OAuth is the production gate (todo),
+  // an optional MCP_TOKEN bearer guards it meanwhile.
+  const mcpToken = process.env.MCP_TOKEN;
+  app.post("/mcp", async (req, reply) => {
+    if (mcpToken && req.headers.authorization !== `Bearer ${mcpToken}`) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    reply.hijack();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    const server = createMcpServer(services, collabWriter);
+    reply.raw.on("close", () => {
+      transport.close();
+      void server.close();
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req.raw, reply.raw, req.body);
   });
 
   app.get("/health", () => ({ ok: true }));

@@ -7,3 +7,4 @@ dist/
 coverage/
 
 .pglite/
+.pglite-e2e/

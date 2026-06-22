@@ -52,8 +52,9 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] 3b. core markdown re-exports @realtime/editor (server-derived markdown == editor output)
 - [x] 3c. Hocuspocus v4 in Fastify (/collab via @fastify/websocket); onAuthenticate (Better Auth cookie on handshake), onLoadDocument (hydrate from ydoc_state else seed from content_md), onStoreDocument (persist ydoc_state + derive content_md/json). Verified via direct-connection server test.
 - [x] 3d. Client editor -> collab: @tiptap/extension-collaboration (v2) + HocuspocusProvider; body via Yjs, title via tRPC. Provider lifecycle in useEffect (StrictMode-safe). Two-browser e2e proves bidirectional live sync; single-client e2e proves persistence across reload.
-- [ ] 3e. MCP uniform write path: writes via openDirectConnection so agent edits funnel through the same Y.Doc; block-scoped tools (append_section, replace_block). NOTE: needs MCP in the same process as Hocuspocus -> mount MCP-over-HTTP in Fastify (the stdio MCP is a separate process and can't openDirectConnection).
-- [ ] HTTP/SSE MCP transport + OAuth; Redis pub/sub when scaling out (later)
+- [x] 3e. MCP uniform write path: collab-writer.ts (replaceBody/appendSection via openDirectConnection); update_document body + new append_section route through the live Y.Doc. MCP-over-HTTP mounted in Fastify (/mcp, stateless, shares hocuspocus+writer; optional MCP_TOKEN bearer; OAuth still TODO). Verified by in-process MCP test (write -> live Y.Doc) + HTTP MCP client smoke.
+- [x] e2e isolation: run.sh uses a fresh .pglite-e2e DB per run -> deterministic (fixed the two-client navigation flake at root). smoke + collab both stable (6/6).
+- [ ] MCP OAuth (production gate for /mcp); Redis pub/sub when scaling out (later)
 - Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
 - Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 

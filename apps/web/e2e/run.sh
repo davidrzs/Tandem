@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# Boots the api + web dev servers, runs the browser smoke test, tears down.
+# Boots api + web against an ISOLATED, freshly-migrated DB (so the UI starts
+# clean and navigation is deterministic), runs a browser test, tears down.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 set -a; . ./.env; set +a
+
+# Dedicated e2e database, wiped each run. Exported so all children inherit it;
+# we invoke node directly (not the *:env-file* scripts) so .env can't override.
+export DATABASE_URL="pglite://.pglite-e2e"
+rm -rf "$ROOT/.pglite-e2e"
+pnpm --filter @realtime/db exec node --import tsx src/migrate-run.ts >/tmp/rt-migrate.log 2>&1
 
 PORT=3001 pnpm --filter @realtime/server exec node --import tsx src/serve.ts >/tmp/rt-http.log 2>&1 &
 SRV=$!

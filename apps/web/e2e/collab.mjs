@@ -37,14 +37,17 @@ try {
   await a.fill(".title-input", title);
   await a.click(".ProseMirror");
   await a.type(".ProseMirror", "Hello from A.");
-  // Confirm the title persisted + appears in A's own sidebar before B reads it.
-  await a.getByText(title, { exact: true }).first().waitFor({ timeout: 12000 });
-  await a.waitForTimeout(800); // let the Yjs update reach the server
+  // Confirm the title persisted into A's own sidebar (so B's tree sees it too),
+  // and let the Yjs body update reach the server.
+  await a.getByText(title, { exact: true }).first().waitFor({ timeout: 10000 });
+  await a.waitForTimeout(800);
 
   // Reader B: a different account opens the SAME document (reads are public).
+  // Select by collection name (reliable) then the single doc row (no reliance
+  // on the debounced title propagating to B's tree).
   const ctxB = await browser.newContext();
   const b = await signUp(ctxB, "ReaderB");
-  await b.getByText(collectionName).click();
+  await b.getByText(collectionName, { exact: true }).click();
   await b.getByText(title, { exact: true }).click();
   await b.waitForSelector(".ProseMirror");
 
