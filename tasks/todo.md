@@ -47,10 +47,14 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - drizzle-kit can't rewrite .js->.ts across files, so config lists both schema files and index.ts merges app+auth schema at runtime.
 - Deferred: authorization model (ownership/teams columns + Postgres RLS), MCP HTTP OAuth — land with Phase 3.
 
-## Phase 3 — Realtime + remote
-- [ ] Hocuspocus mounted in Fastify (/collab), Yjs persistence -> ydoc_state + derived content_md
-- [ ] MCP writes via openDirectConnection (uniform write path)
-- [ ] HTTP/SSE MCP transport + auth (Better Auth); Redis pub/sub when scaling out
+## Phase 3 — Realtime + remote (in progress)
+- [ ] 3a. `packages/editor`: shared TipTap extension list + getSchema() (one ProseMirror schema for client + server) + markdown serializer/parser for that schema. Unit-test round-trip.
+- [ ] 3b. Unify core markdown on packages/editor schema (server-derived markdown matches editor)
+- [ ] 3c. Hocuspocus mounted in Fastify (/collab) via @fastify/websocket; onAuthenticate (Better Auth session), onLoadDocument (hydrate Y.Doc from ydoc_state, else seed from content_md), onStoreDocument (persist ydoc_state + derive content_md/json)
+- [ ] 3d. Client editor -> collab: @tiptap/extension-collaboration + HocuspocusProvider; body via Yjs (title still tRPC). Two-browser e2e proves live sync.
+- [ ] 3e. MCP uniform write path: writes via openDirectConnection so agent edits funnel through the same Y.Doc; block-scoped tools (append_section, replace_block)
+- [ ] HTTP/SSE MCP transport + OAuth; Redis pub/sub when scaling out (later)
+- Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 
 ## Review
 ### Phase 0 (complete)

@@ -12,9 +12,8 @@
   },
   "dependencies": {
     "@realtime/db": "workspace:*",
-    "drizzle-orm": "^0.38.3",
-    "prosemirror-markdown": "^1.13.1",
-    "prosemirror-model": "^1.24.1"
+    "@realtime/editor": "workspace:*",
+    "drizzle-orm": "^0.38.3"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
