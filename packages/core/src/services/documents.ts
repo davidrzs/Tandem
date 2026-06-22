@@ -81,6 +81,25 @@ export class DocumentService {
     return row!;
   }
 
+  /**
+   * Persist the live Yjs state and its derived read model. Called by the
+   * Hocuspocus onStoreDocument hook — the single durable write for collab edits.
+   */
+  async saveCollabSnapshot(
+    id: string,
+    snapshot: { ydocState: Uint8Array; contentMd: string; contentJson: unknown },
+  ): Promise<void> {
+    await this.db
+      .update(documents)
+      .set({
+        ydocState: snapshot.ydocState,
+        contentMd: snapshot.contentMd,
+        contentJson: snapshot.contentJson,
+        updatedAt: new Date(),
+      })
+      .where(eq(documents.id, id));
+  }
+
   async get(id: string): Promise<Document | null> {
     const [row] = await this.db
       .select()

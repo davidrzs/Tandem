@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import {
   type CreateFastifyContextOptions,
   fastifyTRPCPlugin,
@@ -7,6 +8,7 @@ import { createDatabase } from "@realtime/db";
 import { fromNodeHeaders } from "better-auth/node";
 import Fastify from "fastify";
 import { createAuth } from "./auth.js";
+import { createHocuspocus } from "./collab.js";
 import { createServices } from "./services.js";
 import { appRouter } from "./trpc.js";
 
@@ -19,11 +21,28 @@ export async function buildHttpServer() {
   const db = createDatabase(process.env.DATABASE_URL);
   const services = createServices(db);
   const auth = createAuth(db);
+  const hocuspocus = createHocuspocus(services);
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
     credentials: true,
+  });
+  await app.register(websocket);
+
+  // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
+  // ourselves (it dropped the `ws` library for crossws).
+  app.get("/collab", { websocket: true }, (socket, req) => {
+    const request = new Request(`http://localhost${req.url}`, {
+      headers: req.headers as Record<string, string>,
+    });
+    const connection = hocuspocus.handleConnection(socket as never, request);
+    socket.on("message", (data: Buffer) =>
+      connection.handleMessage(new Uint8Array(data)),
+    );
+    socket.on("close", (code: number, reason: Buffer) =>
+      connection.handleClose({ code, reason: reason.toString() } as never),
+    );
   });
 
   // Better Auth handles all /api/auth/* routes (sign-up, sign-in, session…).
