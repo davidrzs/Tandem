@@ -5,7 +5,7 @@ import { defineConfig } from "drizzle-kit";
 const url = process.env.DATABASE_URL ?? "postgres://localhost:5432/realtime";
 
 export default defineConfig({
-  schema: "./src/schema.ts",
+  schema: ["./src/schema.ts", "./src/auth-schema.ts"],
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: { url },

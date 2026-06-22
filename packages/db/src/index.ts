@@ -4,7 +4,12 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "./schema.js";
+import * as authSchema from "./auth-schema.js";
+import * as appSchema from "./schema.js";
+
+// Runtime schema = app tables + Better Auth tables. drizzle-kit reads the two
+// files directly (see drizzle.config), so we don't re-export across them.
+const schema = { ...appSchema, ...authSchema };
 
 // Repo root, resolved from this file (packages/db/src/index.ts) so a relative
 // PGlite data dir is stable no matter which package's cwd launches the process.
@@ -62,5 +67,6 @@ export function createDatabase(
 }
 
 export * from "./schema.js";
+export * from "./auth-schema.js";
 export { migrateDatabase } from "./migrate.js";
 export { schema };

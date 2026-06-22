@@ -22,6 +22,7 @@
     "@realtime/core": "workspace:*",
     "@realtime/db": "workspace:*",
     "@trpc/server": "^11.0.0",
+    "better-auth": "^1.6.20",
     "fastify": "^5.2.0",
     "zod": "^3.24.1"
   },

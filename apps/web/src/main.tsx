@@ -3,6 +3,7 @@ import { httpBatchLink } from "@trpc/client";
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
+import { AuthGate } from "./components/AuthGate.js";
 import { trpc } from "./trpc.js";
 import "./styles.css";
 
@@ -14,7 +15,9 @@ function Root() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <AuthGate>
+          <App />
+        </AuthGate>
       </QueryClientProvider>
     </trpc.Provider>
   );

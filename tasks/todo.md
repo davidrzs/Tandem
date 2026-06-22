@@ -35,6 +35,18 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] Verified: typecheck (4 pkgs) + unit tests (5) + production build + Playwright browser e2e (create->type->autosave->reload->persisted, heading round-trips to <h1>)
 - [ ] Dedicated slash (/) command menu — markdown input rules cover formatting now; slash menu is polish
 
+## Auth — Better Auth (secure-by-default, self-hosted) (DONE)
+- [x] Server uses ONE shared db instance (PGlite = single connection) -> services + auth
+- [x] `apps/server/src/auth.ts`: betterAuth + drizzleAdapter(db,{provider:'pg'}), emailAndPassword
+- [x] Better Auth tables generated (`@better-auth/cli`) into `packages/db/src/auth-schema.ts`; migration 0001 applied
+- [x] `/api/auth/*` mounted on Fastify; tRPC context reads session -> ctx.user; `protectedProcedure`
+- [x] Write procedures gated (collections.create, documents.create/update/move/archive); reads public for now
+- [x] Web: better-auth/react client + AuthGate (sign-in/sign-up); same-origin cookies via vite proxy
+- [x] Verified: curl signup + unauth mutation 401 + authed mutation OK + public query; browser e2e signs up then edits; session persists across reload
+- Env: BETTER_AUTH_SECRET, BETTER_AUTH_URL, WEB_ORIGIN. Dev auth via vite proxy (/api/auth -> :3001) = same-origin cookies.
+- drizzle-kit can't rewrite .js->.ts across files, so config lists both schema files and index.ts merges app+auth schema at runtime.
+- Deferred: authorization model (ownership/teams columns + Postgres RLS), MCP HTTP OAuth — land with Phase 3.
+
 ## Phase 3 — Realtime + remote
 - [ ] Hocuspocus mounted in Fastify (/collab), Yjs persistence -> ydoc_state + derived content_md
 - [ ] MCP writes via openDirectConnection (uniform write path)

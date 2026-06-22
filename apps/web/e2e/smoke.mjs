@@ -16,6 +16,13 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 try {
   await page.goto(BASE);
 
+  // Sign up (writes are auth-gated). The gate then renders the app.
+  await page.getByText("Need an account? Sign up").click();
+  await page.fill('input[placeholder="Name"]', "E2E User");
+  await page.fill('input[type="email"]', `e2e${Date.now()}@example.com`);
+  await page.fill('input[type="password"]', "supersecret123");
+  await page.click('button[type="submit"]');
+
   // Create a collection.
   await page.fill(".new-collection input", collectionName);
   await page.press(".new-collection input", "Enter");

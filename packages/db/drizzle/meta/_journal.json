@@ -8,6 +8,13 @@
       "when": 1782123981085,
       "tag": "0000_glamorous_maestro",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782133717042,
+      "tag": "0001_modern_kitty_pryde",
+      "breakpoints": true
     }
   ]
 }
