@@ -5,6 +5,7 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
 import { AuthGate } from "./components/AuthGate.js";
 import { ConsentScreen } from "./components/ConsentScreen.js";
+import { InviteAccept } from "./components/InviteAccept.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
 import "./styles.css";
@@ -13,6 +14,11 @@ import "./styles.css";
 // resuming a pending authorize request after sign-in. AuthGate guarantees a
 // session before any of these render.
 function Routed() {
+  if (window.location.pathname === "/invite") {
+    const token = new URLSearchParams(window.location.search).get("token");
+    if (token) return <InviteAccept token={token} />;
+  }
+
   const consent = consentContext();
   if (consent) return <ConsentScreen request={consent} />;
 

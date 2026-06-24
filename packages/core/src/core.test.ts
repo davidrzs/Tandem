@@ -81,3 +81,32 @@ test("tenant isolation: a user cannot see or write another workspace's data", as
   assert.ok((await c1.list()).some((c) => c.id === col.id));
   assert.ok(await d1.get(doc.id));
 });
+
+test("invite: a user who accepts an invite gains access to that workspace", async () => {
+  const w1 = new WorkspaceService(db, user("u1"));
+  const w2 = new WorkspaceService(db, user("u2"));
+  const c1 = new CollectionService(db, user("u1"));
+
+  const [ws] = await w1.listMine();
+  const col = await c1.create({ name: "Shared", slug: "shared-team" });
+
+  // Before accepting, u2 can't see it.
+  assert.ok(!(await new CollectionService(db, user("u2")).list()).some((c) => c.id === col.id));
+
+  // u1 (owner) invites; u2 accepts.
+  const invite = await w1.createInvite({ workspaceId: ws!.id });
+  await w2.acceptInvite(invite.token, "u2");
+
+  // Now u2 is a member and sees the workspace's collection.
+  assert.ok((await w2.listMine()).some((w) => w.id === ws!.id), "u2 joined the workspace");
+  assert.ok(
+    (await new CollectionService(db, user("u2")).list()).some((c) => c.id === col.id),
+    "u2 now sees the shared collection",
+  );
+
+  // A non-owner cannot create invites.
+  await assert.rejects(
+    () => w2.createInvite({ workspaceId: ws!.id }),
+    /owner or admin/,
+  );
+});

@@ -16,10 +16,12 @@ try {
   await page.fill('input[type="password"]', "supersecret123");
   await page.click('button[type="submit"]');
 
-  await page.fill(".new-collection input", `Slash ${Date.now()}`);
-  await page.press(".new-collection input", "Enter");
-  await page.waitForSelector(".add");
-  await page.click(".add");
+  const collectionName = `Slash ${Date.now()}`;
+  await page.waitForSelector(".sidebar");
+  page.once("dialog", (d) => d.accept(collectionName));
+  await page.locator(".section", { hasText: "Collections" }).locator(".add").click();
+  await page.getByText(collectionName, { exact: true }).click();
+  await page.locator(".section", { hasText: "Documents" }).locator(".add").click();
   await page.waitForSelector(".ProseMirror");
 
   // Open the slash menu and filter to a heading.

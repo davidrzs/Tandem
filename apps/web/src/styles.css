@@ -80,6 +80,37 @@ body {
   color: var(--accent);
 }
 
+.ws-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
+}
+
+.invite-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.invite-link {
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--bg);
+}
+
 .new-collection input {
   width: 100%;
   margin-top: 6px;

@@ -26,6 +26,24 @@ const uuid = z.string().uuid();
 export const appRouter = t.router({
   workspaces: t.router({
     mine: protectedProcedure.query(({ ctx }) => ctx.services.workspaces.listMine()),
+    create: protectedProcedure
+      .input(z.object({ name: z.string().min(1), slug: z.string().min(1) }))
+      .mutation(({ ctx, input }) => ctx.services.workspaces.create(input)),
+    createInvite: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: uuid,
+          role: z.enum(["member", "admin"]).optional(),
+          email: z.string().email().optional(),
+          expiresInDays: z.number().int().positive().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.services.workspaces.createInvite(input)),
+    acceptInvite: protectedProcedure
+      .input(z.object({ token: z.string().min(1) }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.workspaces.acceptInvite(input.token, ctx.user.id),
+      ),
   }),
 
   collections: t.router({
@@ -36,6 +54,7 @@ export const appRouter = t.router({
           name: z.string().min(1),
           slug: z.string().min(1),
           description: z.string().optional(),
+          workspaceId: uuid.optional(),
         }),
       )
       .mutation(({ ctx, input }) => ctx.services.collections.create(input)),

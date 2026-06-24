@@ -23,13 +23,14 @@ try {
   await page.fill('input[type="password"]', "supersecret123");
   await page.click('button[type="submit"]');
 
-  // Create a collection.
-  await page.fill(".new-collection input", collectionName);
-  await page.press(".new-collection input", "Enter");
+  // Create a collection (name comes from a prompt) and open it.
+  await page.waitForSelector(".sidebar");
+  page.once("dialog", (d) => d.accept(collectionName));
+  await page.locator(".section", { hasText: "Collections" }).locator(".add").click();
+  await page.getByText(collectionName, { exact: true }).click();
 
-  // Documents section appears once the new collection is selected; add a doc.
-  await page.waitForSelector(".add");
-  await page.click(".add");
+  // Add a document.
+  await page.locator(".section", { hasText: "Documents" }).locator(".add").click();
 
   // Editor mounts.
   await page.waitForSelector(".title-input");
