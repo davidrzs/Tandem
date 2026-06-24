@@ -6,7 +6,7 @@ import {
   fastifyTRPCPlugin,
 } from "@trpc/server/adapters/fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createDatabase } from "@realtime/db";
+import { createDatabase, SYSTEM, type Actor } from "@realtime/db";
 import { fromNodeHeaders } from "better-auth/node";
 import {
   oAuthDiscoveryMetadata,
@@ -27,10 +27,9 @@ import { appRouter } from "./trpc.js";
  */
 export async function buildHttpServer() {
   const db = createDatabase(process.env.DATABASE_URL);
-  const services = createServices(db);
   const auth = createAuth(db);
-  const hocuspocus = createHocuspocus(services, auth);
-  const collabWriter = createCollabWriter(hocuspocus);
+  // Hocuspocus builds actor-scoped services per connection from the db.
+  const hocuspocus = createHocuspocus(db, auth);
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
@@ -109,7 +108,10 @@ export async function buildHttpServer() {
         const session = await auth.api.getSession({
           headers: fromNodeHeaders(req.headers),
         });
-        return { services, user: session?.user ?? null };
+        const actor: Actor = session
+          ? { kind: "user", userId: session.user.id }
+          : SYSTEM;
+        return { services: createServices(db, actor), user: session?.user ?? null };
       },
     },
   });
@@ -134,11 +136,17 @@ export async function buildHttpServer() {
         });
     }
     reply.hijack();
+    // The agent acts as the token's user: services + collab writes are scoped
+    // to that user's workspaces (RLS + the live Y.Doc write path).
+    const actor: Actor = { kind: "user", userId: token.userId };
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     });
-    const server = createMcpServer(services, collabWriter);
+    const server = createMcpServer(
+      createServices(db, actor),
+      createCollabWriter(hocuspocus, token.userId),
+    );
     reply.raw.on("close", () => {
       transport.close();
       void server.close();

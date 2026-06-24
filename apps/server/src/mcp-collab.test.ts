@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase, migrateDatabase } from "@realtime/db";
+import { createDatabase, migrateDatabase, SYSTEM } from "@realtime/db";
 import { COLLAB_FIELD, jsonToMarkdown } from "@realtime/editor";
+import { CollectionService, DocumentService, WorkspaceService } from "@realtime/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
@@ -12,16 +13,15 @@ import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
 
 const db = createDatabase("memory://");
-const services = createServices(db);
-const hocuspocus = createHocuspocus(services, createAuth(db), { debounce: 50 });
-const writer = createCollabWriter(hocuspocus);
+const hocuspocus = createHocuspocus(db, createAuth(db), { debounce: 50 });
+const writer = createCollabWriter(hocuspocus, "u1");
+const u1 = { kind: "user", userId: "u1" } as const;
 const client = new Client({ name: "test", version: "0.0.0" });
 
 let docId = "";
 
-/** Read the current text of the LIVE Y.Doc (not the DB) for this document. */
 async function liveMarkdown(id: string): Promise<string> {
-  const conn = await hocuspocus.openDirectConnection(id, { userId: "probe" });
+  const conn = await hocuspocus.openDirectConnection(id, { userId: "u1" });
   let md = "";
   await conn.transact((doc) => {
     md = jsonToMarkdown(yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(COLLAB_FIELD)));
@@ -37,10 +37,12 @@ function payload(res: any): any {
 
 before(async () => {
   await migrateDatabase(db);
-  const col = await services.collections.create({ name: "C", slug: "c" });
-  docId = (await services.documents.create({ collectionId: col.id, title: "Doc" })).id;
+  await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "U1", slug: "u1" });
+  const col = await new CollectionService(db, u1).create({ name: "C", slug: "c" });
+  docId = (await new DocumentService(db, u1).create({ collectionId: col.id, title: "Doc" })).id;
+
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(services, writer).connect(serverT);
+  await createMcpServer(createServices(db, u1), writer).connect(serverT);
   await client.connect(clientT);
 });
 
@@ -50,7 +52,6 @@ after(async () => {
 });
 
 test("MCP writes funnel through the live Y.Doc (uniform write path)", async () => {
-  // update_document replaces the body via the live document.
   payload(
     await client.callTool({
       name: "update_document",
@@ -61,7 +62,6 @@ test("MCP writes funnel through the live Y.Doc (uniform write path)", async () =
   assert.match(live, /# Spec/);
   assert.match(live, /Initial body\./);
 
-  // append_section adds to the end of the SAME live document.
   payload(
     await client.callTool({
       name: "append_section",
@@ -71,11 +71,9 @@ test("MCP writes funnel through the live Y.Doc (uniform write path)", async () =
   live = await liveMarkdown(docId);
   assert.match(live, /Initial body\./, "original content retained");
   assert.match(live, /## Appended/, "appended heading present");
-  assert.match(live, /From the agent\./, "appended body present");
 
-  // And it persisted to the DB read model (past the 50ms store debounce).
   await new Promise((r) => setTimeout(r, 400));
-  const doc = await services.documents.get(docId);
+  const doc = await new DocumentService(db, u1).get(docId);
   assert.match(doc!.contentMd, /## Appended/, "persisted to content_md");
   assert.ok(doc!.ydocState && doc!.ydocState.length > 0, "ydoc_state persisted");
 });

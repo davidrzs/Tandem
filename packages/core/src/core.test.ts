@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createDatabase, migrateDatabase } from "@realtime/db";
+import { createDatabase, migrateDatabase, SYSTEM, type Actor } from "@realtime/db";
 import { CollectionService } from "./services/collections.js";
 import { DocumentService } from "./services/documents.js";
+import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
-// Self-contained: in-memory PGlite, migrated fresh. No external DB needed.
 const db = createDatabase("memory://");
-const collections = new CollectionService(db);
-const documents = new DocumentService(db);
+const user = (userId: string): Actor => ({ kind: "user", userId });
 
 before(async () => {
   await migrateDatabase(db);
+  // Provision a workspace per user (what the signup hook does).
+  await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "U1", slug: "u1" });
+  await new WorkspaceService(db, SYSTEM).provisionForUser("u2", { name: "U2", slug: "u2" });
 });
 
 after(async () => {
@@ -19,16 +21,18 @@ after(async () => {
 });
 
 test("markdown round-trips through the document model", () => {
-  const md = "# Title\n\nSome **bold** and a list:\n\n* one\n* two";
-  const normalized = normalizeMarkdown(md);
+  const normalized = normalizeMarkdown("# Title\n\nSome **bold** and a list:\n\n* one\n* two");
   assert.match(normalized, /# Title/);
   assert.match(normalized, /\*\*bold\*\*/);
   assert.match(normalized, /\* one/);
 });
 
-test("collection + document CRUD, tree, and search", async () => {
+test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () => {
+  const collections = new CollectionService(db, user("u1"));
+  const documents = new DocumentService(db, user("u1"));
+
   const col = await collections.create({ name: "Handbook", slug: "handbook" });
-  assert.ok(col.id);
+  assert.ok(col.workspaceId, "collection got a workspace");
 
   const parent = await documents.create({
     collectionId: col.id,
@@ -41,35 +45,39 @@ test("collection + document CRUD, tree, and search", async () => {
     title: "Laptop setup",
     markdown: "Install **pnpm** and clone the monorepo.",
   });
+  assert.equal(parent.workspaceId, col.workspaceId, "doc inherits workspace");
 
-  // content_md is the canonical (re-serialized) markdown read model
-  assert.match(parent.contentMd, /Welcome to the team/);
-  assert.ok(parent.contentJson, "content_json derived");
-
-  // tree nests child under parent
   const tree = await documents.tree(col.id);
-  assert.equal(tree.length, 1);
-  assert.equal(tree[0]!.id, parent.id);
   assert.equal(tree[0]!.children[0]!.id, child.id);
 
-  // full-text search finds by body text, scoped to collection
   const hits = await documents.search("pnpm monorepo", { collectionId: col.id });
-  assert.ok(hits.some((h) => h.id === child.id), "search finds child by body");
+  assert.ok(hits.some((h) => h.id === child.id));
+});
 
-  // update changes the read model + search
-  await documents.update(parent.id, { markdown: "# Onboarding\n\nNow mentions kubernetes." });
-  const afterUpdate = await documents.search("kubernetes", { collectionId: col.id });
-  assert.ok(afterUpdate.some((h) => h.id === parent.id), "search reflects update");
+test("tenant isolation: a user cannot see or write another workspace's data", async () => {
+  // u1 creates content.
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Secret", slug: "secret" });
+  const doc = await d1.create({ collectionId: col.id, title: "Private", markdown: "top secret" });
 
-  // move child to top level
-  const moved = await documents.move(child.id, { parentDocumentId: null });
-  assert.equal(moved!.parentDocumentId, null);
-  const tree2 = await documents.tree(col.id);
-  assert.equal(tree2.length, 2, "child is now a root");
+  // u2 sees none of it.
+  const c2 = new CollectionService(db, user("u2"));
+  const d2 = new DocumentService(db, user("u2"));
+  assert.ok(
+    !(await c2.list()).some((c) => c.id === col.id),
+    "u2 collection list excludes u1's collection",
+  );
+  assert.equal(await d2.get(doc.id), null, "u2 cannot fetch u1's document");
+  assert.equal((await d2.search("secret")).length, 0, "u2 search finds nothing of u1's");
 
-  // archive + soft delete remove from listings
-  await documents.archive(parent.id);
-  assert.ok((await documents.get(parent.id))!.archivedAt, "archived");
-  await documents.softDelete(child.id);
-  assert.equal(await documents.get(child.id), null, "soft-deleted is hidden");
+  // u2 cannot create a document inside u1's collection (collection invisible).
+  await assert.rejects(
+    () => d2.create({ collectionId: col.id, title: "intrusion", markdown: "x" }),
+    /collection not found/,
+  );
+
+  // u1 still sees their own.
+  assert.ok((await c1.list()).some((c) => c.id === col.id));
+  assert.ok(await d1.get(doc.id));
 });

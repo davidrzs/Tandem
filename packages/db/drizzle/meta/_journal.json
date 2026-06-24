@@ -22,6 +22,13 @@
       "when": 1782141104285,
       "tag": "0002_puzzling_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782292076884,
+      "tag": "0003_talented_stingray",
+      "breakpoints": true
     }
   ]
 }

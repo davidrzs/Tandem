@@ -9,11 +9,10 @@ type ProseMirrorJSON = { type: string; content?: unknown[] };
  * human editors use (via Hocuspocus openDirectConnection), so there is exactly
  * one write path — no split brain between MCP writes and live sessions.
  */
-export function createCollabWriter(hocuspocus: Hocuspocus) {
+export function createCollabWriter(hocuspocus: Hocuspocus, userId: string) {
   async function withDoc(docId: string, mutate: (json: ProseMirrorJSON) => ProseMirrorJSON) {
-    const connection = await hocuspocus.openDirectConnection(docId, {
-      userId: "mcp",
-    });
+    // Act as the authenticated user so load/store run RLS-scoped to them.
+    const connection = await hocuspocus.openDirectConnection(docId, { userId });
     try {
       await connection.transact((doc) => {
         const fragment = doc.getXmlFragment(COLLAB_FIELD);

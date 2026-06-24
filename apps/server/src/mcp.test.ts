@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase, migrateDatabase } from "@realtime/db";
+import { createDatabase, migrateDatabase, SYSTEM } from "@realtime/db";
+import { WorkspaceService } from "@realtime/core";
 import { createServices } from "./services.js";
 import { createMcpServer } from "./mcp.js";
 
-// Self-contained: in-memory PGlite, migrated fresh. No external DB needed.
+// Self-contained: in-memory PGlite, migrated fresh. The MCP server acts as a
+// user (with a provisioned workspace) so RLS-scoped writes work.
 const db = createDatabase("memory://");
-const services = createServices(db);
+const services = createServices(db, { kind: "user", userId: "u1" });
 const client = new Client({ name: "test", version: "0.0.0" });
 
 /** Parse the JSON text payload from a tool result. */
@@ -19,6 +21,10 @@ function payload(res: any): any {
 
 before(async () => {
   await migrateDatabase(db);
+  await new WorkspaceService(db, SYSTEM).provisionForUser("u1", {
+    name: "U1",
+    slug: "u1",
+  });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await createMcpServer(services).connect(serverT);
   await client.connect(clientT);

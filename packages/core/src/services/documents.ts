@@ -1,7 +1,14 @@
 import { and, asc, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
-import type { Database } from "@realtime/db";
-import { documents, type Document } from "@realtime/db";
-import { jsonToMarkdown, markdownToJSON, normalizeMarkdown } from "../markdown.js";
+import {
+  collections,
+  documents,
+  runAsActor,
+  SYSTEM,
+  type Actor,
+  type Database,
+  type Document,
+} from "@realtime/db";
+import { jsonToMarkdown, markdownToJSON } from "../markdown.js";
 
 export interface CreateDocumentInput {
   collectionId: string;
@@ -27,28 +34,34 @@ export interface DocumentNode extends Document {
 /** Derive the persisted read-model fields (content_md + content_json) from markdown. */
 function deriveContent(markdown: string): { contentMd: string; contentJson: unknown } {
   const contentJson = markdownToJSON(markdown);
-  // Re-serialize so the stored markdown is always the canonical form of the JSON.
   return { contentMd: jsonToMarkdown(contentJson), contentJson };
 }
 
 export class DocumentService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly actor: Actor = SYSTEM,
+  ) {}
+
+  private exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+    return runAsActor(this.db, this.actor, fn);
+  }
 
   /** Markdown view of a document — what the MCP `get_document` read tool returns. */
   toMarkdown(doc: Document): string {
     return doc.contentMd;
   }
 
-  /** Re-derive markdown from the stored JSON (used after Y.Doc-driven writes). */
   renderMarkdown(doc: Document): string {
     return doc.contentJson ? jsonToMarkdown(doc.contentJson) : doc.contentMd;
   }
 
   private async nextPosition(
+    db: Database,
     collectionId: string,
     parentDocumentId: string | null,
   ): Promise<number> {
-    const [row] = await this.db
+    const [row] = await db
       .select({ max: sql<number | null>`max(${documents.position})` })
       .from(documents)
       .where(
@@ -64,124 +77,151 @@ export class DocumentService {
   }
 
   async create(input: CreateDocumentInput): Promise<Document> {
-    const parentId = input.parentDocumentId ?? null;
-    const position = await this.nextPosition(input.collectionId, parentId);
-    const { contentMd, contentJson } = deriveContent(input.markdown ?? "");
-    const [row] = await this.db
-      .insert(documents)
-      .values({
-        collectionId: input.collectionId,
-        parentDocumentId: parentId,
-        title: input.title ?? "",
-        position,
-        contentMd,
-        contentJson,
-      })
-      .returning();
-    return row!;
+    return this.exec(async (db) => {
+      // Inherit the workspace from the (RLS-visible) collection. If the
+      // collection isn't visible to this actor, the document can't be created.
+      const [col] = await db
+        .select({ workspaceId: collections.workspaceId })
+        .from(collections)
+        .where(eq(collections.id, input.collectionId));
+      if (!col) throw new Error("collection not found");
+
+      const parentId = input.parentDocumentId ?? null;
+      const position = await this.nextPosition(db, input.collectionId, parentId);
+      const { contentMd, contentJson } = deriveContent(input.markdown ?? "");
+      const [row] = await db
+        .insert(documents)
+        .values({
+          workspaceId: col.workspaceId,
+          collectionId: input.collectionId,
+          parentDocumentId: parentId,
+          title: input.title ?? "",
+          position,
+          contentMd,
+          contentJson,
+        })
+        .returning();
+      return row!;
+    });
   }
 
-  /**
-   * Persist the live Yjs state and its derived read model. Called by the
-   * Hocuspocus onStoreDocument hook — the single durable write for collab edits.
-   */
+  async get(id: string): Promise<Document | null> {
+    return this.exec(async (db) => {
+      const [row] = await db
+        .select()
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      return row ?? null;
+    });
+  }
+
+  async update(id: string, patch: UpdateDocumentInput): Promise<Document | null> {
+    return this.exec(async (db) => {
+      const set: Record<string, unknown> = { updatedAt: new Date() };
+      if (patch.title !== undefined) set.title = patch.title;
+      if (patch.markdown !== undefined) {
+        const { contentMd, contentJson } = deriveContent(patch.markdown);
+        set.contentMd = contentMd;
+        set.contentJson = contentJson;
+      }
+      const [row] = await db
+        .update(documents)
+        .set(set)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
+        .returning();
+      return row ?? null;
+    });
+  }
+
+  /** Persist the live Yjs state + derived read model (Hocuspocus onStoreDocument). */
   async saveCollabSnapshot(
     id: string,
     snapshot: { ydocState: Uint8Array; contentMd: string; contentJson: unknown },
   ): Promise<void> {
-    await this.db
-      .update(documents)
-      .set({
-        ydocState: snapshot.ydocState,
-        contentMd: snapshot.contentMd,
-        contentJson: snapshot.contentJson,
-        updatedAt: new Date(),
-      })
-      .where(eq(documents.id, id));
-  }
-
-  async get(id: string): Promise<Document | null> {
-    const [row] = await this.db
-      .select()
-      .from(documents)
-      .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
-    return row ?? null;
-  }
-
-  async update(id: string, patch: UpdateDocumentInput): Promise<Document | null> {
-    const set: Record<string, unknown> = { updatedAt: new Date() };
-    if (patch.title !== undefined) set.title = patch.title;
-    if (patch.markdown !== undefined) {
-      const { contentMd, contentJson } = deriveContent(patch.markdown);
-      set.contentMd = contentMd;
-      set.contentJson = contentJson;
-    }
-    const [row] = await this.db
-      .update(documents)
-      .set(set)
-      .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
-      .returning();
-    return row ?? null;
+    await this.exec(async (db) => {
+      await db
+        .update(documents)
+        .set({
+          ydocState: snapshot.ydocState,
+          contentMd: snapshot.contentMd,
+          contentJson: snapshot.contentJson,
+          updatedAt: new Date(),
+        })
+        .where(eq(documents.id, id));
+    });
   }
 
   async move(
     id: string,
     target: { parentDocumentId: string | null; position?: number },
   ): Promise<Document | null> {
-    const position =
-      target.position ??
-      (await this.nextPosition(
-        (await this.get(id))?.collectionId ?? "",
-        target.parentDocumentId,
-      ));
-    const [row] = await this.db
-      .update(documents)
-      .set({
-        parentDocumentId: target.parentDocumentId,
-        position,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
-      .returning();
-    return row ?? null;
+    return this.exec(async (db) => {
+      let position = target.position;
+      if (position === undefined) {
+        const [doc] = await db
+          .select({ collectionId: documents.collectionId })
+          .from(documents)
+          .where(eq(documents.id, id));
+        position = doc
+          ? await this.nextPosition(db, doc.collectionId, target.parentDocumentId)
+          : 1;
+      }
+      const [row] = await db
+        .update(documents)
+        .set({
+          parentDocumentId: target.parentDocumentId,
+          position,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
+        .returning();
+      return row ?? null;
+    });
   }
 
   async archive(id: string): Promise<Document | null> {
-    const [row] = await this.db
-      .update(documents)
-      .set({ archivedAt: new Date(), updatedAt: new Date() })
-      .where(eq(documents.id, id))
-      .returning();
-    return row ?? null;
+    return this.exec(async (db) => {
+      const [row] = await db
+        .update(documents)
+        .set({ archivedAt: new Date(), updatedAt: new Date() })
+        .where(eq(documents.id, id))
+        .returning();
+      return row ?? null;
+    });
   }
 
   async restore(id: string): Promise<Document | null> {
-    const [row] = await this.db
-      .update(documents)
-      .set({ archivedAt: null, updatedAt: new Date() })
-      .where(eq(documents.id, id))
-      .returning();
-    return row ?? null;
+    return this.exec(async (db) => {
+      const [row] = await db
+        .update(documents)
+        .set({ archivedAt: null, updatedAt: new Date() })
+        .where(eq(documents.id, id))
+        .returning();
+      return row ?? null;
+    });
   }
 
   async softDelete(id: string): Promise<void> {
-    await this.db
-      .update(documents)
-      .set({ deletedAt: new Date() })
-      .where(eq(documents.id, id));
+    await this.exec(async (db) => {
+      await db
+        .update(documents)
+        .set({ deletedAt: new Date() })
+        .where(eq(documents.id, id));
+    });
   }
 
   async listByCollection(collectionId: string): Promise<Document[]> {
-    return this.db
-      .select()
-      .from(documents)
-      .where(
-        and(eq(documents.collectionId, collectionId), isNull(documents.deletedAt)),
-      )
-      .orderBy(asc(documents.position));
+    return this.exec((db) =>
+      db
+        .select()
+        .from(documents)
+        .where(
+          and(eq(documents.collectionId, collectionId), isNull(documents.deletedAt)),
+        )
+        .orderBy(asc(documents.position)),
+    );
   }
 
-  /** Nested document tree for a collection (sidebar shape). */
   async tree(collectionId: string): Promise<DocumentNode[]> {
     const flat = await this.listByCollection(collectionId);
     const byId = new Map<string, DocumentNode>();
@@ -201,21 +241,23 @@ export class DocumentService {
     query: string,
     opts: SearchOptions = {},
   ): Promise<Array<Document & { rank: number }>> {
-    const tsquery = sql`websearch_to_tsquery('simple', ${query})`;
-    const rank = sql<number>`ts_rank(${documents.searchVector}, ${tsquery})`;
-    return this.db
-      .select({ ...getTableColumns(documents), rank })
-      .from(documents)
-      .where(
-        and(
-          sql`${documents.searchVector} @@ ${tsquery}`,
-          isNull(documents.deletedAt),
-          opts.collectionId
-            ? eq(documents.collectionId, opts.collectionId)
-            : undefined,
-        ),
-      )
-      .orderBy(desc(rank))
-      .limit(opts.limit ?? 20);
+    return this.exec((db) => {
+      const tsquery = sql`websearch_to_tsquery('simple', ${query})`;
+      const rank = sql<number>`ts_rank(${documents.searchVector}, ${tsquery})`;
+      return db
+        .select({ ...getTableColumns(documents), rank })
+        .from(documents)
+        .where(
+          and(
+            sql`${documents.searchVector} @@ ${tsquery}`,
+            isNull(documents.deletedAt),
+            opts.collectionId
+              ? eq(documents.collectionId, opts.collectionId)
+              : undefined,
+          ),
+        )
+        .orderBy(desc(rank))
+        .limit(opts.limit ?? 20);
+    });
   }
 }

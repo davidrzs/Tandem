@@ -57,7 +57,15 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] MCP OAuth: Better Auth mcp() plugin (OAuth 2.1 provider — discovery, dynamic client registration, token issuance). /mcp gated by auth.api.getMcpSession (401 + WWW-Authenticate resource-metadata challenge). Root /.well-known/oauth-{authorization-server,protected-resource}. Tables oauth_application/access_token/consent (migration 0002). Verified: metadata + 401 challenge + DCR. NOTE: interactive consent UI is a frontend follow-up; OAuth-capable clients (Claude Code) drive the full flow.
 - [x] Slash (/) command menu in the editor (client-only): @tiptap/suggestion + tippy; headings, lists, code, quote, divider. Verified by e2e.
 - [x] OAuth consent UI: consentPage "/oauth/consent" + SPA ConsentScreen (Allow/Deny -> POST /oauth2/consent -> navigate to redirectURI); login-resume re-navigates to /api/auth/mcp/authorize after sign-in (no router). Vite proxies /mcp + /.well-known. Fastify form-body parser + content-type-aware request bridge (OAuth token endpoint is form-encoded). Verified: full server flow (DCR->PKCE->consent->token->authed /mcp) + browser consent-screen e2e.
-- [ ] Per-resource authz (ownership/teams + Postgres RLS); Redis pub/sub when scaling out (later)
+## Workspaces + RLS (DONE) — foundation + RLS backstop
+- [x] Schema: workspaces, workspace_members, collections.workspace_id (+ slug unique per workspace), documents.workspace_id (denormalized)
+- [x] Migration 0003 + raw RLS SQL: app_user role, SECURITY DEFINER app_current_workspaces() (no self-recursion), ENABLE+FORCE RLS + policies (workspaces/members read; collections/documents ALL with WITH CHECK), grants
+- [x] db: Actor type + runAsActor (tx -> SET LOCAL ROLE app_user + set_config app.user_id); SYSTEM = base superuser conn (bypasses RLS)
+- [x] Services actor-aware (WorkspaceService added); collection.create resolves the actor's workspace; document.create inherits workspace from the collection; reads RLS-scoped
+- [x] Signup hook (databaseHooks.user.create.after) provisions a personal workspace + owner membership
+- [x] Wired: tRPC (all procedures protected, ctx user actor), HTTP MCP (token.userId actor + per-user collab writer), collab (onAuthenticate userId -> per-connection actor). stdio MCP = system. Public reads dropped.
+- [x] Verified: core tenant-isolation test (u2 can't see/fetch/search/write u1's data); 5 server tests; OAuth flow; all 4 browser e2e (collab now same-user two-client). Note: cross-user collab needs sharing (below).
+- [ ] LATER: sharing — groups + per-collection ACLs (user/group, read vs read-write) + public document share links; cross-user/workspace invites; Redis pub/sub when scaling out
 - Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
 - Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 

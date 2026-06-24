@@ -10,25 +10,31 @@ const title = `Shared Doc ${stamp}`;
 
 const browser = await chromium.launch();
 const errors = [];
+// Same user, two clients (two tabs/devices) — they share a workspace, so they
+// collaborate. (Cross-user sharing is future work; tenant isolation is enforced.)
+const account = `collab-${stamp}@example.com`;
+const password = "supersecret123";
 
-async function signUp(ctx, label) {
+async function enter(ctx, label, mode) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(`${label}: ${e}`));
   page.on("console", (m) => m.type() === "error" && errors.push(`${label}: ${m.text()}`));
   await page.goto(BASE);
-  await page.getByText("Need an account? Sign up").click();
-  await page.fill('input[placeholder="Name"]', label);
-  await page.fill('input[type="email"]', `${label}-${stamp}@example.com`);
-  await page.fill('input[type="password"]', "supersecret123");
+  if (mode === "signup") {
+    await page.getByText("Need an account? Sign up").click();
+    await page.fill('input[placeholder="Name"]', "Collaborator");
+  }
+  await page.fill('input[type="email"]', account);
+  await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
   await page.waitForSelector(".sidebar");
   return page;
 }
 
 try {
-  // Author A: create the collection + document and type into it.
+  // Client A: sign up, create the collection + document, type into it.
   const ctxA = await browser.newContext();
-  const a = await signUp(ctxA, "AuthorA");
+  const a = await enter(ctxA, "ClientA", "signup");
   await a.fill(".new-collection input", collectionName);
   await a.press(".new-collection input", "Enter");
   await a.waitForSelector(".add");
@@ -42,11 +48,9 @@ try {
   await a.getByText(title, { exact: true }).first().waitFor({ timeout: 10000 });
   await a.waitForTimeout(800);
 
-  // Reader B: a different account opens the SAME document (reads are public).
-  // Select by collection name (reliable) then the single doc row (no reliance
-  // on the debounced title propagating to B's tree).
+  // Client B: the SAME user in a second context (same workspace) opens the doc.
   const ctxB = await browser.newContext();
-  const b = await signUp(ctxB, "ReaderB");
+  const b = await enter(ctxB, "ClientB", "signin");
   await b.getByText(collectionName, { exact: true }).click();
   await b.getByText(title, { exact: true }).click();
   await b.waitForSelector(".ProseMirror");

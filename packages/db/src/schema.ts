@@ -7,8 +7,36 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/** Tenant boundary. Every collection/document belongs to exactly one workspace. */
+export const workspaces = pgTable("workspaces", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Who belongs to a workspace, and at what role. userId references Better Auth's user.id (text). */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    role: text("role").notNull().default("member"), // owner | admin | member
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("workspace_members_unique").on(t.workspaceId, t.userId),
+    index("workspace_members_user_idx").on(t.userId),
+  ],
+);
 
 /** Raw binary column for the persisted Yjs CRDT update (the live write model). */
 const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
@@ -22,22 +50,37 @@ const tsvector = customType<{ data: string }>({
   dataType: () => "tsvector",
 });
 
-export const collections = pgTable("collections", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  description: text("description"),
-  icon: text("icon"),
-  color: text("color"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+export const collections = pgTable(
+  "collections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    icon: text("icon"),
+    color: text("color"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("collections_workspace_slug_unique").on(t.workspaceId, t.slug),
+    index("collections_workspace_idx").on(t.workspaceId),
+  ],
+);
 
 export const documents = pgTable(
   "documents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Denormalized from the collection (docs never change collection) so RLS
+    // policies on documents are a simple workspace check.
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     collectionId: uuid("collection_id")
       .notNull()
       .references(() => collections.id, { onDelete: "cascade" }),
@@ -76,6 +119,8 @@ export const documents = pgTable(
   ],
 );
 
+export type Workspace = typeof workspaces.$inferSelect;
+export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Collection = typeof collections.$inferSelect;
 export type NewCollection = typeof collections.$inferInsert;
 export type Document = typeof documents.$inferSelect;

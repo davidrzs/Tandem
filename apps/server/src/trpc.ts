@@ -24,8 +24,12 @@ const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 const uuid = z.string().uuid();
 
 export const appRouter = t.router({
+  workspaces: t.router({
+    mine: protectedProcedure.query(({ ctx }) => ctx.services.workspaces.listMine()),
+  }),
+
   collections: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.services.collections.list()),
+    list: protectedProcedure.query(({ ctx }) => ctx.services.collections.list()),
     create: protectedProcedure
       .input(
         z.object({
@@ -38,11 +42,11 @@ export const appRouter = t.router({
   }),
 
   documents: t.router({
-    tree: t.procedure
+    tree: protectedProcedure
       .input(z.object({ collectionId: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.tree(input.collectionId)),
 
-    get: t.procedure
+    get: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.get(input.id)),
 
@@ -87,7 +91,7 @@ export const appRouter = t.router({
       .input(z.object({ id: uuid }))
       .mutation(({ ctx, input }) => ctx.services.documents.archive(input.id)),
 
-    search: t.procedure
+    search: protectedProcedure
       .input(
         z.object({
           query: z.string().min(1),

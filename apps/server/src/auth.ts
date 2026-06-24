@@ -1,7 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { mcp } from "better-auth/plugins";
-import type { Database } from "@realtime/db";
+import { SYSTEM, type Database } from "@realtime/db";
+import { WorkspaceService } from "@realtime/core";
 
 export type Auth = ReturnType<typeof createAuth>;
 
@@ -24,5 +25,18 @@ export function createAuth(db: Database) {
         oidcConfig: { loginPage: "/", consentPage: "/oauth/consent" },
       }),
     ],
+    databaseHooks: {
+      user: {
+        create: {
+          // Give every new user a personal workspace (system-scoped).
+          after: async (user) => {
+            await new WorkspaceService(db, SYSTEM).provisionForUser(user.id, {
+              name: `${user.name || "Personal"} workspace`,
+              slug: `ws-${user.id}`,
+            });
+          },
+        },
+      },
+    },
   });
 }

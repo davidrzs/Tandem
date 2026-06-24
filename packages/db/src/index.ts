@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { sql } from "drizzle-orm";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -64,6 +65,31 @@ export function createDatabase(
       await client.close();
     },
   }) as unknown as Database;
+}
+
+/**
+ * Who is acting. `system` uses the base (superuser) connection and bypasses
+ * RLS — for signup provisioning, the local stdio MCP, and tests. `user` runs
+ * inside a transaction as the non-privileged `app_user` role with
+ * `app.user_id` set, so RLS policies scope every query to that user's
+ * workspaces.
+ */
+export type Actor = { kind: "system" } | { kind: "user"; userId: string };
+export const SYSTEM: Actor = { kind: "system" };
+
+/** Run `fn` under the actor's authority. The db handed to `fn` must be used for
+ * all queries so they share the actor's transaction/role. */
+export async function runAsActor<T>(
+  db: Database,
+  actor: Actor,
+  fn: (db: Database) => Promise<T>,
+): Promise<T> {
+  if (actor.kind === "system") return fn(db);
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.user_id', ${actor.userId}, true)`);
+    await tx.execute(sql`SET LOCAL ROLE app_user`);
+    return fn(tx as unknown as Database);
+  });
 }
 
 export * from "./schema.js";
