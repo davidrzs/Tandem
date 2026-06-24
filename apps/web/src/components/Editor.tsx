@@ -28,7 +28,9 @@ function collabUrl(): string {
 export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) {
   const utils = trpc.useUtils();
   const doc = trpc.documents.get.useQuery({ id: docId });
-  const update = trpc.documents.update.useMutation();
+  const update = trpc.documents.update.useMutation({
+    onSuccess: () => utils.documents.tree.invalidate(),
+  });
 
   // Stable Y.Doc for the editor binding (Editor is keyed by docId, so one per
   // open document). The provider lives in an effect so StrictMode's mount/
@@ -62,7 +64,6 @@ export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) 
 
   // Title is independent of the Yjs body; persist it via tRPC.
   const [title, setTitle] = useState("");
-  const [saved, setSaved] = useState<"saved" | "saving">("saved");
   const titleLoaded = useRef(false);
   useEffect(() => {
     if (!titleLoaded.current && doc.data) {
@@ -71,17 +72,10 @@ export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) 
     }
   }, [doc.data]);
 
+  // Drive the indicator from the mutation's own state — reliable across
+  // StrictMode (a per-call onSuccess can be dropped and leave it stuck).
   const saveTitle = useDebounced((t: string) => {
-    setSaved("saving");
-    update.mutate(
-      { id: docId, title: t },
-      {
-        onSuccess: () => {
-          setSaved("saved");
-          utils.documents.tree.invalidate();
-        },
-      },
-    );
+    update.mutate({ id: docId, title: t });
   }, 500);
 
   if (doc.isLoading) return <div className="empty">Loading…</div>;
@@ -102,7 +96,7 @@ export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) 
           }}
         />
         <span className="save-state">
-          {!canEdit ? "Read only" : saved === "saving" ? "Saving…" : "Synced"}
+          {!canEdit ? "Read only" : update.isPending ? "Saving…" : "Synced"}
         </span>
       </div>
       <EditorContent className="prose" editor={editor} />

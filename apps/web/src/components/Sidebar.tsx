@@ -44,34 +44,50 @@ export function Sidebar({
     { enabled: !!collectionId },
   );
 
-  const createWorkspace = trpc.workspaces.create.useMutation({
-    onSuccess: (ws) => {
-      utils.workspaces.mine.invalidate();
-      onSelectWorkspace(ws.id);
-    },
-  });
-  const createCollection = trpc.collections.create.useMutation({
-    onSuccess: () => utils.collections.list.invalidate(),
-  });
-  const createDoc = trpc.documents.create.useMutation({
-    onSuccess: (doc) => {
-      utils.documents.tree.invalidate({ collectionId: collectionId! });
-      if (doc) onSelectDoc(doc.id);
-    },
-  });
-  const createInvite = trpc.workspaces.createInvite.useMutation({
-    onSuccess: ({ token }) => {
-      setInviteLink(`${window.location.origin}/invite?token=${token}`);
-    },
-  });
+  // Use mutateAsync + await so the follow-up (invalidate/select) can't be
+  // dropped by StrictMode's per-call-callback teardown.
+  const createWorkspace = trpc.workspaces.create.useMutation();
+  const createCollection = trpc.collections.create.useMutation();
+  const createDoc = trpc.documents.create.useMutation();
+  const createInvite = trpc.workspaces.createInvite.useMutation();
   const setDefaultRole = trpc.collections.setDefaultRole.useMutation({
     onSuccess: () => utils.collections.list.invalidate(),
   });
 
   const selectedCol = collections.find((c) => c.id === collectionId);
-
-  const [newColName, setNewColName] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+
+  async function newWorkspace() {
+    const name = window.prompt("Workspace name")?.trim();
+    if (!name) return;
+    const ws = await createWorkspace.mutateAsync({ name, slug: slugify(name) });
+    await utils.workspaces.mine.invalidate();
+    onSelectWorkspace(ws.id);
+  }
+  async function newCollection() {
+    const name = window.prompt("Collection name")?.trim();
+    if (!name) return;
+    // workspaceId is optional — the server resolves the user's workspace if the
+    // active one isn't set yet (avoids a silent no-op on a startup race).
+    await createCollection.mutateAsync({
+      name,
+      slug: slugify(name),
+      ...(workspaceId ? { workspaceId } : {}),
+    });
+    await utils.collections.list.invalidate();
+  }
+  async function newDoc() {
+    if (!collectionId) return;
+    const doc = await createDoc.mutateAsync({ collectionId, title: "Untitled" });
+    await utils.documents.tree.invalidate({ collectionId });
+    if (doc) onSelectDoc(doc.id);
+  }
+  async function invite() {
+    if (!workspaceId) return;
+    setInviteLink(null);
+    const { token } = await createInvite.mutateAsync({ workspaceId });
+    setInviteLink(`${window.location.origin}/invite?token=${token}`);
+  }
 
   function slugify(name: string) {
     return (
@@ -86,14 +102,7 @@ export function Sidebar({
       <div className="section">
         <div className="section-title">
           Workspace
-          <button
-            className="add"
-            title="New workspace"
-            onClick={() => {
-              const name = window.prompt("Workspace name");
-              if (name?.trim()) createWorkspace.mutate({ name: name.trim(), slug: slugify(name) });
-            }}
-          >
+          <button className="add" title="New workspace" onClick={newWorkspace}>
             +
           </button>
         </div>
@@ -109,13 +118,7 @@ export function Sidebar({
           ))}
         </select>
         {workspaceId && (
-          <button
-            className="invite-btn"
-            onClick={() => {
-              setInviteLink(null);
-              createInvite.mutate({ workspaceId });
-            }}
-          >
+          <button className="invite-btn" onClick={invite}>
             Invite someone
           </button>
         )}
@@ -132,20 +135,7 @@ export function Sidebar({
       <div className="section">
         <div className="section-title">
           Collections
-          <button
-            className="add"
-            title="New collection"
-            onClick={() => {
-              if (!workspaceId) return;
-              const name = window.prompt("Collection name") ?? "";
-              if (name.trim())
-                createCollection.mutate({
-                  name: name.trim(),
-                  slug: slugify(name),
-                  workspaceId,
-                });
-            }}
-          >
+          <button className="add" title="New collection" onClick={newCollection}>
             +
           </button>
         </div>
@@ -164,10 +154,7 @@ export function Sidebar({
         <div className="section">
           <div className="section-title">
             Documents
-            <button
-              className="add"
-              onClick={() => createDoc.mutate({ collectionId, title: "Untitled" })}
-            >
+            <button className="add" onClick={newDoc}>
               +
             </button>
           </div>
