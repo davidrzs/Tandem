@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tiptap/core": "^2.10.3",
+    "@tiptap/extension-link": "^2.27.2",
     "@tiptap/pm": "^2.10.3",
     "@tiptap/starter-kit": "^2.10.3",
     "markdown-it": "^14.1.0",

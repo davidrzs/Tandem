@@ -55,6 +55,24 @@ test("markdown round-trips through the shared schema", () => {
   assert.match(normalized, /```ts\nconst x = 1;\n```/);
 });
 
+test("links round-trip and images/unknown tokens don't throw", () => {
+  const md = "See [the docs](https://example.com) and ![logo](https://x/i.png).";
+  const out = normalizeMarkdown(md);
+  assert.match(out, /\[the docs\]\(https:\/\/example\.com\)/, "link preserved");
+  // image has no node in the schema -> dropped, but must not throw
+  assert.doesNotMatch(out, /!\[/, "image syntax dropped, not thrown");
+});
+
+test("code block containing a backtick fence widens the fence (no corruption)", () => {
+  const md = "```js\nconst x = '```';\n```";
+  // Round-trip twice: a hardcoded ``` fence would corrupt on the second parse.
+  const once = normalizeMarkdown(md);
+  const twice = normalizeMarkdown(once);
+  assert.equal(once, twice, "stable across re-parse");
+  assert.match(once, /````/, "fence widened past the inner ```");
+  assert.match(once, /const x = '```';/, "code body intact");
+});
+
 test("JSON <-> markdown is stable (idempotent)", () => {
   const md = "## Heading\n\nBody with `code`.";
   const json = markdownToJSON(md);

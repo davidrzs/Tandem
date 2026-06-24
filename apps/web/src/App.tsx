@@ -20,7 +20,10 @@ export function App() {
   const wsCollections = (collections.data ?? []).filter(
     (c) => c.workspaceId === workspaceId,
   );
-  const activeCollection = wsCollections.find((c) => c.id === collectionId);
+  // Resolve the open doc's collection from the FULL list (collectionId is
+  // unique), not the workspace-filtered one — otherwise a writable doc renders
+  // read-only during the workspace-bootstrap window when the filter is empty.
+  const activeCollection = (collections.data ?? []).find((c) => c.id === collectionId);
 
   return (
     <div className="app">

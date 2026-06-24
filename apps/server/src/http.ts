@@ -47,7 +47,7 @@ export async function buildHttpServer() {
   // ourselves (it dropped the `ws` library for crossws).
   app.get("/collab", { websocket: true }, (socket, req) => {
     const request = new Request(`http://localhost${req.url}`, {
-      headers: req.headers as Record<string, string>,
+      headers: fromNodeHeaders(req.headers),
     });
     const connection = hocuspocus.handleConnection(socket as never, request);
     socket.on("message", (data: Buffer) =>
@@ -56,6 +56,12 @@ export async function buildHttpServer() {
     socket.on("close", (code: number, reason: Buffer) =>
       connection.handleClose({ code, reason: reason.toString() } as never),
     );
+    // Without this, an 'error' event on the raw ws socket is unhandled and
+    // throws, taking down the process.
+    socket.on("error", (err: Error) => {
+      app.log.error({ err }, "collab socket error");
+      connection.handleClose({ code: 1011, reason: "error" } as never);
+    });
   });
 
   // Bridge a Fastify request/reply to the WHATWG Request/Response that Better

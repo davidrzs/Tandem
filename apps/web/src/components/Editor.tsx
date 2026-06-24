@@ -1,5 +1,6 @@
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import Collaboration from "@tiptap/extension-collaboration";
+import Link from "@tiptap/extension-link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,7 +28,8 @@ function collabUrl(): string {
 
 export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) {
   const utils = trpc.useUtils();
-  const doc = trpc.documents.get.useQuery({ id: docId });
+  // Metadata only — the body arrives over Yjs, so we don't fetch it here.
+  const doc = trpc.documents.getMeta.useQuery({ id: docId });
   const update = trpc.documents.update.useMutation({
     onSuccess: () => utils.documents.tree.invalidate(),
   });
@@ -51,6 +53,7 @@ export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) 
     extensions: [
       // History is disabled — Collaboration manages undo via Yjs.
       StarterKit.configure({ history: false }),
+      Link,
       Collaboration.configure({ document: ydoc, field: "default" }),
       SlashCommand,
     ],

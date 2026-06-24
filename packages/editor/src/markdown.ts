@@ -25,10 +25,15 @@ const serializer = new MarkdownSerializer(
     listItem: d.list_item!,
     codeBlock(state, node) {
       const lang = (node.attrs.language as string) ?? "";
-      state.write("```" + lang + "\n");
+      // Widen the fence past any run of backticks in the body so code
+      // containing ``` doesn't terminate the fence early.
+      const longest = (node.textContent.match(/`+/g) ?? [])
+        .reduce((m, run) => Math.max(m, run.length), 0);
+      const fence = "`".repeat(Math.max(3, longest + 1));
+      state.write(fence + lang + "\n");
       state.text(node.textContent, false);
       state.ensureNewLine();
-      state.write("```");
+      state.write(fence);
       state.closeBlock(node);
     },
     orderedList(state, node) {
@@ -45,6 +50,7 @@ const serializer = new MarkdownSerializer(
     bold: m.strong!,
     italic: m.em!,
     code: m.code!,
+    link: m.link!,
     strike: {
       open: "~~",
       close: "~~",
@@ -80,6 +86,16 @@ const parser = new MarkdownParser(schema, MarkdownIt("commonmark", { html: false
   strong: { mark: "bold" },
   s: { mark: "strike" },
   code_inline: { mark: "code", noCloseToken: true },
+  link: {
+    mark: "link",
+    getAttrs: (tok) => ({
+      href: tok.attrGet("href"),
+      title: tok.attrGet("title") || null,
+    }),
+  },
+  // No image node in the schema — drop image syntax rather than throw.
+  // image is a single (self-closing) token, so noCloseToken registers the no-op.
+  image: { ignore: true, noCloseToken: true },
 });
 
 /** Serialize a ProseMirror node (this schema) to canonical markdown. */

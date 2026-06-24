@@ -27,7 +27,24 @@ export interface SearchOptions {
   limit?: number;
 }
 
-export interface DocumentNode extends Document {
+/** Metadata-only view (no content_md / content_json / ydoc_state / search_vector)
+ * — what listings and the editor header need, without shipping binary blobs. */
+export type DocumentMeta = Pick<
+  Document,
+  | "id"
+  | "workspaceId"
+  | "collectionId"
+  | "parentDocumentId"
+  | "position"
+  | "title"
+  | "createdAt"
+  | "updatedAt"
+  | "publishedAt"
+  | "archivedAt"
+  | "deletedAt"
+>;
+
+export interface DocumentNode extends DocumentMeta {
   children: DocumentNode[];
 }
 
@@ -45,6 +62,32 @@ export class DocumentService {
 
   private exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
     return runAsActor(this.db, this.actor, fn);
+  }
+
+  /** Columns safe to ship to clients — excludes content_md/json, ydoc_state, search_vector. */
+  private static readonly metaColumns = {
+    id: documents.id,
+    workspaceId: documents.workspaceId,
+    collectionId: documents.collectionId,
+    parentDocumentId: documents.parentDocumentId,
+    position: documents.position,
+    title: documents.title,
+    createdAt: documents.createdAt,
+    updatedAt: documents.updatedAt,
+    publishedAt: documents.publishedAt,
+    archivedAt: documents.archivedAt,
+    deletedAt: documents.deletedAt,
+  };
+
+  /** Metadata only (no body/binary) — for the editor header. */
+  async getMeta(id: string): Promise<DocumentMeta | null> {
+    return this.exec(async (db) => {
+      const [row] = await db
+        .select(DocumentService.metaColumns)
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      return row ?? null;
+    });
   }
 
   /** Markdown view of a document — what the MCP `get_document` read tool returns. */
@@ -226,10 +269,10 @@ export class DocumentService {
     });
   }
 
-  async listByCollection(collectionId: string): Promise<Document[]> {
+  async listByCollection(collectionId: string): Promise<DocumentMeta[]> {
     return this.exec((db) =>
       db
-        .select()
+        .select(DocumentService.metaColumns)
         .from(documents)
         .where(
           and(eq(documents.collectionId, collectionId), isNull(documents.deletedAt)),

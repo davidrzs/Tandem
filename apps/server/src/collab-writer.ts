@@ -1,5 +1,5 @@
 import { COLLAB_FIELD, markdownToJSON, schema } from "@realtime/editor";
-import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+import { updateYFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type { Hocuspocus } from "@hocuspocus/server";
 
 type ProseMirrorJSON = { type: string; content?: unknown[] };
@@ -18,8 +18,14 @@ export function createCollabWriter(hocuspocus: Hocuspocus, userId: string) {
         const fragment = doc.getXmlFragment(COLLAB_FIELD);
         const current = yXmlFragmentToProsemirrorJSON(fragment) as ProseMirrorJSON;
         const next = mutate(current);
-        fragment.delete(0, fragment.length);
-        prosemirrorJSONToYXmlFragment(schema, next, fragment);
+        // Structurally diff the new doc against the existing fragment so
+        // unchanged nodes keep their CRDT identity (cursors/concurrent edits
+        // survive; append only inserts the new trailing nodes) — instead of
+        // clearing and rebuilding the whole fragment.
+        updateYFragment(doc, fragment, schema.nodeFromJSON(next), {
+          mapping: new Map(),
+          isOMark: new Map(),
+        });
       });
     } finally {
       await connection.disconnect();

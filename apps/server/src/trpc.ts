@@ -13,12 +13,37 @@ export interface Context {
   user: AuthUser | null;
 }
 
-const t = initTRPC.context<Context>().create();
+const isProd = process.env.NODE_ENV === "production";
 
-/** Requires a signed-in user; narrows ctx.user to non-null for the handler. */
-const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+const t = initTRPC.context<Context>().create({
+  // Don't leak internal error details (stack/DB messages) in production.
+  errorFormatter({ shape, error }) {
+    if (isProd && error.code === "INTERNAL_SERVER_ERROR") {
+      return { ...shape, message: "Internal server error", data: { ...shape.data, stack: undefined } };
+    }
+    return shape;
+  },
+});
+
+/** Turn a DB unique-constraint violation into a clean CONFLICT; pass through the rest. */
+function mapError(err: unknown): TRPCError {
+  if (err instanceof TRPCError) return err;
+  const code = (err as { code?: string }).code;
+  const message = err instanceof Error ? err.message : String(err);
+  if (code === "23505" || /unique|duplicate key/i.test(message)) {
+    return new TRPCError({ code: "CONFLICT", message: "That name or slug is already taken." });
+  }
+  return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: err });
+}
+
+/** Requires a signed-in user; narrows ctx.user to non-null and maps DB errors. */
+const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
-  return next({ ctx: { ...ctx, user: ctx.user } });
+  try {
+    return await next({ ctx: { ...ctx, user: ctx.user } });
+  } catch (err) {
+    throw mapError(err);
+  }
 });
 
 const uuid = z.string().uuid();
@@ -120,6 +145,11 @@ export const appRouter = t.router({
     get: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.get(input.id)),
+
+    // Metadata only (no body/binary) — what the editor header needs.
+    getMeta: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(({ ctx, input }) => ctx.services.documents.getMeta(input.id)),
 
     create: protectedProcedure
       .input(

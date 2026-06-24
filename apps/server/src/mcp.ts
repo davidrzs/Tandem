@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { Document } from "@realtime/db";
+import type { DocumentMeta } from "@realtime/core";
 import type { CollabWriter } from "./collab-writer.js";
 import type { Services } from "./services.js";
 
 /** Compact, machine-friendly document shape (drops binary/search internals). */
-function publicDoc(d: Document & { rank?: number }) {
+function publicDoc(d: DocumentMeta & { rank?: number }) {
   return {
     id: d.id,
     title: d.title,
@@ -48,11 +48,14 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
     "create_collection",
     {
       title: "Create collection",
-      description: "Create a new collection.",
+      description:
+        "Create a new collection. workspaceId is required when the server isn't " +
+        "scoped to a single user (e.g. the local stdio server with multiple workspaces).",
       inputSchema: {
         name: z.string().min(1),
         slug: z.string().min(1),
         description: z.string().optional(),
+        workspaceId: z.string().uuid().optional(),
       },
     },
     async (args) => json(await collections.create(args)),

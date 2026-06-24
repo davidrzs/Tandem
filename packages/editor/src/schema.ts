@@ -1,4 +1,5 @@
 import { getSchema } from "@tiptap/core";
+import Link from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
 import type { Extensions } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
@@ -11,7 +12,7 @@ import type { Schema } from "@tiptap/pm/model";
  * `history` is left enabled here (it doesn't affect the schema); the client
  * disables it when the Collaboration extension is active (Yjs owns undo).
  */
-export const baseExtensions: Extensions = [StarterKit];
+export const baseExtensions: Extensions = [StarterKit, Link];
 
 /** ProseMirror schema derived from the shared extensions (no DOM required). */
 export const schema: Schema = getSchema(baseExtensions);
