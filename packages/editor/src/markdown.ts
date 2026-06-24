@@ -10,6 +10,55 @@ import { schema } from "./schema.js";
 const d = defaultMarkdownSerializer.nodes;
 const m = defaultMarkdownSerializer.marks;
 
+const attr = (html: string, name: string): string | null =>
+  new RegExp(`${name}="([^"]*)"`, "i").exec(html)?.[1] ?? null;
+const escAttr = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+/** markdown-it rule: turn `<img …>` HTML (inline within a paragraph, or block
+ * on its own line) into image tokens so display width round-trips. Other HTML
+ * is left for the parser to ignore. */
+function imgHtmlPlugin(md: MarkdownIt) {
+  const makeImage = (state: { Token: typeof import("markdown-it/lib/token.mjs").default }, html: string) => {
+    const tok = new state.Token("image", "img", 0);
+    tok.attrs = [
+      ["src", attr(html, "src") ?? ""],
+      ["alt", attr(html, "alt") ?? ""],
+    ];
+    const title = attr(html, "title");
+    const width = attr(html, "width");
+    if (title) tok.attrs.push(["title", title]);
+    if (width) tok.attrs.push(["width", width]);
+    tok.children = [];
+    return tok;
+  };
+  md.core.ruler.push("img_html_to_image", (state) => {
+    const out: (typeof state.tokens)[number][] = [];
+    for (const block of state.tokens) {
+      // Inline `<img>` mixed with text.
+      if (block.type === "inline" && block.children) {
+        block.children = block.children.map((child) =>
+          child.type === "html_inline" && /^<img\b/i.test(child.content) && attr(child.content, "src")
+            ? makeImage(state, child.content)
+            : child,
+        );
+      }
+      // Block-level `<img>` on its own line -> a paragraph with an inline image.
+      if (block.type === "html_block" && /^<img\b/i.test(block.content.trim()) && attr(block.content, "src")) {
+        const open = new state.Token("paragraph_open", "p", 1);
+        const inline = new state.Token("inline", "", 0);
+        inline.children = [makeImage(state, block.content)];
+        inline.content = "";
+        const close = new state.Token("paragraph_close", "p", -1);
+        out.push(open, inline, close);
+      } else {
+        out.push(block);
+      }
+    }
+    state.tokens = out;
+  });
+}
+
 // Serializer keyed to TipTap StarterKit node/mark names. We reuse the default
 // implementations where the logic is identical, and override the two that read
 // TipTap-specific attrs (codeBlock.language, orderedList.start).
@@ -45,6 +94,26 @@ const serializer = new MarkdownSerializer(
         return state.repeat(" ", maxW - nStr.length) + nStr + ". ";
       });
     },
+    image(state, node) {
+      const { src, alt, title, width } = node.attrs as {
+        src: string;
+        alt?: string;
+        title?: string;
+        width?: string | null;
+      };
+      if (width) {
+        // GitHub-style HTML so the display width survives in markdown.
+        const parts = [`src="${escAttr(src)}"`];
+        if (alt) parts.push(`alt="${escAttr(alt)}"`);
+        if (title) parts.push(`title="${escAttr(title)}"`);
+        parts.push(`width="${escAttr(String(width))}"`);
+        state.write(`<img ${parts.join(" ")}>`);
+      } else {
+        state.write(
+          `![${state.esc(alt ?? "")}](${src}${title ? ` ${JSON.stringify(title)}` : ""})`,
+        );
+      }
+    },
   },
   {
     bold: m.strong!,
@@ -61,7 +130,10 @@ const serializer = new MarkdownSerializer(
 );
 
 // Parser mapping markdown-it tokens to TipTap node/mark names.
-const parser = new MarkdownParser(schema, MarkdownIt("commonmark", { html: false }).enable("strikethrough"), {
+const parser = new MarkdownParser(
+  schema,
+  MarkdownIt("commonmark", { html: true }).enable("strikethrough").use(imgHtmlPlugin),
+  {
   blockquote: { block: "blockquote" },
   paragraph: { block: "paragraph" },
   list_item: { block: "listItem" },
@@ -93,9 +165,18 @@ const parser = new MarkdownParser(schema, MarkdownIt("commonmark", { html: false
       title: tok.attrGet("title") || null,
     }),
   },
-  // No image node in the schema — drop image syntax rather than throw.
-  // image is a single (self-closing) token, so noCloseToken registers the no-op.
-  image: { ignore: true, noCloseToken: true },
+  image: {
+    node: "image",
+    getAttrs: (tok) => ({
+      src: tok.attrGet("src"),
+      alt: tok.attrGet("alt") || tok.children?.[0]?.content || null,
+      title: tok.attrGet("title") || null,
+      width: tok.attrGet("width") || null,
+    }),
+  },
+  // Other inline/block HTML (non-img) is dropped rather than throwing.
+  html_inline: { ignore: true, noCloseToken: true },
+  html_block: { ignore: true, noCloseToken: true },
 });
 
 /** Serialize a ProseMirror node (this schema) to canonical markdown. */

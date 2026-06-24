@@ -2,11 +2,32 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import Collaboration from "@tiptap/extension-collaboration";
 import Link from "@tiptap/extension-link";
 import { EditorContent, useEditor } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { trpc } from "../trpc.js";
+import { ClientImage } from "./image-node.js";
 import { SlashCommand } from "./slash-command.js";
+
+/** Upload a pasted/dropped image and insert it at the current selection. */
+async function uploadAndInsert(view: EditorView, file: File, docId: string) {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api/images?documentId=${docId}`, {
+    method: "POST",
+    body,
+    credentials: "include",
+  });
+  if (!res.ok) return;
+  const { url } = (await res.json()) as { url: string };
+  const node = view.state.schema.nodes.image!.create({ src: url });
+  view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
+}
+
+function imageFiles(list: FileList | null | undefined): File[] {
+  return Array.from(list ?? []).filter((f) => f.type.startsWith("image/"));
+}
 
 function useDebounced<A extends unknown[]>(fn: (...args: A) => void, delay: number) {
   const ref = useRef(fn);
@@ -54,9 +75,26 @@ export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) 
       // History is disabled — Collaboration manages undo via Yjs.
       StarterKit.configure({ history: false }),
       Link,
+      ClientImage,
       Collaboration.configure({ document: ydoc, field: "default" }),
       SlashCommand,
     ],
+    editorProps: {
+      handlePaste(view, event) {
+        const files = imageFiles(event.clipboardData?.files);
+        if (!view.editable || files.length === 0) return false;
+        event.preventDefault();
+        files.forEach((f) => void uploadAndInsert(view, f, docId));
+        return true;
+      },
+      handleDrop(view, event) {
+        const files = imageFiles((event as DragEvent).dataTransfer?.files);
+        if (!view.editable || files.length === 0) return false;
+        event.preventDefault();
+        files.forEach((f) => void uploadAndInsert(view, f, docId));
+        return true;
+      },
+    },
   });
 
   // Reflect access changes without recreating the editor (which would race

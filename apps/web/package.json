@@ -15,6 +15,7 @@
     "@tanstack/react-query": "^5.62.7",
     "@tiptap/core": "^2.27.2",
     "@tiptap/extension-collaboration": "^2.27.2",
+    "@tiptap/extension-image": "^2.27.2",
     "@tiptap/extension-link": "^2.27.2",
     "@tiptap/pm": "^2.10.3",
     "@tiptap/react": "^2.10.3",
@@ -27,7 +28,8 @@
     "react-dom": "^18.3.1",
     "tippy.js": "^6.3.7",
     "tiptap-markdown": "^0.8.10",
-    "yjs": "^13.6.31"
+    "yjs": "^13.6.31",
+    "@realtime/editor": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.17",

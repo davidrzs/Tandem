@@ -1,8 +1,27 @@
 import { getSchema } from "@tiptap/core";
+import ImageBase from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
 import type { Extensions } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
+
+/**
+ * Image node with a display `width` attribute (resize is a layout attribute,
+ * not a re-encode). Shared by the client editor and the server schema so
+ * Y.Doc <-> JSON <-> markdown stay aligned.
+ */
+export const Image = ImageBase.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("width"),
+        renderHTML: (attrs) => (attrs.width ? { width: attrs.width } : {}),
+      },
+    };
+  },
+});
 
 /**
  * The single source of truth for the document model. Both the client editor
@@ -12,7 +31,12 @@ import type { Schema } from "@tiptap/pm/model";
  * `history` is left enabled here (it doesn't affect the schema); the client
  * disables it when the Collaboration extension is active (Yjs owns undo).
  */
-export const baseExtensions: Extensions = [StarterKit, Link];
+// Inline so a markdown `![alt](src)` parses into a paragraph's inline content.
+export const baseExtensions: Extensions = [
+  StarterKit,
+  Link,
+  Image.configure({ inline: true }),
+];
 
 /** ProseMirror schema derived from the shared extensions (no DOM required). */
 export const schema: Schema = getSchema(baseExtensions);

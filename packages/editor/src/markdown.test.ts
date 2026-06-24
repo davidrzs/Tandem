@@ -55,12 +55,21 @@ test("markdown round-trips through the shared schema", () => {
   assert.match(normalized, /```ts\nconst x = 1;\n```/);
 });
 
-test("links round-trip and images/unknown tokens don't throw", () => {
+test("links and images round-trip; unknown HTML is dropped, not thrown", () => {
   const md = "See [the docs](https://example.com) and ![logo](https://x/i.png).";
   const out = normalizeMarkdown(md);
   assert.match(out, /\[the docs\]\(https:\/\/example\.com\)/, "link preserved");
-  // image has no node in the schema -> dropped, but must not throw
-  assert.doesNotMatch(out, /!\[/, "image syntax dropped, not thrown");
+  assert.match(out, /!\[logo\]\(https:\/\/x\/i\.png\)/, "plain image preserved");
+  // stray HTML must not throw
+  assert.doesNotThrow(() => normalizeMarkdown("a <span>x</span> b"));
+});
+
+test("a resized image round-trips as GitHub-style <img width>", () => {
+  const md = '<img src="https://x/i.png" alt="logo" width="320">';
+  const out = normalizeMarkdown(md);
+  assert.match(out, /<img /, "serialized as HTML img");
+  assert.match(out, /src="https:\/\/x\/i\.png"/);
+  assert.match(out, /width="320"/, "width preserved");
 });
 
 test("code block containing a backtick fence widens the fence (no corruption)", () => {
