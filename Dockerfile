@@ -16,6 +16,6 @@ ENV NODE_ENV=production
 ENV PORT=3001
 COPY --from=build /app /app
 EXPOSE 3001
-# Single-instance: migrate then serve. For multi-instance, run `pnpm db:migrate`
-# as a separate release step and start with just the serve command.
-CMD ["sh", "-c", "pnpm db:migrate && pnpm --filter @realtime/server exec node --import tsx src/serve.ts"]
+# Migrations run as a separate release step (see docker-compose `migrate`
+# service / DEPLOY.md), not on start — safe for multiple instances.
+CMD ["pnpm", "--filter", "@realtime/server", "exec", "node", "--import", "tsx", "src/serve.ts"]

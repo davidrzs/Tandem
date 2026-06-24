@@ -1,0 +1,46 @@
+# VPS deployment: the app behind Caddy (auto-TLS + WebSocket). Postgres is
+# external (Neon) via DATABASE_URL. Set env in a .env.deploy file or the shell:
+#   DOMAIN, DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL, WEB_ORIGIN
+#
+#   docker compose --profile release run --rm migrate   # once per deploy
+#   docker compose up -d --build                          # app + caddy
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "3001"
+    environment:
+      PORT: "3001"
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      WEB_ORIGIN: ${WEB_ORIGIN}
+
+  # One-shot release step: `docker compose --profile release run --rm migrate`
+  migrate:
+    build: .
+    profiles: ["release"]
+    command: pnpm db:migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -9,3 +9,4 @@ coverage/
 .pglite/
 .pglite-e2e/
 .pglite-oauth/
+.env.deploy

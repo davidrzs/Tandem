@@ -1,0 +1,5 @@
+# Auto-HTTPS via Let's Encrypt for $DOMAIN. reverse_proxy upgrades WebSockets
+# (the /collab Yjs connection) automatically — no extra config needed.
+{$DOMAIN} {
+	reverse_proxy app:3001
+}
