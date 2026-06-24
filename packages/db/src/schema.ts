@@ -117,6 +117,23 @@ export const collectionPermissions = pgTable(
   ],
 );
 
+/** Uploaded image metadata. Bytes live on disk (UPLOADS_DIR/<id>); access is
+ * workspace-scoped via RLS, served only to members through /api/images/:id. */
+export const images = pgTable(
+  "images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    uploadedBy: text("uploaded_by").notNull(),
+    mime: text("mime").notNull(),
+    size: doublePrecision("size").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("images_workspace_idx").on(t.workspaceId)],
+);
+
 export const collections = pgTable(
   "collections",
   {
@@ -190,6 +207,7 @@ export const documents = pgTable(
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+export type Image = typeof images.$inferSelect;
 export type Group = typeof groups.$inferSelect;
 export type CollectionPermission = typeof collectionPermissions.$inferSelect;
 export type Collection = typeof collections.$inferSelect;

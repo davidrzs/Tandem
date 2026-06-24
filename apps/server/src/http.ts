@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import formbody from "@fastify/formbody";
+import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import {
@@ -19,6 +20,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
+import { registerImageRoutes } from "./images.js";
 import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
 import { appRouter } from "./trpc.js";
@@ -48,7 +50,9 @@ export async function buildHttpServer() {
   });
   // OAuth token requests are form-encoded; parse them so /api/auth/* accepts them.
   await app.register(formbody);
+  await app.register(multipart);
   await app.register(websocket);
+  await registerImageRoutes(app, db, auth);
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
   // ourselves (it dropped the `ws` library for crossws).

@@ -3,6 +3,7 @@ import {
   CollectionService,
   DocumentService,
   GroupService,
+  ImageService,
   WorkspaceService,
 } from "@realtime/core";
 
@@ -13,6 +14,7 @@ export interface Services {
   documents: DocumentService;
   collections: CollectionService;
   groups: GroupService;
+  images: ImageService;
 }
 
 /**
@@ -27,6 +29,7 @@ export function createServices(db: Database, actor: Actor = SYSTEM): Services {
     documents: new DocumentService(db, actor),
     collections: new CollectionService(db, actor),
     groups: new GroupService(db, actor),
+    images: new ImageService(db, actor),
   };
 }
 
