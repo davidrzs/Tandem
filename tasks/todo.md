@@ -2,6 +2,12 @@
 
 Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Hocuspocus (Yjs) · MCP — one Node runtime, monorepo.
 
+## Dev + deployment
+- `make dev` -> migrate + `turbo run dev` (API :3001 + web :5173). `make help` lists targets; `make pg` for a prod-like Postgres.
+- Single deployable: Fastify serves the built web SPA (apps/web/dist) same-origin when present; Vite serves it in dev. Dockerfile (multi-stage) builds web + runs the one Node service.
+- Prod RLS: dropped FORCE (owner/SYSTEM bypasses; app_user still enforced) + GRANT app_user TO current_user, so it works with a non-superuser prod DB role.
+- Prod env: DATABASE_URL=postgres://…, BETTER_AUTH_SECRET, BETTER_AUTH_URL=public https origin, WEB_ORIGIN=same. Redis only when scaling >1 instance (Hocuspocus pub/sub).
+
 ## Local dev DB: PGlite (Postgres-in-WASM), prod: Postgres
 - `createDatabase` branches on DATABASE_URL: `postgres://` -> real server (prod/CI); else PGlite in-process (dev, persisted to `<repo>/.pglite`; `memory://` for tests). Same SQL + tsvector FTS, full parity. No SQLite (would fork schema + search).
 - `pnpm db:migrate` runs the right migrator for the active driver. Tests use in-memory PGlite, migrated fresh — no external DB needed.

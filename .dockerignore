@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+.turbo
+.pglite
+.pglite-e2e
+.pglite-oauth
+.git
+.env
+.env.local
+tasks
+*.tsbuildinfo
