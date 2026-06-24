@@ -9,6 +9,7 @@ interface Collection {
   id: string;
   name: string;
   workspaceId: string;
+  defaultRole: string;
 }
 interface DocNode {
   id: string;
@@ -63,6 +64,11 @@ export function Sidebar({
       setInviteLink(`${window.location.origin}/invite?token=${token}`);
     },
   });
+  const setDefaultRole = trpc.collections.setDefaultRole.useMutation({
+    onSuccess: () => utils.collections.list.invalidate(),
+  });
+
+  const selectedCol = collections.find((c) => c.id === collectionId);
 
   const [newColName, setNewColName] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
@@ -165,6 +171,23 @@ export function Sidebar({
               +
             </button>
           </div>
+          {selectedCol && (
+            <select
+              className="access-select"
+              value={selectedCol.defaultRole}
+              title="Who in the workspace can access this collection"
+              onChange={(e) =>
+                setDefaultRole.mutate({
+                  id: selectedCol.id,
+                  role: e.target.value as "none" | "read" | "read_write",
+                })
+              }
+            >
+              <option value="read_write">Members can edit</option>
+              <option value="read">Members can view</option>
+              <option value="none">Private (invited only)</option>
+            </select>
+          )}
           <DocTree nodes={tree.data ?? []} docId={docId} onSelect={onSelectDoc} />
         </div>
       )}

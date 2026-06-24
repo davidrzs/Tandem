@@ -46,6 +46,22 @@ export const appRouter = t.router({
       ),
   }),
 
+  groups: t.router({
+    list: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.groups.list(input.workspaceId)),
+    create: protectedProcedure
+      .input(z.object({ workspaceId: uuid, name: z.string().min(1) }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.groups.create(input.workspaceId, input.name),
+      ),
+    addMember: protectedProcedure
+      .input(z.object({ groupId: uuid, userId: z.string().min(1) }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.groups.addMember(input.groupId, input.userId),
+      ),
+  }),
+
   collections: t.router({
     list: protectedProcedure.query(({ ctx }) => ctx.services.collections.list()),
     create: protectedProcedure
@@ -58,6 +74,42 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) => ctx.services.collections.create(input)),
+    setDefaultRole: protectedProcedure
+      .input(z.object({ id: uuid, role: z.enum(["none", "read", "read_write"]) }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.collections.setDefaultRole(input.id, input.role),
+      ),
+    grant: protectedProcedure
+      .input(
+        z.object({
+          id: uuid,
+          principalType: z.enum(["user", "group"]),
+          principalId: z.string().min(1),
+          role: z.enum(["read", "read_write"]),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.services.collections.grant(
+          input.id,
+          input.principalType,
+          input.principalId,
+          input.role,
+        ),
+      ),
+    revoke: protectedProcedure
+      .input(
+        z.object({
+          id: uuid,
+          principalType: z.enum(["user", "group"]),
+          principalId: z.string().min(1),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.services.collections.revoke(input.id, input.principalType, input.principalId),
+      ),
+    permissions: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(({ ctx, input }) => ctx.services.collections.listPermissions(input.id)),
   }),
 
   documents: t.router({

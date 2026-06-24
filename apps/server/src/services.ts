@@ -2,6 +2,7 @@ import { createDatabase, SYSTEM, type Actor, type Database } from "@realtime/db"
 import {
   CollectionService,
   DocumentService,
+  GroupService,
   WorkspaceService,
 } from "@realtime/core";
 
@@ -11,6 +12,7 @@ export interface Services {
   workspaces: WorkspaceService;
   documents: DocumentService;
   collections: CollectionService;
+  groups: GroupService;
 }
 
 /**
@@ -24,6 +26,7 @@ export function createServices(db: Database, actor: Actor = SYSTEM): Services {
     workspaces: new WorkspaceService(db, actor),
     documents: new DocumentService(db, actor),
     collections: new CollectionService(db, actor),
+    groups: new GroupService(db, actor),
   };
 }
 

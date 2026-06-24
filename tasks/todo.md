@@ -65,7 +65,18 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - [x] Signup hook (databaseHooks.user.create.after) provisions a personal workspace + owner membership
 - [x] Wired: tRPC (all procedures protected, ctx user actor), HTTP MCP (token.userId actor + per-user collab writer), collab (onAuthenticate userId -> per-connection actor). stdio MCP = system. Public reads dropped.
 - [x] Verified: core tenant-isolation test (u2 can't see/fetch/search/write u1's data); 5 server tests; OAuth flow; all 4 browser e2e (collab now same-user two-client). Note: cross-user collab needs sharing (below).
-- [ ] LATER: sharing — groups + per-collection ACLs (user/group, read vs read-write) + public document share links; cross-user/workspace invites; Redis pub/sub when scaling out
+## Sharing (DONE: S1 + S2)
+### S1 — invites + multi-workspace
+- [x] workspace_invites; WorkspaceService create/createInvite/acceptInvite; tRPC; workspace switcher + invite link + /invite accept route. Cross-user collab e2e.
+### S2 — groups + per-collection ACLs + read-only
+- [x] groups, group_members, collection_permissions, collections.default_role (migration 0005)
+- [x] RLS: app_can_read_collection/app_can_write_collection (row-arg, so INSERT..RETURNING works) for collections; app_readable/writable_collections for documents; per-command policies
+- [x] CollectionService: setDefaultRole/grant/revoke/listPermissions (owner/admin only), list returns `writable`; GroupService; DocumentService.canWrite
+- [x] tRPC: collections.setDefaultRole/grant/revoke/permissions, groups.create/list/addMember
+- [x] read-only: editor editable=canWrite (+ "Read only" badge); collab onAuthenticate sets connection readOnly; RLS WITH CHECK blocks unauthorized persistence
+- [x] UI: per-collection access dropdown (none/read/read_write)
+- [x] Verified: core ACL test (default none hides; read = view-not-edit; read_write edits; group grant propagates); read-only browser e2e; all suites green
+- [ ] LATER: sharing UI for user/group grant pickers (backend+tRPC ready); public document share links (S3); Redis pub/sub when scaling out
 - Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
 - Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
 

@@ -43,9 +43,10 @@ try {
   await page.type(".ProseMirror", "Install pnpm first.");
 
   // Body persists via Yjs/Hocuspocus (debounced ~2s server-side). Confirm the
-  // heading rendered, then settle past the store debounce before reloading.
+  // heading rendered, then settle well past the store debounce before reload
+  // (so a fresh load from the DB has the content, not just Hocuspocus memory).
   await page.waitForSelector(".ProseMirror h1");
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(4000);
 
   // Reload and re-open the document from scratch.
   await page.reload();
@@ -53,12 +54,16 @@ try {
   await page.getByText(title, { exact: true }).click();
   await page.waitForSelector(".title-input");
 
+  // Body arrives via Yjs sync after the provider reconnects — wait for it.
+  await page.waitForFunction(
+    () => document.querySelector(".ProseMirror")?.textContent?.includes("Install pnpm first."),
+    { timeout: 10000 },
+  );
   const persistedTitle = await page.inputValue(".title-input");
   const body = (await page.textContent(".ProseMirror")) ?? "";
 
   if (persistedTitle !== title) throw new Error(`title not persisted: "${persistedTitle}"`);
   if (!body.includes("Heading One")) throw new Error(`heading not persisted: "${body}"`);
-  if (!body.includes("Install pnpm first.")) throw new Error(`body not persisted: "${body}"`);
 
   // Confirm the markdown heading actually round-tripped to an <h1>.
   const h1 = await page.textContent(".ProseMirror h1");

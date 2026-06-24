@@ -36,6 +36,13 @@
       "when": 1782294264101,
       "tag": "0004_dizzy_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782295231224,
+      "tag": "0005_giant_nico_minoru",
+      "breakpoints": true
     }
   ]
 }

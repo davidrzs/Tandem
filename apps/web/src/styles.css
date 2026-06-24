@@ -80,6 +80,17 @@ body {
   color: var(--accent);
 }
 
+.access-select {
+  width: 100%;
+  margin: 4px 0 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+}
+
 .ws-select {
   width: 100%;
   padding: 6px 8px;

@@ -28,9 +28,14 @@ export function createHocuspocus(
     debounce: opts.debounce ?? 2000,
     // Authenticate the socket via the Better Auth session cookie on the
     // handshake; the resulting userId scopes all persistence for this doc.
-    async onAuthenticate({ requestHeaders }) {
+    async onAuthenticate({ requestHeaders, documentName, connectionConfig }) {
       const session = await auth.api.getSession({ headers: requestHeaders });
       if (!session) throw new Error("Unauthorized");
+      // Read-only collaborators connect read-only (RLS also blocks persistence).
+      const canWrite = await servicesFor(session.user.id).documents.canWrite(
+        documentName,
+      );
+      if (!canWrite) connectionConfig.readOnly = true;
       return { userId: session.user.id };
     },
 

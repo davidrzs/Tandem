@@ -20,6 +20,7 @@ export function App() {
   const wsCollections = (collections.data ?? []).filter(
     (c) => c.workspaceId === workspaceId,
   );
+  const activeCollection = wsCollections.find((c) => c.id === collectionId);
 
   return (
     <div className="app">
@@ -42,7 +43,11 @@ export function App() {
       />
       <main className="main">
         {docId ? (
-          <Editor key={docId} docId={docId} />
+          <Editor
+            key={docId}
+            docId={docId}
+            canEdit={activeCollection?.writable ?? false}
+          />
         ) : (
           <div className="empty">Select or create a document.</div>
         )}

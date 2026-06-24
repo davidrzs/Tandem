@@ -25,7 +25,7 @@ function collabUrl(): string {
   return `${proto}://${window.location.host}/collab`;
 }
 
-export function Editor({ docId }: { docId: string }) {
+export function Editor({ docId, canEdit }: { docId: string; canEdit: boolean }) {
   const utils = trpc.useUtils();
   const doc = trpc.documents.get.useQuery({ id: docId });
   const update = trpc.documents.update.useMutation();
@@ -45,6 +45,7 @@ export function Editor({ docId }: { docId: string }) {
   }, [ydoc, docId]);
 
   const editor = useEditor({
+    editable: canEdit,
     extensions: [
       // History is disabled — Collaboration manages undo via Yjs.
       StarterKit.configure({ history: false }),
@@ -52,6 +53,12 @@ export function Editor({ docId }: { docId: string }) {
       SlashCommand,
     ],
   });
+
+  // Reflect access changes without recreating the editor (which would race
+  // with typing and drop the Yjs binding).
+  useEffect(() => {
+    editor?.setEditable(canEdit);
+  }, [editor, canEdit]);
 
   // Title is independent of the Yjs body; persist it via tRPC.
   const [title, setTitle] = useState("");
@@ -87,12 +94,16 @@ export function Editor({ docId }: { docId: string }) {
           className="title-input"
           value={title}
           placeholder="Untitled"
+          readOnly={!canEdit}
           onChange={(e) => {
+            if (!canEdit) return;
             setTitle(e.target.value);
             saveTitle(e.target.value);
           }}
         />
-        <span className="save-state">{saved === "saving" ? "Saving…" : "Synced"}</span>
+        <span className="save-state">
+          {!canEdit ? "Read only" : saved === "saving" ? "Saving…" : "Synced"}
+        </span>
       </div>
       <EditorContent className="prose" editor={editor} />
     </div>

@@ -5,6 +5,7 @@ import {
   index,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -65,6 +66,57 @@ const tsvector = customType<{ data: string }>({
   dataType: () => "tsvector",
 });
 
+/** Named bundles of users within a workspace, for granting access in bulk. */
+export const groups = pgTable(
+  "groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("groups_workspace_idx").on(t.workspaceId)],
+);
+
+export const groupMembers = pgTable(
+  "group_members",
+  {
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.userId] }),
+    index("group_members_user_idx").on(t.userId),
+  ],
+);
+
+/** Explicit grant of a collection to a user or group (read | read_write). */
+export const collectionPermissions = pgTable(
+  "collection_permissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    principalType: text("principal_type").notNull(), // 'user' | 'group'
+    principalId: text("principal_id").notNull(),
+    role: text("role").notNull(), // 'read' | 'read_write'
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("collection_permissions_unique").on(
+      t.collectionId,
+      t.principalType,
+      t.principalId,
+    ),
+    index("collection_permissions_collection_idx").on(t.collectionId),
+  ],
+);
+
 export const collections = pgTable(
   "collections",
   {
@@ -72,6 +124,8 @@ export const collections = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    // Baseline access for workspace members without an explicit grant.
+    defaultRole: text("default_role").notNull().default("read_write"), // none|read|read_write
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -136,6 +190,8 @@ export const documents = pgTable(
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+export type Group = typeof groups.$inferSelect;
+export type CollectionPermission = typeof collectionPermissions.$inferSelect;
 export type Collection = typeof collections.$inferSelect;
 export type NewCollection = typeof collections.$inferInsert;
 export type Document = typeof documents.$inferSelect;

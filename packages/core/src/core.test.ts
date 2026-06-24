@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { createDatabase, migrateDatabase, SYSTEM, type Actor } from "@realtime/db";
 import { CollectionService } from "./services/collections.js";
 import { DocumentService } from "./services/documents.js";
+import { GroupService } from "./services/groups.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -109,4 +110,40 @@ test("invite: a user who accepts an invite gains access to that workspace", asyn
     () => w2.createInvite({ workspaceId: ws!.id }),
     /owner or admin/,
   );
+});
+
+test("per-collection ACLs: default none, explicit read, read_write, and groups", async () => {
+  // u2 is a regular member of u1's workspace (joined via the invite test above).
+  const c1 = new CollectionService(db, user("u1"));
+  const c2 = new CollectionService(db, user("u2"));
+  const d2 = new DocumentService(db, user("u2"));
+
+  const col = await c1.create({ name: "Restricted", slug: "restricted" });
+  await c1.setDefaultRole(col.id, "none");
+
+  // No access: u2 (member, not owner/admin) can't see a default-none collection.
+  assert.ok(!(await c2.list()).some((c) => c.id === col.id), "hidden at default none");
+  await assert.rejects(() => d2.create({ collectionId: col.id, title: "x" }), /not found/);
+
+  // Explicit read: visible but not writable.
+  await c1.grant(col.id, "user", "u2", "read");
+  const seen = (await c2.list()).find((c) => c.id === col.id);
+  assert.ok(seen, "u2 can see it with read grant");
+  assert.equal(seen!.writable, false, "read grant is not writable");
+  await assert.rejects(() => d2.create({ collectionId: col.id, title: "x" }), "read-only blocks create");
+
+  // Upgrade to read_write: now writable.
+  await c1.grant(col.id, "user", "u2", "read_write");
+  assert.equal((await c2.list()).find((c) => c.id === col.id)!.writable, true);
+  assert.ok(await d2.create({ collectionId: col.id, title: "ok" }), "read_write allows create");
+
+  // Group grant: a separate collection shared with a group u2 belongs to.
+  const [ws] = await new WorkspaceService(db, user("u1")).listMine();
+  const grouped = await c1.create({ name: "Grouped", slug: "grouped" });
+  await c1.setDefaultRole(grouped.id, "none");
+  const groups = new GroupService(db, user("u1"));
+  const g = await groups.create(ws!.id, "Editors");
+  await groups.addMember(g.id, "u2");
+  await c1.grant(grouped.id, "group", g.id, "read_write");
+  assert.equal((await c2.list()).find((c) => c.id === grouped.id)?.writable, true, "group grant propagates");
 });

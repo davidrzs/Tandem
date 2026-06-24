@@ -115,6 +115,22 @@ export class DocumentService {
     });
   }
 
+  /** Whether the actor may write this document (its collection is writable). */
+  async canWrite(id: string): Promise<boolean> {
+    return this.exec(async (db) => {
+      const [row] = await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.id, id),
+            sql`${documents.collectionId} IN (SELECT app_writable_collections())`,
+          ),
+        );
+      return !!row;
+    });
+  }
+
   async update(id: string, patch: UpdateDocumentInput): Promise<Document | null> {
     return this.exec(async (db) => {
       const set: Record<string, unknown> = { updatedAt: new Date() };
