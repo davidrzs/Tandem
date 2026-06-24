@@ -80,6 +80,15 @@ body {
   color: var(--accent);
 }
 
+.sidebar-error {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-radius: 6px;
+}
+
 .access-select {
   width: 100%;
   margin: 4px 0 8px;

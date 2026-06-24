@@ -57,6 +57,11 @@ export function createHocuspocus(
     },
 
     async onStoreDocument({ document, documentName, lastContext }) {
+      // Persisting runs RLS-scoped to this user; without one the UPDATE would
+      // silently match no rows. Fail loud rather than lose the snapshot.
+      if (!lastContext?.userId) {
+        throw new Error("cannot persist document without a user context");
+      }
       const json = yXmlFragmentToProsemirrorJSON(
         document.getXmlFragment(COLLAB_FIELD),
       );

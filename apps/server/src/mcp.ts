@@ -141,7 +141,8 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         if (writer) await writer.replaceBody(id, markdown);
         else await documents.update(id, { markdown });
       }
-      return json(publicDoc((await documents.get(id))!));
+      const doc = await documents.get(id);
+      return doc ? json(publicDoc(doc)) : notFound("document");
     },
   );
 
@@ -163,7 +164,8 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         const body = existing.contentMd ? `${existing.contentMd}\n\n${markdown}` : markdown;
         await documents.update(id, { markdown: body });
       }
-      return json(publicDoc((await documents.get(id))!));
+      const doc = await documents.get(id);
+      return doc ? json(publicDoc(doc)) : notFound("document");
     },
   );
 

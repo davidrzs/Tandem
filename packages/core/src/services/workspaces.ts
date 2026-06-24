@@ -49,13 +49,17 @@ export class WorkspaceService {
     userId: string,
     input: { name: string; slug: string },
   ): Promise<Workspace> {
-    return this.system(async (db) => {
-      const [ws] = await db.insert(workspaces).values(input).returning();
-      await db
-        .insert(workspaceMembers)
-        .values({ workspaceId: ws!.id, userId, role: "owner" });
-      return ws!;
-    });
+    return this.system((db) =>
+      // Atomic: a failed member insert must not orphan the workspace (which
+      // would be invisible under RLS and permanently reserve the slug).
+      db.transaction(async (tx) => {
+        const [ws] = await tx.insert(workspaces).values(input).returning();
+        await tx
+          .insert(workspaceMembers)
+          .values({ workspaceId: ws!.id, userId, role: "owner" });
+        return ws!;
+      }),
+    );
   }
 
   /** The current user creates a new (team) workspace and becomes its owner. */
@@ -90,6 +94,15 @@ export class WorkspaceService {
     if (role !== "owner" && role !== "admin") {
       throw new Error("only an owner or admin can invite");
     }
+    // Validate the granted role in the service (not just the tRPC enum): you
+    // can't grant a role above your own — only an owner may invite owners.
+    const granted = input.role ?? "member";
+    if (!["member", "admin", "owner"].includes(granted)) {
+      throw new Error("invalid invite role");
+    }
+    if (granted === "owner" && role !== "owner") {
+      throw new Error("only an owner can grant the owner role");
+    }
     const token = randomBytes(24).toString("base64url");
     const expiresAt = input.expiresInDays
       ? new Date(Date.now() + input.expiresInDays * 86_400_000)
@@ -99,7 +112,7 @@ export class WorkspaceService {
         .insert(workspaceInvites)
         .values({
           workspaceId: input.workspaceId,
-          role: input.role ?? "member",
+          role: granted,
           email: input.email ?? null,
           token,
           createdBy: this.userId(),

@@ -206,7 +206,8 @@ export class DocumentService {
           contentJson: snapshot.contentJson,
           updatedAt: new Date(),
         })
-        .where(eq(documents.id, id));
+        // Don't let a debounced store resurrect a soft-deleted document.
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
     });
   }
 
@@ -215,16 +216,30 @@ export class DocumentService {
     target: { parentDocumentId: string | null; position?: number },
   ): Promise<Document | null> {
     return this.exec(async (db) => {
-      let position = target.position;
-      if (position === undefined) {
-        const [doc] = await db
+      const [doc] = await db
+        .select({ collectionId: documents.collectionId })
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      if (!doc) return null;
+
+      if (target.parentDocumentId) {
+        if (target.parentDocumentId === id) {
+          throw new Error("a document cannot be its own parent");
+        }
+        // The new parent must live in the same collection (keeps the tree
+        // consistent and prevents cross-collection/tenant parent edges).
+        const [parent] = await db
           .select({ collectionId: documents.collectionId })
           .from(documents)
-          .where(eq(documents.id, id));
-        position = doc
-          ? await this.nextPosition(db, doc.collectionId, target.parentDocumentId)
-          : 1;
+          .where(and(eq(documents.id, target.parentDocumentId), isNull(documents.deletedAt)));
+        if (!parent || parent.collectionId !== doc.collectionId) {
+          throw new Error("parent must be a document in the same collection");
+        }
       }
+
+      const position =
+        target.position ??
+        (await this.nextPosition(db, doc.collectionId, target.parentDocumentId));
       const [row] = await db
         .update(documents)
         .set({
@@ -243,7 +258,7 @@ export class DocumentService {
       const [row] = await db
         .update(documents)
         .set({ archivedAt: new Date(), updatedAt: new Date() })
-        .where(eq(documents.id, id))
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .returning();
       return row ?? null;
     });
@@ -254,7 +269,7 @@ export class DocumentService {
       const [row] = await db
         .update(documents)
         .set({ archivedAt: null, updatedAt: new Date() })
-        .where(eq(documents.id, id))
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .returning();
       return row ?? null;
     });

@@ -112,6 +112,48 @@ test("invite: a user who accepts an invite gains access to that workspace", asyn
   );
 });
 
+test("move rejects a cross-collection or self parent", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const colA = await c1.create({ name: "A", slug: "move-a" });
+  const colB = await c1.create({ name: "B", slug: "move-b" });
+  const a1 = await d1.create({ collectionId: colA.id, title: "a1" });
+  const a2 = await d1.create({ collectionId: colA.id, title: "a2" });
+  const b1 = await d1.create({ collectionId: colB.id, title: "b1" });
+
+  await assert.rejects(
+    () => d1.move(a1.id, { parentDocumentId: b1.id }),
+    /same collection/,
+    "cross-collection parent rejected",
+  );
+  await assert.rejects(
+    () => d1.move(a1.id, { parentDocumentId: a1.id }),
+    /own parent/,
+    "self-parent rejected",
+  );
+  // Same-collection move is allowed.
+  const moved = await d1.move(a1.id, { parentDocumentId: a2.id });
+  assert.equal(moved!.parentDocumentId, a2.id);
+});
+
+test("invite role can't exceed the inviter's: an admin cannot grant owner", async () => {
+  const w1 = new WorkspaceService(db, user("u1")); // u1 is owner of its workspace
+  const [ws] = await w1.listMine();
+
+  // u1 (owner) invites u3 as admin; u3 accepts.
+  const adminInvite = await w1.createInvite({ workspaceId: ws!.id, role: "admin" });
+  await new WorkspaceService(db, user("u3")).acceptInvite(adminInvite.token, "u3");
+  const w3 = new WorkspaceService(db, user("u3"));
+
+  // The admin can invite members/admins...
+  assert.ok(await w3.createInvite({ workspaceId: ws!.id, role: "member" }));
+  // ...but not owners.
+  await assert.rejects(
+    () => w3.createInvite({ workspaceId: ws!.id, role: "owner" }),
+    /only an owner can grant the owner role/,
+  );
+});
+
 test("per-collection ACLs: default none, explicit read, read_write, and groups", async () => {
   // u2 is a regular member of u1's workspace (joined via the invite test above).
   const c1 = new CollectionService(db, user("u1"));

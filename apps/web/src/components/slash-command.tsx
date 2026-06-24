@@ -44,6 +44,8 @@ const SlashMenu = forwardRef(function SlashMenu(
 
   useImperativeHandle(ref, () => ({
     onKeyDown: (e) => {
+      // No matches: let the editor handle the key (don't trap Enter/arrows).
+      if (items.length === 0) return false;
       if (e.key === "ArrowUp") {
         setSelected((s) => (s + items.length - 1) % items.length);
         return true;

@@ -9,7 +9,7 @@ import {
   fastifyTRPCPlugin,
 } from "@trpc/server/adapters/fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createDatabase, SYSTEM, type Actor } from "@realtime/db";
+import { createDatabase, type Actor } from "@realtime/db";
 import { fromNodeHeaders } from "better-auth/node";
 import {
   oAuthDiscoveryMetadata,
@@ -29,6 +29,13 @@ import { appRouter } from "./trpc.js";
  * One db instance is shared by services and auth (PGlite = one connection).
  */
 export async function buildHttpServer() {
+  // Fail fast in production rather than fall back to a forgeable default secret.
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret || secret.length < 16 || secret.startsWith("replace")) {
+    throw new Error(
+      "BETTER_AUTH_SECRET must be set to a strong value (openssl rand -base64 32)",
+    );
+  }
   const db = createDatabase(process.env.DATABASE_URL);
   const auth = createAuth(db);
   // Hocuspocus builds actor-scoped services per connection from the db.
@@ -117,9 +124,9 @@ export async function buildHttpServer() {
         const session = await auth.api.getSession({
           headers: fromNodeHeaders(req.headers),
         });
-        const actor: Actor = session
-          ? { kind: "user", userId: session.user.id }
-          : SYSTEM;
+        // Unauthenticated -> a no-privilege user actor (RLS sees nothing), never
+        // SYSTEM, so a future non-protected procedure can't run as superuser.
+        const actor: Actor = { kind: "user", userId: session?.user.id ?? "" };
         return { services: createServices(db, actor), user: session?.user ?? null };
       },
     },

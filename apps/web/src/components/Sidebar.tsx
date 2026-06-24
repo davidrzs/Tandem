@@ -50,44 +50,58 @@ export function Sidebar({
   const createCollection = trpc.collections.create.useMutation();
   const createDoc = trpc.documents.create.useMutation();
   const createInvite = trpc.workspaces.createInvite.useMutation();
-  const setDefaultRole = trpc.collections.setDefaultRole.useMutation({
-    onSuccess: () => utils.collections.list.invalidate(),
-  });
+  const setDefaultRole = trpc.collections.setDefaultRole.useMutation();
 
   const selectedCol = collections.find((c) => c.id === collectionId);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function newWorkspace() {
-    const name = window.prompt("Workspace name")?.trim();
-    if (!name) return;
-    const ws = await createWorkspace.mutateAsync({ name, slug: slugify(name) });
-    await utils.workspaces.mine.invalidate();
-    onSelectWorkspace(ws.id);
+  // Surface failures (RLS denial, duplicate slug, non-admin) instead of a
+  // silent unhandled rejection.
+  async function run(fn: () => Promise<void>) {
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    }
   }
-  async function newCollection() {
-    const name = window.prompt("Collection name")?.trim();
-    if (!name) return;
-    // workspaceId is optional — the server resolves the user's workspace if the
-    // active one isn't set yet (avoids a silent no-op on a startup race).
-    await createCollection.mutateAsync({
-      name,
-      slug: slugify(name),
-      ...(workspaceId ? { workspaceId } : {}),
+
+  const newWorkspace = () =>
+    run(async () => {
+      const name = window.prompt("Workspace name")?.trim();
+      if (!name) return;
+      const ws = await createWorkspace.mutateAsync({ name, slug: slugify(name) });
+      await utils.workspaces.mine.invalidate();
+      onSelectWorkspace(ws.id);
     });
-    await utils.collections.list.invalidate();
-  }
-  async function newDoc() {
-    if (!collectionId) return;
-    const doc = await createDoc.mutateAsync({ collectionId, title: "Untitled" });
-    await utils.documents.tree.invalidate({ collectionId });
-    if (doc) onSelectDoc(doc.id);
-  }
-  async function invite() {
-    if (!workspaceId) return;
-    setInviteLink(null);
-    const { token } = await createInvite.mutateAsync({ workspaceId });
-    setInviteLink(`${window.location.origin}/invite?token=${token}`);
-  }
+  const newCollection = () =>
+    run(async () => {
+      const name = window.prompt("Collection name")?.trim();
+      if (!name) return;
+      // workspaceId is optional — the server resolves the user's workspace if
+      // the active one isn't set yet (avoids a silent no-op on a startup race).
+      await createCollection.mutateAsync({
+        name,
+        slug: slugify(name),
+        ...(workspaceId ? { workspaceId } : {}),
+      });
+      await utils.collections.list.invalidate();
+    });
+  const newDoc = () =>
+    run(async () => {
+      if (!collectionId) return;
+      const doc = await createDoc.mutateAsync({ collectionId, title: "Untitled" });
+      await utils.documents.tree.invalidate({ collectionId });
+      if (doc) onSelectDoc(doc.id);
+    });
+  const invite = () =>
+    run(async () => {
+      if (!workspaceId) return;
+      setInviteLink(null);
+      const { token } = await createInvite.mutateAsync({ workspaceId });
+      setInviteLink(`${window.location.origin}/invite?token=${token}`);
+    });
 
   function slugify(name: string) {
     return (
@@ -111,6 +125,11 @@ export function Sidebar({
           value={workspaceId ?? ""}
           onChange={(e) => onSelectWorkspace(e.target.value)}
         >
+          {!workspaceId && (
+            <option value="" disabled hidden>
+              Select a workspace…
+            </option>
+          )}
           {workspaces.map((w) => (
             <option key={w.id} value={w.id}>
               {w.name}
@@ -130,6 +149,7 @@ export function Sidebar({
             onFocus={(e) => e.currentTarget.select()}
           />
         )}
+        {error && <div className="sidebar-error">{error}</div>}
       </div>
 
       <div className="section">
@@ -163,12 +183,13 @@ export function Sidebar({
               className="access-select"
               value={selectedCol.defaultRole}
               title="Who in the workspace can access this collection"
-              onChange={(e) =>
-                setDefaultRole.mutate({
-                  id: selectedCol.id,
-                  role: e.target.value as "none" | "read" | "read_write",
-                })
-              }
+              onChange={(e) => {
+                const role = e.target.value as "none" | "read" | "read_write";
+                void run(async () => {
+                  await setDefaultRole.mutateAsync({ id: selectedCol.id, role });
+                  await utils.collections.list.invalidate();
+                });
+              }}
             >
               <option value="read_write">Members can edit</option>
               <option value="read">Members can view</option>
