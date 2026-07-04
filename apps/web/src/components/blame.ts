@@ -19,6 +19,14 @@ interface BlamePluginState {
   decorations: DecorationSet;
 }
 
+/** How an author reads in blame: "David" for humans, "David's AI" for their
+ * agent. The ownerless local agent keeps its stored name. */
+export function authorLabel(info: { name: string; ai: boolean; userId: string }): string {
+  if (!info.ai) return info.name || "Unknown";
+  if (!info.name || info.userId === "system") return info.name || "AI";
+  return `${info.name}'s AI`;
+}
+
 function computeDecorations(ydoc: Y.Doc, state: EditorState): DecorationSet {
   try {
     const authors = getAuthors(ydoc);
@@ -32,8 +40,7 @@ function computeDecorations(ydoc: Y.Doc, state: EditorState): DecorationSet {
         Decoration.inline(span.from, span.to, {
           class: "blame-span" + (info?.ai ? " blame-ai" : ""),
           style: `background-color: ${authorTint(key)};`,
-          "data-blame-name": info ? info.name || info.userId : "Unknown",
-          "data-blame-ai": info?.ai ? "1" : "0",
+          "data-blame-label": info ? authorLabel(info) : "Unknown",
           "data-blame-at": String(info?.at ?? 0),
         }),
       );

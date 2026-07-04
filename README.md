@@ -47,9 +47,10 @@ the document state.
   stamp its own session with a false identity is corrected server-side.
 - Every MCP edit runs under a fresh client id stamped `ai: true` plus the
   invoking user, so AI content is always tied to the human whose credentials
-  invoked it — never an anonymous "AI". (The one exception: the local stdio
-  MCP server runs system-scoped with no signed-in human, so its edits are
-  attributed to a visible "Local agent" AI identity.)
+  invoked it — never an anonymous "AI". Blame renders it possessively:
+  "David's AI", distinct from "David". (The local stdio MCP has no sign-in;
+  set `TANDEM_USER=<your email>` so its edits are your AI too — otherwise
+  they're attributed to a visible "Local agent".)
 - Edits (human or AI) flow through one structural-diff write path, so
   unchanged text keeps its original author.
 
@@ -72,7 +73,8 @@ its edits are blamed to your AI). Tools: `list_collections`,
 re-attribute the whole document to the agent and destroy human blame.
 
 A local stdio variant (`pnpm --filter @tandem/server mcp`) runs system-scoped
-against `DATABASE_URL` for personal/offline use.
+against `DATABASE_URL` for personal/offline use; set `TANDEM_USER` (your email
+or user id) so its edits appear in blame as your AI.
 
 ## Development
 

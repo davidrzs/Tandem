@@ -4,7 +4,7 @@ import { createMcpServer } from "./mcp.js";
 import { servicesFromEnv } from "./services.js";
 
 async function main() {
-  const server = createMcpServer(servicesFromEnv());
+  const server = createMcpServer(await servicesFromEnv());
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // stdio transport keeps the process alive; log to stderr so stdout stays clean.

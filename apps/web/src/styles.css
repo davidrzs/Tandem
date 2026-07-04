@@ -645,17 +645,6 @@ body {
   display: inline-block;
 }
 
-.ai-tag {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 4px;
-  margin-left: 4px;
-}
-
 .blame-card {
   position: fixed;
   z-index: 50;

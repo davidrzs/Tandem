@@ -166,9 +166,9 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await expect(carol.locator(".blame-legend")).toContainText("Dave Diaz");
   const daveSpan = carol.locator(".blame-span", { hasText: "method section" }).first();
   const carolSpan = carol.locator(".blame-span", { hasText: "abstract" }).first();
-  await expect(daveSpan).toHaveAttribute("data-blame-name", "Dave Diaz");
-  await expect(carolSpan).toHaveAttribute("data-blame-name", "Carol Chen");
-  await expect(daveSpan).toHaveAttribute("data-blame-ai", "0");
+  // Human labels are plain names — "Dave Diaz's AI" would mark agent edits.
+  await expect(daveSpan).toHaveAttribute("data-blame-label", "Dave Diaz");
+  await expect(carolSpan).toHaveAttribute("data-blame-label", "Carol Chen");
 
   // --- Carol restricts the collection to view-only for members ---
   const researchRow = carol.locator(".collection-row", { hasText: "Research" });

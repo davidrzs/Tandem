@@ -7,12 +7,12 @@ import TaskList from "@tiptap/extension-task-list";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
-import { getAuthors, type AuthorInfo } from "@tandem/editor";
+import { getAuthors } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
-import { blamePluginKey, createBlameExtension } from "./blame.js";
+import { authorLabel, blamePluginKey, createBlameExtension } from "./blame.js";
 import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
 import { createMentionExtension, type MentionCandidate } from "./mention.js";
@@ -66,8 +66,7 @@ interface PresencePeer {
 /** A distinct author session that contributed content, for the blame legend. */
 interface LegendAuthor {
   key: string;
-  name: string;
-  ai: boolean;
+  label: string;
 }
 
 export function Editor({
@@ -220,9 +219,7 @@ export function Editor({
     const seen = new Map<string, LegendAuthor>();
     for (const info of getAuthors(ydoc).values()) {
       const key = authorKey(info.userId, info.ai);
-      if (!seen.has(key)) {
-        seen.set(key, { key, name: info.name || "Unknown", ai: info.ai });
-      }
+      if (!seen.has(key)) seen.set(key, { key, label: authorLabel(info) });
     }
     setLegend([...seen.values()]);
   }, [ydoc]);
@@ -256,12 +253,11 @@ export function Editor({
   const [hover, setHover] = useState<{
     x: number;
     y: number;
-    name: string;
-    ai: boolean;
+    label: string;
     at: number;
   } | null>(null);
   const onMouseOver = useCallback((e: React.MouseEvent) => {
-    const el = (e.target as HTMLElement).closest?.("[data-blame-name]");
+    const el = (e.target as HTMLElement).closest?.("[data-blame-label]");
     if (!(el instanceof HTMLElement)) {
       setHover(null);
       return;
@@ -270,8 +266,7 @@ export function Editor({
     setHover({
       x: rect.left,
       y: rect.bottom + 6,
-      name: el.dataset.blameName ?? "Unknown",
-      ai: el.dataset.blameAi === "1",
+      label: el.dataset.blameLabel ?? "Unknown",
       at: Number(el.dataset.blameAt ?? 0),
     });
   }, []);
@@ -351,8 +346,7 @@ export function Editor({
           {legend.map((a) => (
             <span key={a.key} className="blame-legend-item">
               <span className="legend-dot" style={{ background: authorColor(a.key) }} />
-              {a.name}
-              {a.ai && <span className="ai-tag">AI</span>}
+              {a.label}
             </span>
           ))}
         </div>
@@ -362,8 +356,7 @@ export function Editor({
       </div>
       {hover && (
         <div className="blame-card" style={{ left: hover.x, top: hover.y }}>
-          <strong>{hover.name}</strong>
-          {hover.ai && <span className="ai-tag">AI</span>}
+          <strong>{hover.label}</strong>
           <span className="blame-when">
             {hover.at > 0 ? new Date(hover.at).toLocaleString() : "before history"}
           </span>
