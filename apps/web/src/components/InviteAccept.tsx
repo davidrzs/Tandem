@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { WS_KEY } from "../App.js";
 import { trpc } from "../trpc.js";
 
 export function InviteAccept({ token }: { token: string }) {
@@ -13,7 +14,11 @@ export function InviteAccept({ token }: { token: string }) {
     // per-call onSuccess callbacks. A full navigation re-fetches everything.
     accept
       .mutateAsync({ token })
-      .then(() => window.location.assign("/"))
+      .then((ws) => {
+        // Land in the workspace that was just joined, not the previous one.
+        localStorage.setItem(WS_KEY, ws.id);
+        window.location.assign("/");
+      })
       .catch((e: { message?: string }) => setError(e.message ?? "Failed to join"));
   }, [token, accept]);
 

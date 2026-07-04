@@ -2,17 +2,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App.js";
 import { AuthGate } from "./components/AuthGate.js";
 import { ConsentScreen } from "./components/ConsentScreen.js";
+import { DocumentPage } from "./components/DocumentPage.js";
+import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
 import "./styles.css";
 
-// Routing for the no-router SPA: the wiki, the OAuth consent screen, or
-// resuming a pending authorize request after sign-in. AuthGate guarantees a
-// session before any of these render.
+// Auth-flow pages (OAuth consent, resume, invites) render outside the app
+// shell; everything else is the wiki behind the router. AuthGate guarantees a
+// session before any of it renders.
 function Routed() {
   if (window.location.pathname === "/invite") {
     const token = new URLSearchParams(window.location.search).get("token");
@@ -28,7 +31,17 @@ function Routed() {
     return <div className="empty">Continuing sign-in…</div>;
   }
 
-  return <App />;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<App />}>
+          <Route index element={<Home />} />
+          <Route path="d/:docId" element={<DocumentPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
 function Root() {
