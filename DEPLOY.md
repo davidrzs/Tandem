@@ -52,4 +52,6 @@ docker compose --env-file .env.deploy up -d --build
   release step, so multiple app instances are safe. Caddy can load-balance, but
   sticky sessions aren't required (Hocuspocus syncs via Redis).
 - **Backups:** Neon handles Postgres backups/branching. Document content lives
-  in `documents.ydoc_state` (+ derived `content_md`).
+  in `documents.ydoc_state` (+ derived `content_md`). Uploaded image bytes live
+  on the `uploads` Docker volume (`UPLOADS_DIR=/data/uploads`) — include that
+  volume in backups; it survives rebuilds/redeploys.

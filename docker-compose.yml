@@ -17,6 +17,10 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       WEB_ORIGIN: ${WEB_ORIGIN}
+      # Uploaded image bytes live on this volume so they survive rebuilds.
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
 
   # One-shot release step: `docker compose --profile release run --rm migrate`
   migrate:
@@ -44,3 +48,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  uploads:

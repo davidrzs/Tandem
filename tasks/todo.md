@@ -1,110 +1,86 @@
-# Tandem — Outline-like wiki with MCP server
+# Tandem build-out — living status
 
-Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Hocuspocus (Yjs) · MCP — one Node runtime, monorepo.
+Brief: authorship/blame, MCP targeted edits, TODOs + start page, finish core product UI,
+deploy fix, quality bars.
 
-## Dev + deployment
-- `make dev` -> migrate + `turbo run dev` (API :3001 + web :5173). `make help` lists targets; `make pg` for a prod-like Postgres.
-- Single deployable: Fastify serves the built web SPA (apps/web/dist) same-origin when present; Vite serves it in dev. Dockerfile (multi-stage) builds web + runs the one Node service.
-- Prod RLS: dropped FORCE (owner/SYSTEM bypasses; app_user still enforced) + GRANT app_user TO current_user, so it works with a non-superuser prod DB role.
-- Prod env: DATABASE_URL=postgres://…, BETTER_AUTH_SECRET, BETTER_AUTH_URL=public https origin, WEB_ORIGIN=same. Redis only when scaling >1 instance (Hocuspocus pub/sub).
+## Design decisions (settled)
 
-## Local dev DB: PGlite (Postgres-in-WASM), prod: Postgres
-- `createDatabase` branches on DATABASE_URL: `postgres://` -> real server (prod/CI); else PGlite in-process (dev, persisted to `<repo>/.pglite`; `memory://` for tests). Same SQL + tsvector FTS, full parity. No SQLite (would fork schema + search).
-- `pnpm db:migrate` runs the right migrator for the active driver. Tests use in-memory PGlite, migrated fresh — no external DB needed.
-- Scripts auto-load `.env` via `--env-file-if-exists`.
+- **Blame storage**: Y.Map `authors` inside each Y.Doc, keyed by Yjs clientID (string) →
+  `{ userId, name, ai: boolean, at: epoch-ms }`. Persisted automatically with `ydoc_state`.
+  Insert attribution = item.id.client → authors entry. No deletion attribution (not required).
+- **Why not PermanentUserData**: it tracks delete-sets we don't need and has no room for
+  ai-flag/timestamp; a plain map keyed by clientID is smaller and simpler.
+- **Server-side truthfulness**: clients never self-stamp. The Hocuspocus `onChange` hook
+  parses update metadata and stamps any unknown clientID with the *authenticated*
+  connection's user (never overwrites). Server-side edits run under a fresh clientID per
+  edit, stamped in the same transaction.
+- **One edit implementation**: `applyAttributedEdit` / `applyEditToState` in @tandem/editor.
+  updateYFragment structural diff = unchanged nodes keep CRDT identity and authorship.
+  Used by collab-writer (live docs) and core editBody (stdio fallback), so ydoc_state never
+  goes stale on either path.
+- **MCP tool surface**: edit_document (exact old_string→new_string, must match once),
+  insert_after_heading, replace_section (heading kept), append_section. update_document is
+  title-only — no full-body rewrite anywhere.
+- **Blame UI**: off by default; "Authors" toggle colours spans per author (subtle tints from
+  a deterministic hue hash shared with presence carets), hover card shows name/AI/time,
+  legend lists contributors. AI = dotted underline + small "AI" tag; no loud banners.
+- **TODO syntax**: `- [ ] @handle text` (handle = email local part or full email).
+  taskList/taskItem in the shared schema; canonical serializer emits `- [ ]` GitHub form;
+  parser upgrades all-task bullet lists. `/` slash menu has To-do list; `@` autocompletes
+  workspace members (plain-text mentions).
+- **Routing**: react-router-dom; `/` = start page (my TODOs), `/d/:docId` = document.
+- **publishedAt**: dropped (migration 0007) — publish flow out of scope.
+- **Lifecycle**: archive/restore/delete stamp the whole subtree (recursive CTE, RLS-scoped);
+  archived docs leave tree/search/todos; listArchived returns subtree roots.
+- **Search**: returns metadata + ts_headline snippet (chr2/chr3 delimiters), never body/binary.
 
-## Architecture invariants (do not violate)
-- One shared domain layer (`packages/core`). Web API + MCP + Hocuspocus persistence all call it. No duplicated doc logic.
-- Yjs is the live WRITE model; markdown (`content_md`) is the derived READ model.
-- All writes (human + agent/MCP) funnel through the same Y.Doc via Hocuspocus `openDirectConnection`. Single write path.
-- Self-host the Yjs tier in the same Node runtime as core + MCP.
+## Done (all verified by tests)
 
-## Phase 0 — Foundation (DONE)
-- [x] Toolchain: pnpm, podman Postgres 18, git
-- [x] Monorepo: pnpm workspaces + turbo + shared tsconfig
-- [x] `packages/db`: Drizzle schema (collections, documents w/ parent_id, ydoc_state bytea, content_md/json, tsvector search) + migrations applied
-- [x] `packages/core`: DocumentService + CollectionService + markdown<->prosemirror serialization + search, framework-agnostic
-- [x] Unit tests proving CRUD + tree + search against real Postgres (2/2 pass, typecheck clean)
+- [x] Phase 0: baseline green; uploads volume + UPLOADS_DIR in docker-compose (+DEPLOY.md)
+- [x] Phase 1: authorship foundation — editor pkg (authors map, attributed edits, blame
+      spans, markdown ops), core (seeded creation, editBody, canWrite/system, loud
+      saveCollabSnapshot), server (attributed collab-writer w/ permission gate, onChange
+      stamping, UNKNOWN legacy seeds), MCP targeted edit tools + permission errors
+- [x] Phase 2: blame UI (toggle/legend/hover), presence (CollaborationCursor + peer dots),
+      real sync status (provider status/synced), workspaces.members endpoint
+- [x] Phase 3: task lists in schema + markdown round-trip; TODO aggregation (listMyTodos,
+      RLS-scoped, archived excluded); start page; react-router deep links
+- [x] Phase 4: search UI (Cmd+K modal, snippets); doc lifecycle UI (archive/restore/delete,
+      archived section, DnD reparent + reorder); collection rename/delete (owner/admin);
+      sharing UI (default role, user/group grants, revoke); People modal (member list,
+      invites w/ role+expiry, group management incl. removeMember/delete); error boundary +
+      query error states everywhere
+- [x] Phase 5 (partial): published_at dropped; RLS functions honour collections.deleted_at;
+      renderMarkdown/defaultWorkspaceId deleted; every service method wired; tRPC
+      documents.get (binary-shipping, unused) removed; search slimmed
+- [x] E2E suite (Playwright, real server, in-memory DB): full journey, tenant isolation,
+      two-user invite/presence/blame/read-only/group-grant — 3 specs green
+- [x] Unit/integration: 50 tests green (editor 28, core 12, server 10); typecheck 5/5
 
-## Phase 1 — MCP server (stdio) (DONE except block-scoped tools)
-- [x] `apps/server` package (Fastify lands in Phase 2)
-- [x] MCP server over core: list_collections, create_collection, list_documents, get_document, search_documents, create_document, update_document, move_document, archive_document (9 tools)
-- [x] stdio entry (`mcp-stdio.ts`), `.mcp.json` for Claude Code registration
-- [x] Verified: 3/3 in-memory client tests + live stdio JSON-RPC handshake, typecheck clean
-- [ ] Block-scoped write tools (append_section, replace_block, insert_after_heading) — deferred to land with Y.Doc write path in Phase 3
+## Reviews (fresh-context subagents) — done, findings addressed
 
-## Phase 2 — Editor UI (DONE except slash menu)
-- [x] tRPC API in Fastify (`apps/server`: trpc.ts router + http.ts + serve.ts), CORS, /health
-- [x] `apps/web` Vite+React+TipTap: collections + nested doc-tree sidebar, create collection/doc
-- [x] Editor: TipTap StarterKit + tiptap-markdown, title input, debounced autosave, markdown input rules
-- [x] Markdown I/O: client serializes via tiptap-markdown; server stores via core; markdown is the interchange
-- [x] Verified: typecheck (4 pkgs) + unit tests (5) + production build + Playwright browser e2e (create->type->autosave->reload->persisted, heading round-trips to <h1>)
-- [ ] Dedicated slash (/) command menu — markdown input rules cover formatting now; slash menu is polish
+Security review: RLS/actor model, images access, XSS sinks, MCP gating all
+confirmed SOLID. Findings fixed:
+- HIGH: SVG upload stored-XSS → SVG rejected at upload; /api/images/:id now
+  sends nosniff + Content-Disposition: attachment + sandbox CSP.
+- MEDIUM: blame forgery by writable collaborators → self-forging sessions are
+  corrected server-side (sanitizeClientAuthorsWrites, connection-origin only);
+  residual risk documented honestly in README ("Honest limits").
+- LOW: create() now validates parentDocumentId is in the same collection;
+  grants/group-members validate the principal belongs to the workspace.
+- INFO: image tmp-file cleanup + non-UUID id → 404.
 
-## Auth — Better Auth (secure-by-default, self-hosted) (DONE)
-- [x] Server uses ONE shared db instance (PGlite = single connection) -> services + auth
-- [x] `apps/server/src/auth.ts`: betterAuth + drizzleAdapter(db,{provider:'pg'}), emailAndPassword
-- [x] Better Auth tables generated (`@better-auth/cli`) into `packages/db/src/auth-schema.ts`; migration 0001 applied
-- [x] `/api/auth/*` mounted on Fastify; tRPC context reads session -> ctx.user; `protectedProcedure`
-- [x] Write procedures gated (collections.create, documents.create/update/move/archive); reads public for now
-- [x] Web: better-auth/react client + AuthGate (sign-in/sign-up); same-origin cookies via vite proxy
-- [x] Verified: curl signup + unauth mutation 401 + authed mutation OK + public query; browser e2e signs up then edits; session persists across reload
-- Env: BETTER_AUTH_SECRET, BETTER_AUTH_URL, WEB_ORIGIN. Dev auth via vite proxy (/api/auth -> :3001) = same-origin cookies.
-- drizzle-kit can't rewrite .js->.ts across files, so config lists both schema files and index.ts merges app+auth schema at runtime.
-- Deferred: authorization model (ownership/teams columns + Postgres RLS), MCP HTTP OAuth — land with Phase 3.
+Brief compliance: PASS on all six areas. Gaps fixed: dead CollectionService.get
+deleted; tRPC documents.update maps RLS-null to FORBIDDEN; stdio-MCP
+attribution exception documented in README; DnD now e2e-covered.
 
-## Phase 3 — Realtime + remote (3a-3d DONE)
-- [x] 3a. `packages/editor`: shared TipTap StarterKit extension list + getSchema() (one ProseMirror schema for client + server) + markdown serializer/parser. 3/3 round-trip tests.
-- [x] 3b. core markdown re-exports @tandem/editor (server-derived markdown == editor output)
-- [x] 3c. Hocuspocus v4 in Fastify (/collab via @fastify/websocket); onAuthenticate (Better Auth cookie on handshake), onLoadDocument (hydrate from ydoc_state else seed from content_md), onStoreDocument (persist ydoc_state + derive content_md/json). Verified via direct-connection server test.
-- [x] 3d. Client editor -> collab: @tiptap/extension-collaboration (v2) + HocuspocusProvider; body via Yjs, title via tRPC. Provider lifecycle in useEffect (StrictMode-safe). Two-browser e2e proves bidirectional live sync; single-client e2e proves persistence across reload.
-- [x] 3e. MCP uniform write path: collab-writer.ts (replaceBody/appendSection via openDirectConnection); update_document body + new append_section route through the live Y.Doc. MCP-over-HTTP mounted in Fastify (/mcp, stateless, shares hocuspocus+writer; optional MCP_TOKEN bearer; OAuth still TODO). Verified by in-process MCP test (write -> live Y.Doc) + HTTP MCP client smoke.
-- [x] e2e isolation: run.sh uses a fresh .pglite-e2e DB per run -> deterministic (fixed the two-client navigation flake at root). smoke + collab both stable (6/6).
-- [x] MCP OAuth: Better Auth mcp() plugin (OAuth 2.1 provider — discovery, dynamic client registration, token issuance). /mcp gated by auth.api.getMcpSession (401 + WWW-Authenticate resource-metadata challenge). Root /.well-known/oauth-{authorization-server,protected-resource}. Tables oauth_application/access_token/consent (migration 0002). Verified: metadata + 401 challenge + DCR. NOTE: interactive consent UI is a frontend follow-up; OAuth-capable clients (Claude Code) drive the full flow.
-- [x] Slash (/) command menu in the editor (client-only): @tiptap/suggestion + tippy; headings, lists, code, quote, divider. Verified by e2e.
-- [x] OAuth consent UI: consentPage "/oauth/consent" + SPA ConsentScreen (Allow/Deny -> POST /oauth2/consent -> navigate to redirectURI); login-resume re-navigates to /api/auth/mcp/authorize after sign-in (no router). Vite proxies /mcp + /.well-known. Fastify form-body parser + content-type-aware request bridge (OAuth token endpoint is form-encoded). Verified: full server flow (DCR->PKCE->consent->token->authed /mcp) + browser consent-screen e2e.
-## Workspaces + RLS (DONE) — foundation + RLS backstop
-- [x] Schema: workspaces, workspace_members, collections.workspace_id (+ slug unique per workspace), documents.workspace_id (denormalized)
-- [x] Migration 0003 + raw RLS SQL: app_user role, SECURITY DEFINER app_current_workspaces() (no self-recursion), ENABLE+FORCE RLS + policies (workspaces/members read; collections/documents ALL with WITH CHECK), grants
-- [x] db: Actor type + runAsActor (tx -> SET LOCAL ROLE app_user + set_config app.user_id); SYSTEM = base superuser conn (bypasses RLS)
-- [x] Services actor-aware (WorkspaceService added); collection.create resolves the actor's workspace; document.create inherits workspace from the collection; reads RLS-scoped
-- [x] Signup hook (databaseHooks.user.create.after) provisions a personal workspace + owner membership
-- [x] Wired: tRPC (all procedures protected, ctx user actor), HTTP MCP (token.userId actor + per-user collab writer), collab (onAuthenticate userId -> per-connection actor). stdio MCP = system. Public reads dropped.
-- [x] Verified: core tenant-isolation test (u2 can't see/fetch/search/write u1's data); 5 server tests; OAuth flow; all 4 browser e2e (collab now same-user two-client). Note: cross-user collab needs sharing (below).
-## Sharing (DONE: S1 + S2)
-### S1 — invites + multi-workspace
-- [x] workspace_invites; WorkspaceService create/createInvite/acceptInvite; tRPC; workspace switcher + invite link + /invite accept route. Cross-user collab e2e.
-### S2 — groups + per-collection ACLs + read-only
-- [x] groups, group_members, collection_permissions, collections.default_role (migration 0005)
-- [x] RLS: app_can_read_collection/app_can_write_collection (row-arg, so INSERT..RETURNING works) for collections; app_readable/writable_collections for documents; per-command policies
-- [x] CollectionService: setDefaultRole/grant/revoke/listPermissions (owner/admin only), list returns `writable`; GroupService; DocumentService.canWrite
-- [x] tRPC: collections.setDefaultRole/grant/revoke/permissions, groups.create/list/addMember
-- [x] read-only: editor editable=canWrite (+ "Read only" badge); collab onAuthenticate sets connection readOnly; RLS WITH CHECK blocks unauthorized persistence
-- [x] UI: per-collection access dropdown (none/read/read_write)
-- [x] Verified: core ACL test (default none hides; read = view-not-edit; read_write edits; group grant propagates); read-only browser e2e; all suites green
-- [ ] LATER: sharing UI for user/group grant pickers (backend+tRPC ready); public document share links (S3); Redis pub/sub when scaling out
-- Gotchas recorded: y-prosemirror fragment defaults to 'prosemirror' but TipTap Collaboration to 'default' -> pinned 'default' everywhere. @tiptap/extension-collaboration pinned v2 to match StarterKit v2. Provider must be created in an effect, not useState (StrictMode destroys it otherwise).
-- Invariant: Yjs = live write model; markdown = derived read model; ONE write path.
+## Status log
 
-## Review
-### Phase 0 (complete)
-- Monorepo: pnpm workspaces + turbo, shared strict tsconfig. Packages: `@tandem/db`, `@tandem/core`.
-- DB: Postgres 18 in podman (`tandem-pg`), Drizzle schema migrated. `ydoc_state bytea` reserved for the Yjs write model from day one; generated `tsvector` STORED column + GIN index for FTS.
-- Core: `CollectionService`, `DocumentService` (CRUD, tree via recursive parent_id, fractional position, FTS via `websearch_to_tsquery`+`ts_rank`), markdown<->JSON serialization on prosemirror-markdown's schema (TipTap will align to it).
-- Verified: 2/2 node:test cases green against real Postgres; both packages typecheck clean.
-- Invariant honored: web/MCP/Hocuspocus will all call this one core. Markdown = derived read model; service writes derive content_md+content_json. Y.Doc write path lands in Phase 3 without schema change.
-- Not committed yet (git initialized; awaiting go-ahead).
-
-### Phase 1 (complete)
-- `apps/server` (`@tandem/server`): MCP server (`@modelcontextprotocol/sdk`) over the shared core. 9 tools, all delegating to `DocumentService`/`CollectionService` — zero doc logic in the MCP layer (invariant honored).
-- Entry: `src/mcp-stdio.ts` (stdio transport). `createMcpServer(services)` is transport-agnostic so the HTTP/SSE transport drops in at Phase 3.
-- `.mcp.json` at repo root registers it for Claude Code as `tandem`.
-- Verified: 3/3 in-memory `Client` tests (tool list, full create→get→search→update→tree lifecycle, error path) + live stdio JSON-RPC handshake advertising all 9 tools. Typecheck clean.
-- Deferred deliberately: block-scoped write tools — they belong with the Y.Doc write path (Phase 3) so agent edits funnel through the single write path rather than full-body replace.
-
-### Phase 2 (complete)
-- API: `apps/server` now also hosts a tRPC router (collections + documents) on Fastify (`serve.ts`, port 3001). Same `createServices` as MCP — one core, two adapters. The MCP server and tRPC API expose the same operations.
-- Web: `apps/web` Vite + React 18 + TipTap (StarterKit + tiptap-markdown). Outline-style two-pane layout: sidebar with collections + recursive document tree, main editor pane. Debounced autosave (title 500ms, body 700ms); markdown is the client<->server interchange.
-- Decision recorded: markdown is the interchange format between editor and server (sidesteps TipTap-vs-prosemirror-markdown schema mismatch). content_json stays a server-side normalized cache; Phase 3's Yjs hook will rewrite it in TipTap-schema JSON. A single shared ProseMirror schema (TipTap + server) is the Phase 3 prerequisite for y-prosemirror conversions.
-- Verified: all 4 packages typecheck; 5 unit/integration tests pass; web production build succeeds; Playwright browser e2e proves the full UI->tRPC->core->Postgres loop persists across reload and markdown round-trips (heading -> <h1>).
-- Dev: `pnpm --filter @tandem/server dev` (API) + `pnpm --filter @tandem/web dev` (UI on :5173, proxies /trpc). e2e: `bash apps/web/e2e/run.sh`.
+- Repo mapped; plan written.
+- Phase 0+1 done: attribution model implemented and tested end-to-end.
+- Phases 2–4 backend + full web UI rebuilt on react-router.
+- E2E suite added (4 specs: journey, isolation, two-user collab/ACL, DnD).
+- Deploy fix + DEPLOY.md note; dead code removed; published_at migration shipped.
+- README written (product identity, task syntax, blame model + honest limits).
+- Security + compliance reviews done; all findings addressed.
+- FINAL: 54 unit/integration tests, typecheck 5/5, web build, 4/4 e2e — all green.
