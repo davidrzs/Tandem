@@ -23,16 +23,16 @@ reset-db: ## Wipe and recreate the local PGlite dev database
 	rm -rf .pglite && pnpm db:migrate
 
 build: ## Production build (web bundle + typecheck)
-	pnpm -r typecheck && pnpm --filter @realtime/web build
+	pnpm -r typecheck && pnpm --filter @tandem/web build
 
 test: .env migrate ## Run unit/integration tests
-	pnpm --filter @realtime/editor --filter @realtime/core --filter @realtime/server test
+	pnpm --filter @tandem/editor --filter @tandem/core --filter @tandem/server test
 
 e2e: ## Run a browser e2e (usage: make e2e T=collab) — default smoke
 	bash apps/web/e2e/run.sh $(or $(T),smoke)
 
 pg: ## Start a local Postgres 18 (podman) for prod-like testing
-	podman start realtime-pg 2>/dev/null || \
-	  podman run -d --name realtime-pg -e POSTGRES_PASSWORD=postgres \
-	    -e POSTGRES_USER=postgres -e POSTGRES_DB=realtime -p 5432:5432 \
+	podman start tandem-pg 2>/dev/null || \
+	  podman run -d --name tandem-pg -e POSTGRES_PASSWORD=postgres \
+	    -e POSTGRES_USER=postgres -e POSTGRES_DB=tandem -p 5432:5432 \
 	    docker.io/library/postgres:18

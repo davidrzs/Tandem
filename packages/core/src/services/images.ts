@@ -6,7 +6,7 @@ import {
   type Actor,
   type Database,
   type Image,
-} from "@realtime/db";
+} from "@tandem/db";
 
 export class ImageService {
   constructor(

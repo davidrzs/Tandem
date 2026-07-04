@@ -1,5 +1,5 @@
 {
-  "name": "@realtime/core",
+  "name": "@tandem/core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@realtime/db": "workspace:*",
-    "@realtime/editor": "workspace:*",
+    "@tandem/db": "workspace:*",
+    "@tandem/editor": "workspace:*",
     "drizzle-orm": "^0.38.3"
   },
   "devDependencies": {

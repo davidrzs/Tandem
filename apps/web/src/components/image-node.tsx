@@ -1,4 +1,4 @@
-import { Image } from "@realtime/editor";
+import { Image } from "@tandem/editor";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,

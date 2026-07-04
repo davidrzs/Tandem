@@ -1,4 +1,4 @@
-# Realtime — Outline-like wiki with MCP server
+# Tandem — Outline-like wiki with MCP server
 
 Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Hocuspocus (Yjs) · MCP — one Node runtime, monorepo.
 
@@ -55,7 +55,7 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 
 ## Phase 3 — Realtime + remote (3a-3d DONE)
 - [x] 3a. `packages/editor`: shared TipTap StarterKit extension list + getSchema() (one ProseMirror schema for client + server) + markdown serializer/parser. 3/3 round-trip tests.
-- [x] 3b. core markdown re-exports @realtime/editor (server-derived markdown == editor output)
+- [x] 3b. core markdown re-exports @tandem/editor (server-derived markdown == editor output)
 - [x] 3c. Hocuspocus v4 in Fastify (/collab via @fastify/websocket); onAuthenticate (Better Auth cookie on handshake), onLoadDocument (hydrate from ydoc_state else seed from content_md), onStoreDocument (persist ydoc_state + derive content_md/json). Verified via direct-connection server test.
 - [x] 3d. Client editor -> collab: @tiptap/extension-collaboration (v2) + HocuspocusProvider; body via Yjs, title via tRPC. Provider lifecycle in useEffect (StrictMode-safe). Two-browser e2e proves bidirectional live sync; single-client e2e proves persistence across reload.
 - [x] 3e. MCP uniform write path: collab-writer.ts (replaceBody/appendSection via openDirectConnection); update_document body + new append_section route through the live Y.Doc. MCP-over-HTTP mounted in Fastify (/mcp, stateless, shares hocuspocus+writer; optional MCP_TOKEN bearer; OAuth still TODO). Verified by in-process MCP test (write -> live Y.Doc) + HTTP MCP client smoke.
@@ -88,17 +88,17 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 
 ## Review
 ### Phase 0 (complete)
-- Monorepo: pnpm workspaces + turbo, shared strict tsconfig. Packages: `@realtime/db`, `@realtime/core`.
-- DB: Postgres 18 in podman (`realtime-pg`), Drizzle schema migrated. `ydoc_state bytea` reserved for the Yjs write model from day one; generated `tsvector` STORED column + GIN index for FTS.
+- Monorepo: pnpm workspaces + turbo, shared strict tsconfig. Packages: `@tandem/db`, `@tandem/core`.
+- DB: Postgres 18 in podman (`tandem-pg`), Drizzle schema migrated. `ydoc_state bytea` reserved for the Yjs write model from day one; generated `tsvector` STORED column + GIN index for FTS.
 - Core: `CollectionService`, `DocumentService` (CRUD, tree via recursive parent_id, fractional position, FTS via `websearch_to_tsquery`+`ts_rank`), markdown<->JSON serialization on prosemirror-markdown's schema (TipTap will align to it).
 - Verified: 2/2 node:test cases green against real Postgres; both packages typecheck clean.
 - Invariant honored: web/MCP/Hocuspocus will all call this one core. Markdown = derived read model; service writes derive content_md+content_json. Y.Doc write path lands in Phase 3 without schema change.
 - Not committed yet (git initialized; awaiting go-ahead).
 
 ### Phase 1 (complete)
-- `apps/server` (`@realtime/server`): MCP server (`@modelcontextprotocol/sdk`) over the shared core. 9 tools, all delegating to `DocumentService`/`CollectionService` — zero doc logic in the MCP layer (invariant honored).
+- `apps/server` (`@tandem/server`): MCP server (`@modelcontextprotocol/sdk`) over the shared core. 9 tools, all delegating to `DocumentService`/`CollectionService` — zero doc logic in the MCP layer (invariant honored).
 - Entry: `src/mcp-stdio.ts` (stdio transport). `createMcpServer(services)` is transport-agnostic so the HTTP/SSE transport drops in at Phase 3.
-- `.mcp.json` at repo root registers it for Claude Code as `realtime-wiki`.
+- `.mcp.json` at repo root registers it for Claude Code as `tandem`.
 - Verified: 3/3 in-memory `Client` tests (tool list, full create→get→search→update→tree lifecycle, error path) + live stdio JSON-RPC handshake advertising all 9 tools. Typecheck clean.
 - Deferred deliberately: block-scoped write tools — they belong with the Y.Doc write path (Phase 3) so agent edits funnel through the single write path rather than full-body replace.
 
@@ -107,4 +107,4 @@ Stack A: Vite+React+TipTap (web) · Fastify+tRPC (api) · Postgres+Drizzle · Ho
 - Web: `apps/web` Vite + React 18 + TipTap (StarterKit + tiptap-markdown). Outline-style two-pane layout: sidebar with collections + recursive document tree, main editor pane. Debounced autosave (title 500ms, body 700ms); markdown is the client<->server interchange.
 - Decision recorded: markdown is the interchange format between editor and server (sidesteps TipTap-vs-prosemirror-markdown schema mismatch). content_json stays a server-side normalized cache; Phase 3's Yjs hook will rewrite it in TipTap-schema JSON. A single shared ProseMirror schema (TipTap + server) is the Phase 3 prerequisite for y-prosemirror conversions.
 - Verified: all 4 packages typecheck; 5 unit/integration tests pass; web production build succeeds; Playwright browser e2e proves the full UI->tRPC->core->Postgres loop persists across reload and markdown round-trips (heading -> <h1>).
-- Dev: `pnpm --filter @realtime/server dev` (API) + `pnpm --filter @realtime/web dev` (UI on :5173, proxies /trpc). e2e: `bash apps/web/e2e/run.sh`.
+- Dev: `pnpm --filter @tandem/server dev` (API) + `pnpm --filter @tandem/web dev` (UI on :5173, proxies /trpc). e2e: `bash apps/web/e2e/run.sh`.

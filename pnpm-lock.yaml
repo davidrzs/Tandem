@@ -44,13 +44,13 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.13.0
         version: 1.29.0(zod@3.25.76)
-      '@realtime/core':
+      '@tandem/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@realtime/db':
+      '@tandem/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@realtime/editor':
+      '@tandem/editor':
         specifier: workspace:*
         version: link:../../packages/editor
       '@trpc/server':
@@ -87,10 +87,10 @@ importers:
       '@hocuspocus/provider':
         specifier: ^4.3.0
         version: 4.3.0(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
-      '@realtime/editor':
+      '@tandem/editor':
         specifier: workspace:*
         version: link:../../packages/editor
-      '@realtime/server':
+      '@tandem/server':
         specifier: workspace:*
         version: link:../server
       '@tanstack/react-query':
@@ -163,10 +163,10 @@ importers:
 
   packages/core:
     dependencies:
-      '@realtime/db':
+      '@tandem/db':
         specifier: workspace:*
         version: link:../db
-      '@realtime/editor':
+      '@tandem/editor':
         specifier: workspace:*
         version: link:../editor
       drizzle-orm:

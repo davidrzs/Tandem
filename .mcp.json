@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "realtime-wiki": {
+    "tandem": {
       "command": "pnpm",
-      "args": ["--filter", "@realtime/server", "exec", "node", "--import", "tsx", "src/mcp-stdio.ts"],
+      "args": ["--filter", "@tandem/server", "exec", "node", "--import", "tsx", "src/mcp-stdio.ts"],
       "env": {
-        "DATABASE_URL": "postgres://postgres:postgres@localhost:5432/realtime"
+        "DATABASE_URL": "postgres://postgres:postgres@localhost:5432/tandem"
       }
     }
   }

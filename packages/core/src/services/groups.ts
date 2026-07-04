@@ -8,7 +8,7 @@ import {
   type Actor,
   type Database,
   type Group,
-} from "@realtime/db";
+} from "@tandem/db";
 
 export class GroupService {
   constructor(

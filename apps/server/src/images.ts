@@ -5,7 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { fromNodeHeaders } from "better-auth/node";
-import type { Database } from "@realtime/db";
+import type { Database } from "@tandem/db";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Auth } from "./auth.js";
 import { createServices } from "./services.js";

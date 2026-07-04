@@ -10,7 +10,7 @@ import {
   type Database,
   type Workspace,
   type WorkspaceMember,
-} from "@realtime/db";
+} from "@tandem/db";
 
 export class WorkspaceService {
   constructor(

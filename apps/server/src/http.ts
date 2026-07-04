@@ -10,7 +10,7 @@ import {
   fastifyTRPCPlugin,
 } from "@trpc/server/adapters/fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createDatabase, type Actor } from "@realtime/db";
+import { createDatabase, type Actor } from "@tandem/db";
 import { fromNodeHeaders } from "better-auth/node";
 import {
   oAuthDiscoveryMetadata,

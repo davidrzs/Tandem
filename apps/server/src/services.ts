@@ -1,11 +1,11 @@
-import { createDatabase, SYSTEM, type Actor, type Database } from "@realtime/db";
+import { createDatabase, SYSTEM, type Actor, type Database } from "@tandem/db";
 import {
   CollectionService,
   DocumentService,
   GroupService,
   ImageService,
   WorkspaceService,
-} from "@realtime/core";
+} from "@tandem/core";
 
 export interface Services {
   db: Database;

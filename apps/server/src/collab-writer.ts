@@ -1,4 +1,4 @@
-import { COLLAB_FIELD, markdownToJSON, schema } from "@realtime/editor";
+import { COLLAB_FIELD, markdownToJSON, schema } from "@tandem/editor";
 import { updateYFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type { Hocuspocus } from "@hocuspocus/server";
 

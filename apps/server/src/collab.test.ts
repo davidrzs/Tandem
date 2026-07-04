@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createDatabase, migrateDatabase, SYSTEM } from "@realtime/db";
-import { COLLAB_FIELD, markdownToJSON, schema } from "@realtime/editor";
-import { CollectionService, DocumentService, WorkspaceService } from "@realtime/core";
+import { createDatabase, migrateDatabase, SYSTEM } from "@tandem/db";
+import { COLLAB_FIELD, markdownToJSON, schema } from "@tandem/editor";
+import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
 import { prosemirrorJSONToYXmlFragment } from "y-prosemirror";
 import { createAuth } from "./auth.js";
 import { createHocuspocus } from "./collab.js";

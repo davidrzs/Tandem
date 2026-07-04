@@ -8,7 +8,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // stdio transport keeps the process alive; log to stderr so stdout stays clean.
-  process.stderr.write("realtime-wiki MCP server listening on stdio\n");
+  process.stderr.write("tandem MCP server listening on stdio\n");
 }
 
 main().catch((err) => {

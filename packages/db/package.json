@@ -1,5 +1,5 @@
 {
-  "name": "@realtime/db",
+  "name": "@tandem/db",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -1,8 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { mcp } from "better-auth/plugins";
-import { SYSTEM, type Database } from "@realtime/db";
-import { WorkspaceService } from "@realtime/core";
+import { SYSTEM, type Database } from "@tandem/db";
+import { WorkspaceService } from "@tandem/core";
 
 export type Auth = ReturnType<typeof createAuth>;
 

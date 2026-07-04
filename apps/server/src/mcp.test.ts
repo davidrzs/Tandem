@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase, migrateDatabase, SYSTEM } from "@realtime/db";
-import { WorkspaceService } from "@realtime/core";
+import { createDatabase, migrateDatabase, SYSTEM } from "@tandem/db";
+import { WorkspaceService } from "@tandem/core";
 import { createServices } from "./services.js";
 import { createMcpServer } from "./mcp.js";
 

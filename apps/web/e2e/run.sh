@@ -10,11 +10,11 @@ set -a; . ./.env; set +a
 # we invoke node directly (not the *:env-file* scripts) so .env can't override.
 export DATABASE_URL="pglite://.pglite-e2e"
 rm -rf "$ROOT/.pglite-e2e"
-pnpm --filter @realtime/db exec node --import tsx src/migrate-run.ts >/tmp/rt-migrate.log 2>&1
+pnpm --filter @tandem/db exec node --import tsx src/migrate-run.ts >/tmp/rt-migrate.log 2>&1
 
-PORT=3001 pnpm --filter @realtime/server exec node --import tsx src/serve.ts >/tmp/rt-http.log 2>&1 &
+PORT=3001 pnpm --filter @tandem/server exec node --import tsx src/serve.ts >/tmp/rt-http.log 2>&1 &
 SRV=$!
-pnpm --filter @realtime/web exec vite --port 5173 >/tmp/rt-vite.log 2>&1 &
+pnpm --filter @tandem/web exec vite --port 5173 >/tmp/rt-vite.log 2>&1 &
 WEB=$!
 trap 'kill $SRV $WEB 2>/dev/null || true' EXIT
 

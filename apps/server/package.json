@@ -1,5 +1,5 @@
 {
-  "name": "@realtime/server",
+  "name": "@tandem/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "./trpc": "./src/trpc.ts"
   },
   "bin": {
-    "realtime-mcp": "./src/mcp-stdio.ts"
+    "tandem-mcp": "./src/mcp-stdio.ts"
   },
   "scripts": {
     "mcp": "node --env-file-if-exists=../../.env --import tsx src/mcp-stdio.ts",
@@ -24,9 +24,9 @@
     "@fastify/websocket": "^11.2.0",
     "@hocuspocus/server": "^4.3.0",
     "@modelcontextprotocol/sdk": "^1.13.0",
-    "@realtime/core": "workspace:*",
-    "@realtime/db": "workspace:*",
-    "@realtime/editor": "workspace:*",
+    "@tandem/core": "workspace:*",
+    "@tandem/db": "workspace:*",
+    "@tandem/editor": "workspace:*",
     "@trpc/server": "^11.0.0",
     "better-auth": "^1.6.20",
     "drizzle-orm": "^0.38.3",

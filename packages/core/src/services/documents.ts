@@ -7,7 +7,7 @@ import {
   type Actor,
   type Database,
   type Document,
-} from "@realtime/db";
+} from "@tandem/db";
 import { jsonToMarkdown, markdownToJSON } from "../markdown.js";
 
 export interface CreateDocumentInput {

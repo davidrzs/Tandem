@@ -1,6 +1,6 @@
 import { Hocuspocus } from "@hocuspocus/server";
-import type { Database } from "@realtime/db";
-import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, schema } from "@realtime/editor";
+import type { Database } from "@tandem/db";
+import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, schema } from "@tandem/editor";
 import {
   prosemirrorJSONToYDoc,
   yXmlFragmentToProsemirrorJSON,

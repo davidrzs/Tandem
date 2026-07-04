@@ -10,7 +10,7 @@ import {
   type Collection,
   type CollectionPermission,
   type Database,
-} from "@realtime/db";
+} from "@tandem/db";
 
 export interface CreateCollectionInput {
   name: string;

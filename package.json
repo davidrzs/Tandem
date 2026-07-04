@@ -1,5 +1,5 @@
 {
-  "name": "realtime",
+  "name": "tandem",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.8.0",
@@ -11,9 +11,9 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "db:generate": "pnpm --filter @realtime/db generate",
-    "db:migrate": "pnpm --filter @realtime/db migrate",
-    "db:push": "pnpm --filter @realtime/db push"
+    "db:generate": "pnpm --filter @tandem/db generate",
+    "db:migrate": "pnpm --filter @tandem/db migrate",
+    "db:push": "pnpm --filter @tandem/db push"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

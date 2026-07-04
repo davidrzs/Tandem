@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createDatabase, migrateDatabase, SYSTEM, type Actor } from "@realtime/db";
+import { createDatabase, migrateDatabase, SYSTEM, type Actor } from "@tandem/db";
 import { CollectionService } from "./services/collections.js";
 import { DocumentService } from "./services/documents.js";
 import { GroupService } from "./services/groups.js";

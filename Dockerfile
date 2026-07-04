@@ -9,7 +9,7 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json tsconfig.base.js
 COPY packages ./packages
 COPY apps ./apps
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @realtime/web build
+RUN pnpm --filter @tandem/web build
 
 FROM base AS runtime
 ENV NODE_ENV=production
@@ -18,4 +18,4 @@ COPY --from=build /app /app
 EXPOSE 3001
 # Migrations run as a separate release step (see docker-compose `migrate`
 # service / DEPLOY.md), not on start — safe for multiple instances.
-CMD ["pnpm", "--filter", "@realtime/server", "exec", "node", "--import", "tsx", "src/serve.ts"]
+CMD ["pnpm", "--filter", "@tandem/server", "exec", "node", "--import", "tsx", "src/serve.ts"]

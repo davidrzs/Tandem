@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { DocumentMeta } from "@realtime/core";
+import type { DocumentMeta } from "@tandem/core";
 import type { CollabWriter } from "./collab-writer.js";
 import type { Services } from "./services.js";
 
@@ -32,7 +32,7 @@ function notFound(what: string) {
  */
 export function createMcpServer(services: Services, writer?: CollabWriter): McpServer {
   const { documents, collections } = services;
-  const server = new McpServer({ name: "realtime-wiki", version: "0.1.0" });
+  const server = new McpServer({ name: "tandem", version: "0.1.0" });
 
   server.registerTool(
     "list_collections",

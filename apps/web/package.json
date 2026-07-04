@@ -1,5 +1,5 @@
 {
-  "name": "@realtime/web",
+  "name": "@tandem/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@hocuspocus/provider": "^4.3.0",
-    "@realtime/server": "workspace:*",
+    "@tandem/server": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "@tiptap/core": "^2.27.2",
     "@tiptap/extension-collaboration": "^2.27.2",
@@ -29,7 +29,7 @@
     "tippy.js": "^6.3.7",
     "tiptap-markdown": "^0.8.10",
     "yjs": "^13.6.31",
-    "@realtime/editor": "workspace:*"
+    "@tandem/editor": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.17",
