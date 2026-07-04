@@ -89,3 +89,34 @@ test("JSON <-> markdown is stable (idempotent)", () => {
   const twice = jsonToMarkdown(markdownToJSON(once));
   assert.equal(once, twice);
 });
+
+test("task lists round-trip as GitHub-style checkboxes", () => {
+  const md = "- [ ] @alice ship the thing\n- [x] done item with **bold**";
+  const roundTripped = normalizeMarkdown(md);
+  assert.equal(roundTripped, md);
+  // And the JSON carries real taskItem nodes with checked state.
+  const json = markdownToJSON(md) as {
+    content: Array<{ type: string; content: Array<{ type: string; attrs: { checked: boolean } }> }>;
+  };
+  assert.equal(json.content[0]!.type, "taskList");
+  assert.equal(json.content[0]!.content[0]!.type, "taskItem");
+  assert.equal(json.content[0]!.content[0]!.attrs.checked, false);
+  assert.equal(json.content[0]!.content[1]!.attrs.checked, true);
+});
+
+test("a mixed list is NOT a task list; markers stay literal", () => {
+  const md = "* [x] looks like a task\n* but this is not";
+  const json = markdownToJSON(md) as { content: Array<{ type: string }> };
+  assert.equal(json.content[0]!.type, "bulletList");
+  // The marker survives as (escaped) literal text, not as a checkbox.
+  assert.match(normalizeMarkdown(md), /looks like a task/);
+  assert.equal(normalizeMarkdown(normalizeMarkdown(md)), normalizeMarkdown(md));
+});
+
+test("nested task lists round-trip", () => {
+  const md = "- [ ] parent task\n\n  - [ ] child task";
+  const normalized = normalizeMarkdown(md);
+  assert.match(normalized, /- \[ \] parent task/);
+  assert.match(normalized, /- \[ \] child task/);
+  assert.equal(normalizeMarkdown(normalized), normalized, "stable after one pass");
+});

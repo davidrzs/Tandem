@@ -46,26 +46,32 @@ export async function registerImageRoutes(app: FastifyInstance, db: Database, au
 
     const file = await req.file({ limits: { fileSize: MAX_BYTES } });
     if (!file) return reply.code(400).send({ error: "no file" });
-    if (!file.mimetype.startsWith("image/")) {
-      return reply.code(415).send({ error: "not an image" });
+    // SVG is a script container, not a picture — served same-origin it could
+    // run in the app's session. Raster formats only.
+    if (!file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
+      return reply.code(415).send({ error: "not a supported image type" });
     }
 
     // Stream to a temp file, then commit under the DB-assigned id.
     const tmp = join(dir, `tmp-${randomUUID()}`);
-    await pipeline(file.file, createWriteStream(tmp));
-    if (file.file.truncated) {
+    try {
+      await pipeline(file.file, createWriteStream(tmp));
+      if (file.file.truncated) {
+        return reply.code(413).send({ error: "image exceeds 25MB" });
+      }
+      const { size } = await stat(tmp);
+      const image = await services.images.create({
+        workspaceId: doc.workspaceId,
+        uploadedBy: uid,
+        mime: file.mimetype,
+        size,
+      });
+      await rename(tmp, join(dir, image.id));
+      return reply.send({ url: `/api/images/${image.id}` });
+    } finally {
+      // Gone after the rename; cleans up truncation/DB failures.
       await unlink(tmp).catch(() => {});
-      return reply.code(413).send({ error: "image exceeds 25MB" });
     }
-    const { size } = await stat(tmp);
-    const image = await services.images.create({
-      workspaceId: doc.workspaceId,
-      uploadedBy: uid,
-      mime: file.mimetype,
-      size,
-    });
-    await rename(tmp, join(dir, image.id));
-    return reply.send({ url: `/api/images/${image.id}` });
   });
 
   // Serve bytes only to members of the image's workspace.
@@ -73,12 +79,20 @@ export async function registerImageRoutes(app: FastifyInstance, db: Database, au
     const uid = await userId(req);
     if (!uid) return reply.code(401).send({ error: "unauthorized" });
 
+    const { id } = req.params as { id: string };
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(404).send({ error: "not found" });
+
     const services = createServices(db, { kind: "user", userId: uid });
-    const image = await services.images.get((req.params as { id: string }).id);
+    const image = await services.images.get(id);
     if (!image) return reply.code(404).send({ error: "not found" });
 
     reply.header("content-type", image.mime);
     reply.header("cache-control", "private, max-age=86400");
+    // Embedded <img> rendering is unaffected by these; they only stop the
+    // bytes from ever executing as a same-origin top-level document.
+    reply.header("x-content-type-options", "nosniff");
+    reply.header("content-disposition", "attachment");
+    reply.header("content-security-policy", "default-src 'none'; sandbox");
     return reply.send(createReadStream(join(dir, image.id)));
   });
 }

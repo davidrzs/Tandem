@@ -10,7 +10,8 @@ import {
   fastifyTRPCPlugin,
 } from "@trpc/server/adapters/fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createDatabase, type Actor } from "@tandem/db";
+import { createDatabase, user as userTable, type Actor } from "@tandem/db";
+import { eq } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 import {
   oAuthDiscoveryMetadata,
@@ -30,7 +31,7 @@ import { appRouter } from "./trpc.js";
  * mounts Hocuspocus (/collab) and the MCP HTTP transport (/mcp) here too.
  * One db instance is shared by services and auth (PGlite = one connection).
  */
-export async function buildHttpServer() {
+export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatabase>) {
   // Fail fast in production rather than fall back to a forgeable default secret.
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 16 || secret.startsWith("replace")) {
@@ -38,7 +39,7 @@ export async function buildHttpServer() {
       "BETTER_AUTH_SECRET must be set to a strong value (openssl rand -base64 32)",
     );
   }
-  const db = createDatabase(process.env.DATABASE_URL);
+  const db = injectedDb ?? createDatabase(process.env.DATABASE_URL);
   const auth = createAuth(db);
   // Hocuspocus builds actor-scoped services per connection from the db.
   const hocuspocus = createHocuspocus(db, auth);
@@ -131,7 +132,10 @@ export async function buildHttpServer() {
         // Unauthenticated -> a no-privilege user actor (RLS sees nothing), never
         // SYSTEM, so a future non-protected procedure can't run as superuser.
         const actor: Actor = { kind: "user", userId: session?.user.id ?? "" };
-        return { services: createServices(db, actor), user: session?.user ?? null };
+        const author = session
+          ? { userId: session.user.id, name: session.user.name, ai: false }
+          : undefined;
+        return { services: createServices(db, actor, author), user: session?.user ?? null };
       },
     },
   });
@@ -157,15 +161,26 @@ export async function buildHttpServer() {
     }
     reply.hijack();
     // The agent acts as the token's user: services + collab writes are scoped
-    // to that user's workspaces (RLS + the live Y.Doc write path).
+    // to that user's workspaces (RLS + the live Y.Doc write path), and every
+    // span it writes is attributed to that user's AI in the blame layer.
     const actor: Actor = { kind: "user", userId: token.userId };
+    const [tokenUser] = await db
+      .select({ name: userTable.name })
+      .from(userTable)
+      .where(eq(userTable.id, token.userId));
+    const author = {
+      userId: token.userId,
+      name: tokenUser?.name ?? "",
+      ai: true,
+    };
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     });
+    const services = createServices(db, actor, author);
     const server = createMcpServer(
-      createServices(db, actor),
-      createCollabWriter(hocuspocus, token.userId),
+      services,
+      createCollabWriter(hocuspocus, services.documents, author),
     );
     reply.raw.on("close", () => {
       transport.close();

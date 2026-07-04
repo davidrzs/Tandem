@@ -15,6 +15,79 @@ const attr = (html: string, name: string): string | null =>
 const escAttr = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
+/**
+ * markdown-it rule: recognize GitHub task lists (`- [ ] …` / `- [x] …`).
+ * A bullet list whose direct items ALL start with a checkbox marker becomes a
+ * taskList of taskItems (mixed lists stay plain bullet lists and keep the
+ * marker as literal text). The marker is stripped from the item's inline
+ * content and stored as the item's `checked` attribute.
+ */
+function taskListPlugin(md: MarkdownIt) {
+  md.core.ruler.after("block", "task_lists", (state) => {
+    const tokens = state.tokens;
+
+    // 1. Which list_item_open tokens start with a checkbox marker?
+    const checkedAt = new Map<number, boolean>();
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i]!.type !== "list_item_open") continue;
+      const inline = tokens[i + 2];
+      if (tokens[i + 1]?.type === "paragraph_open" && inline?.type === "inline") {
+        const marker = /^\[([ xX])\] /.exec(inline.content);
+        if (marker) checkedAt.set(i, marker[1] !== " ");
+      }
+    }
+    if (checkedAt.size === 0) return;
+
+    // 2. Bullet lists where every direct item is a task.
+    const stack: Array<{ open: number; items: number[]; allTasks: boolean }> = [];
+    const taskLists: Array<{ open: number; close: number; items: number[] }> = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i]!;
+      const top = stack[stack.length - 1];
+      if (tok.type === "bullet_list_open") {
+        stack.push({ open: i, items: [], allTasks: true });
+      } else if (
+        tok.type === "list_item_open" &&
+        top &&
+        tok.level === tokens[top.open]!.level + 1
+      ) {
+        top.items.push(i);
+        if (!checkedAt.has(i)) top.allTasks = false;
+      } else if (
+        tok.type === "bullet_list_close" &&
+        top &&
+        tok.level === tokens[top.open]!.level
+      ) {
+        stack.pop();
+        if (top.items.length > 0 && top.allTasks) {
+          taskLists.push({ open: top.open, close: i, items: top.items });
+        }
+      }
+    }
+
+    // 3. Rewrite the qualifying lists' tokens in place.
+    for (const list of taskLists) {
+      tokens[list.open]!.type = "taskList_open";
+      tokens[list.close]!.type = "taskList_close";
+      for (const itemOpen of list.items) {
+        const item = tokens[itemOpen]!;
+        item.type = "taskItem_open";
+        item.attrSet("checked", String(checkedAt.get(itemOpen)));
+        for (let j = itemOpen + 1; j < tokens.length; j++) {
+          if (tokens[j]!.type === "list_item_close" && tokens[j]!.level === item.level) {
+            tokens[j]!.type = "taskItem_close";
+            break;
+          }
+        }
+        const inline = tokens[itemOpen + 2]!;
+        inline.content = inline.content.replace(/^\[[ xX]\] /, "");
+        const firstText = inline.children?.find((c) => c.type === "text");
+        if (firstText) firstText.content = firstText.content.replace(/^\[[ xX]\] /, "");
+      }
+    }
+  });
+}
+
 /** markdown-it rule: turn `<img …>` HTML (inline within a paragraph, or block
  * on its own line) into image tokens so display width round-trips. Other HTML
  * is left for the parser to ignore. */
@@ -72,6 +145,14 @@ const serializer = new MarkdownSerializer(
     hardBreak: d.hard_break!,
     bulletList: d.bullet_list!,
     listItem: d.list_item!,
+    // GitHub-style task list: `- [ ] open` / `- [x] done`.
+    taskList(state, node) {
+      state.renderList(node, "  ", () => "- ");
+    },
+    taskItem(state, node) {
+      state.write(node.attrs.checked ? "[x] " : "[ ] ");
+      state.renderContent(node);
+    },
     codeBlock(state, node) {
       const lang = (node.attrs.language as string) ?? "";
       // Widen the fence past any run of backticks in the body so code
@@ -132,12 +213,20 @@ const serializer = new MarkdownSerializer(
 // Parser mapping markdown-it tokens to TipTap node/mark names.
 const parser = new MarkdownParser(
   schema,
-  MarkdownIt("commonmark", { html: true }).enable("strikethrough").use(imgHtmlPlugin),
+  MarkdownIt("commonmark", { html: true })
+    .enable("strikethrough")
+    .use(imgHtmlPlugin)
+    .use(taskListPlugin),
   {
   blockquote: { block: "blockquote" },
   paragraph: { block: "paragraph" },
   list_item: { block: "listItem" },
   bullet_list: { block: "bulletList" },
+  taskList: { block: "taskList" },
+  taskItem: {
+    block: "taskItem",
+    getAttrs: (tok) => ({ checked: tok.attrGet("checked") === "true" }),
+  },
   ordered_list: {
     block: "orderedList",
     getAttrs: (tok) => ({ start: +(tok.attrGet("start") ?? 1) || 1 }),
@@ -181,7 +270,10 @@ const parser = new MarkdownParser(
 
 /** Serialize a ProseMirror node (this schema) to canonical markdown. */
 export function nodeToMarkdown(node: Node): string {
-  return serializer.serialize(node);
+  // Tight lists: no blank line between items (the GitHub-typical form, and
+  // what task lists must look like). Loose/tight isn't represented in the
+  // document model, so serialization normalizes it.
+  return serializer.serialize(node, { tightLists: true });
 }
 
 /** Serialize ProseMirror JSON to markdown. */

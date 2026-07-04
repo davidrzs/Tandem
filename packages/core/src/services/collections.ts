@@ -2,6 +2,7 @@ import { and, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import {
   collectionPermissions,
   collections,
+  groups,
   runAsActor,
   SYSTEM,
   workspaceMembers,
@@ -91,16 +92,6 @@ export class CollectionService {
     });
   }
 
-  async get(id: string): Promise<Collection | null> {
-    return this.exec(async (db) => {
-      const [row] = await db
-        .select()
-        .from(collections)
-        .where(and(eq(collections.id, id), isNull(collections.deletedAt)));
-      return row ?? null;
-    });
-  }
-
   /** Readable collections (RLS-scoped), each flagged with whether the actor can write. */
   async list(): Promise<CollectionWithAccess[]> {
     return this.exec((db) =>
@@ -129,8 +120,11 @@ export class CollectionService {
     });
   }
 
+  /** Soft-delete a collection (and hide its documents). Owner/admin only —
+   * too destructive to hand to every member with write access. */
   async softDelete(id: string): Promise<void> {
-    await this.exec(async (db) => {
+    await this.assertCanManage(id);
+    await this.system(async (db) => {
       await db
         .update(collections)
         .set({ deletedAt: new Date() })
@@ -158,6 +152,35 @@ export class CollectionService {
   ): Promise<void> {
     await this.assertCanManage(id);
     await this.system(async (db) => {
+      // The principal must belong to this collection's workspace — a foreign
+      // principal would be inert under RLS today, but don't store it.
+      const [col] = await db
+        .select({ ws: collections.workspaceId })
+        .from(collections)
+        .where(eq(collections.id, id));
+      if (principalType === "user") {
+        const [m] = await db
+          .select({ id: workspaceMembers.id })
+          .from(workspaceMembers)
+          .where(
+            and(
+              eq(workspaceMembers.workspaceId, col!.ws),
+              eq(workspaceMembers.userId, principalId),
+            ),
+          );
+        if (!m) throw new Error("that user is not a member of this workspace");
+      } else {
+        const isUuid = /^[0-9a-f-]{36}$/i.test(principalId);
+        const [g] = isUuid
+          ? await db
+              .select({ ws: groups.workspaceId })
+              .from(groups)
+              .where(eq(groups.id, principalId))
+          : [];
+        if (!g || g.ws !== col!.ws) {
+          throw new Error("that group does not belong to this workspace");
+        }
+      }
       await db
         .insert(collectionPermissions)
         .values({ collectionId: id, principalType, principalId, role })

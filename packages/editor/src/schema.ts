@@ -1,6 +1,8 @@
 import { getSchema } from "@tiptap/core";
 import ImageBase from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 import type { Extensions } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
@@ -32,10 +34,14 @@ export const Image = ImageBase.extend({
  * disables it when the Collaboration extension is active (Yjs owns undo).
  */
 // Inline so a markdown `![alt](src)` parses into a paragraph's inline content.
+// Task lists carry the in-document TODOs (`- [ ] @user …`) that feed the
+// per-user start page.
 export const baseExtensions: Extensions = [
   StarterKit,
   Link,
   Image.configure({ inline: true }),
+  TaskList,
+  TaskItem.configure({ nested: true }),
 ];
 
 /** ProseMirror schema derived from the shared extensions (no DOM required). */

@@ -189,3 +189,164 @@ test("per-collection ACLs: default none, explicit read, read_write, and groups",
   await c1.grant(grouped.id, "group", g.id, "read_write");
   assert.equal((await c2.list()).find((c) => c.id === grouped.id)?.writable, true, "group grant propagates");
 });
+
+test("archive and restore apply to the whole subtree; archived docs leave tree and search", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Lifecycle", slug: "lifecycle" });
+  const parent = await d1.create({ collectionId: col.id, title: "P", markdown: "parent zebra" });
+  const child = await d1.create({
+    collectionId: col.id,
+    parentDocumentId: parent.id,
+    title: "C",
+    markdown: "child zebra",
+  });
+
+  const archived = await d1.archive(parent.id);
+  assert.ok(archived?.archivedAt, "parent archived");
+  assert.equal((await d1.tree(col.id)).length, 0, "subtree gone from tree");
+  assert.equal((await d1.search("zebra")).length, 0, "archived docs not searchable");
+  const archivedList = await d1.listArchived(col.id);
+  assert.deepEqual(archivedList.map((d) => d.id), [parent.id], "only the subtree root is listed");
+
+  const restored = await d1.restore(parent.id);
+  assert.equal(restored!.archivedAt, null);
+  const tree = await d1.tree(col.id);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0]!.children[0]!.id, child.id, "child restored with parent");
+});
+
+test("softDelete removes the whole subtree", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Del", slug: "del" });
+  const parent = await d1.create({ collectionId: col.id, title: "P" });
+  const child = await d1.create({ collectionId: col.id, parentDocumentId: parent.id, title: "C" });
+
+  assert.equal(await d1.softDelete(parent.id), true);
+  assert.equal(await d1.get(parent.id), null);
+  assert.equal(await d1.get(child.id), null, "child deleted with parent");
+  assert.equal((await d1.tree(col.id)).length, 0);
+});
+
+test("a read-only member cannot archive or delete", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const d2 = new DocumentService(db, user("u2")); // u2 is a plain member (joined earlier)
+  const col = await c1.create({ name: "RO", slug: "ro" });
+  await c1.setDefaultRole(col.id, "read");
+  const doc = await d1.create({ collectionId: col.id, title: "Guarded" });
+
+  assert.ok(await d2.get(doc.id), "u2 can read it");
+  assert.equal(await d2.archive(doc.id), null, "archive denied");
+  assert.equal(await d2.softDelete(doc.id), false, "delete denied");
+  assert.ok(await d1.get(doc.id), "doc still there");
+});
+
+test("listMyTodos: assigned tasks across visible docs, tenant-scoped", async () => {
+  const { user: authUser } = await import("@tandem/db");
+  await db
+    .insert(authUser)
+    .values([
+      { id: "u1", name: "Alice", email: "alice@example.com", updatedAt: new Date() },
+      { id: "u2", name: "Bob", email: "bob@other.org", updatedAt: new Date() },
+    ])
+    .onConflictDoNothing();
+
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Tasks", slug: "tasks" });
+  await c1.setDefaultRole(col.id, "none"); // u1-only
+
+  const doc = await d1.create({
+    collectionId: col.id,
+    title: "Sprint",
+    markdown: [
+      "# Sprint",
+      "",
+      "- [ ] @alice write the intro",
+      "- [x] @alice@example.com file the report",
+      "- [ ] @bob not alice's task",
+      "- [ ] unassigned chore",
+    ].join("\n"),
+  });
+
+  const todos = await new DocumentService(db, user("u1")).listMyTodos();
+  const mine = todos.filter((t) => t.documentId === doc.id);
+  assert.equal(mine.length, 2, "local-part and full-email mentions match");
+  assert.deepEqual(
+    mine.map((t) => t.done).sort(),
+    [false, true],
+  );
+  assert.equal(mine[0]!.documentTitle, "Sprint");
+
+  // u2 can't see u1's private collection, so no leakage through todos.
+  const bobTodos = await new DocumentService(db, user("u2")).listMyTodos();
+  assert.ok(!bobTodos.some((t) => t.documentId === doc.id), "RLS scopes the todo scan");
+
+  // Archived docs drop out of the todo list.
+  await d1.archive(doc.id);
+  const after = await new DocumentService(db, user("u1")).listMyTodos();
+  assert.ok(!after.some((t) => t.documentId === doc.id));
+});
+
+test("workspace members lists identities; non-members are rejected", async () => {
+  const w1 = new WorkspaceService(db, user("u1"));
+  const [ws] = await w1.listMine();
+  const members = await w1.members(ws!.id);
+  assert.ok(members.some((m) => m.userId === "u1" && m.role === "owner" && m.name === "Alice"));
+  assert.ok(members.some((m) => m.userId === "u2"), "u2 joined via invite earlier");
+
+  await assert.rejects(
+    () => new WorkspaceService(db, user("outsider")).members(ws!.id),
+    /not a member/,
+  );
+});
+
+test("create rejects a parent outside the collection (incl. cross-tenant uuids)", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const d2 = new DocumentService(db, user("u2"));
+  const colA = await c1.create({ name: "PA", slug: "parent-a" });
+  const colB = await c1.create({ name: "PB", slug: "parent-b" });
+  const inA = await d1.create({ collectionId: colA.id, title: "in A" });
+
+  await assert.rejects(
+    () => d1.create({ collectionId: colB.id, title: "x", parentDocumentId: inA.id }),
+    /same collection/,
+    "cross-collection parent rejected",
+  );
+  // u2 (own workspace) cannot attach a child to u1's document.
+  const [wsB] = await new WorkspaceService(db, user("u2")).listMine();
+  const colU2 = await new CollectionService(db, user("u2")).create({
+    name: "U2C",
+    slug: "u2-parent",
+    workspaceId: wsB!.id,
+  });
+  await assert.rejects(
+    () => d2.create({ collectionId: colU2.id, title: "x", parentDocumentId: inA.id }),
+    /same collection/,
+    "cross-tenant parent rejected",
+  );
+});
+
+test("grants and group membership only accept principals of the workspace", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const col = await c1.create({ name: "GVal", slug: "grant-val" });
+
+  await assert.rejects(
+    () => c1.grant(col.id, "user", "stranger", "read"),
+    /not a member/,
+  );
+  await assert.rejects(
+    () => c1.grant(col.id, "group", "00000000-0000-0000-0000-000000000000", "read"),
+    /does not belong/,
+  );
+
+  const [ws] = await new WorkspaceService(db, user("u1")).listMine();
+  const g = await new GroupService(db, user("u1")).create(ws!.id, "Validated");
+  await assert.rejects(
+    () => new GroupService(db, user("u1")).addMember(g.id, "stranger"),
+    /not a member/,
+  );
+});

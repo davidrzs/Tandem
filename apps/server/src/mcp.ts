@@ -1,6 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { DocumentMeta } from "@tandem/core";
+import { DocumentWriteDeniedError, type DocumentMeta } from "@tandem/core";
+import {
+  appendMarkdown,
+  insertAfterHeading,
+  MarkdownEditError,
+  replaceSection,
+  replaceText,
+} from "@tandem/editor";
 import type { CollabWriter } from "./collab-writer.js";
 import type { Services } from "./services.js";
 
@@ -22,17 +29,55 @@ function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-function notFound(what: string) {
-  return { isError: true, content: [{ type: "text" as const, text: `${what} not found` }] };
+function toolError(message: string) {
+  return { isError: true, content: [{ type: "text" as const, text: message }] };
 }
+
+function notFound(what: string) {
+  return toolError(`${what} not found`);
+}
+
+const READ_ONLY_MESSAGE =
+  "permission denied: this document is read-only for you (its collection does not grant you write access)";
 
 /**
  * Build the MCP server exposing the wiki content. Every tool delegates to the
  * shared core services — no document logic lives here.
+ *
+ * Body edits are deliberately TARGETED (find/replace, per-section) rather than
+ * whole-document rewrites: edits flow through a structural Yjs diff, so only
+ * the spans an agent actually changes are attributed to it — a full rewrite
+ * would re-attribute the entire document and destroy human authorship (blame).
  */
 export function createMcpServer(services: Services, writer?: CollabWriter): McpServer {
   const { documents, collections } = services;
   const server = new McpServer({ name: "tandem", version: "0.1.0" });
+
+  /**
+   * Apply a markdown transform to a document body through the single write
+   * path: the live collab doc when in-process (HTTP server), else the
+   * persisted Yjs state (stdio). Maps permission/target failures to clean
+   * tool errors instead of fake success.
+   */
+  async function editBody(id: string, transform: (md: string) => string) {
+    if (!(await documents.get(id))) return notFound("document");
+    try {
+      if (writer) await writer.transform(id, transform);
+      else await documents.editBody(id, transform);
+    } catch (err) {
+      if (err instanceof DocumentWriteDeniedError) return toolError(READ_ONLY_MESSAGE);
+      if (err instanceof MarkdownEditError) return toolError(err.message);
+      throw err;
+    }
+    const doc = await documents.get(id);
+    return doc ? json(publicDoc(doc)) : notFound("document");
+  }
+
+  /** A null row from an RLS-scoped write on an existing doc = access denied. */
+  async function writeResult(id: string, row: DocumentMeta | null) {
+    if (row) return json(publicDoc(row));
+    return (await documents.get(id)) ? toolError(READ_ONLY_MESSAGE) : notFound("document");
+  }
 
   server.registerTool(
     "list_collections",
@@ -100,7 +145,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
     },
     async ({ query, collectionId, limit }) => {
       const hits = await documents.search(query, { collectionId, limit });
-      return json(hits.map(publicDoc));
+      return json(hits.map((h) => ({ ...publicDoc(h), snippet: h.snippet })));
     },
   );
 
@@ -123,27 +168,74 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
   server.registerTool(
     "update_document",
     {
-      title: "Update document",
+      title: "Rename document",
       description:
-        "Update a document's title and/or markdown body. Replaces the whole body. " +
-        "Body edits funnel through the live collaborative document.",
+        "Set a document's title. Body edits use the targeted edit tools " +
+        "(edit_document, insert_after_heading, replace_section, append_section) " +
+        "so that only what actually changed is attributed to this agent.",
       inputSchema: {
         id: z.string().uuid(),
-        title: z.string().optional(),
-        markdown: z.string().optional(),
+        title: z.string(),
       },
     },
-    async ({ id, title, markdown }) => {
-      if (!(await documents.get(id))) return notFound("document");
-      if (title !== undefined) await documents.update(id, { title });
-      if (markdown !== undefined) {
-        // Through the live Y.Doc (one write path) when in-process; else DB.
-        if (writer) await writer.replaceBody(id, markdown);
-        else await documents.update(id, { markdown });
-      }
-      const doc = await documents.get(id);
-      return doc ? json(publicDoc(doc)) : notFound("document");
+    async ({ id, title }) => writeResult(id, await documents.update(id, { title })),
+  );
+
+  server.registerTool(
+    "edit_document",
+    {
+      title: "Edit document",
+      description:
+        "Replace an exact string in a document's markdown body. old_string must " +
+        "match the document text exactly (including whitespace) and exactly once — " +
+        "copy it verbatim from get_document and include enough surrounding context " +
+        "to make it unique, or set replace_all to change every occurrence. " +
+        "Prefer this (smallest possible change) over rewriting sections.",
+      inputSchema: {
+        id: z.string().uuid(),
+        old_string: z.string().min(1),
+        new_string: z.string(),
+        replace_all: z.boolean().optional(),
+      },
     },
+    async ({ id, old_string, new_string, replace_all }) =>
+      editBody(id, (md) => replaceText(md, old_string, new_string, replace_all)),
+  );
+
+  server.registerTool(
+    "insert_after_heading",
+    {
+      title: "Insert after heading",
+      description:
+        "Insert a markdown block directly below a heading (before the section's " +
+        "existing content). Identify the heading by its text, e.g. \"Setup\" or " +
+        "\"## Setup\".",
+      inputSchema: {
+        id: z.string().uuid(),
+        heading: z.string().min(1),
+        markdown: z.string().min(1),
+      },
+    },
+    async ({ id, heading, markdown }) =>
+      editBody(id, (md) => insertAfterHeading(md, heading, markdown)),
+  );
+
+  server.registerTool(
+    "replace_section",
+    {
+      title: "Replace section",
+      description:
+        "Replace the body of the section under a heading (up to the next heading " +
+        "of the same or higher level). The heading line itself is kept — use " +
+        "edit_document to change heading text.",
+      inputSchema: {
+        id: z.string().uuid(),
+        heading: z.string().min(1),
+        markdown: z.string(),
+      },
+    },
+    async ({ id, heading, markdown }) =>
+      editBody(id, (md) => replaceSection(md, heading, markdown)),
   );
 
   server.registerTool(
@@ -155,18 +247,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         "cleanly with concurrent human edits via the live collaborative document.",
       inputSchema: { id: z.string().uuid(), markdown: z.string().min(1) },
     },
-    async ({ id, markdown }) => {
-      const existing = await documents.get(id);
-      if (!existing) return notFound("document");
-      if (writer) {
-        await writer.appendSection(id, markdown);
-      } else {
-        const body = existing.contentMd ? `${existing.contentMd}\n\n${markdown}` : markdown;
-        await documents.update(id, { markdown: body });
-      }
-      const doc = await documents.get(id);
-      return doc ? json(publicDoc(doc)) : notFound("document");
-    },
+    async ({ id, markdown }) => editBody(id, (md) => appendMarkdown(md, markdown)),
   );
 
   server.registerTool(
@@ -181,11 +262,8 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         position: z.number().optional(),
       },
     },
-    async ({ id, parentDocumentId, position }) => {
-      const doc = await documents.move(id, { parentDocumentId, position });
-      if (!doc) return notFound("document");
-      return json(publicDoc(doc));
-    },
+    async ({ id, parentDocumentId, position }) =>
+      writeResult(id, await documents.move(id, { parentDocumentId, position })),
   );
 
   server.registerTool(
@@ -195,11 +273,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
       description: "Archive a document (hidden from active listings, recoverable).",
       inputSchema: { id: z.string().uuid() },
     },
-    async ({ id }) => {
-      const doc = await documents.archive(id);
-      if (!doc) return notFound("document");
-      return json(publicDoc(doc));
-    },
+    async ({ id }) => writeResult(id, await documents.archive(id)),
   );
 
   return server;

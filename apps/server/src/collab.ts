@@ -1,10 +1,15 @@
-import { Hocuspocus } from "@hocuspocus/server";
+import { Hocuspocus, isTransactionOrigin } from "@hocuspocus/server";
 import type { Database } from "@tandem/db";
-import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, schema } from "@tandem/editor";
 import {
-  prosemirrorJSONToYDoc,
-  yXmlFragmentToProsemirrorJSON,
-} from "y-prosemirror";
+  COLLAB_FIELD,
+  jsonToMarkdown,
+  markdownToJSON,
+  sanitizeClientAuthorsWrites,
+  seedAttributedDoc,
+  stampMissingFromUpdate,
+  UNKNOWN_AUTHOR,
+} from "@tandem/editor";
+import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 import type { Auth } from "./auth.js";
 import { createServices } from "./services.js";
@@ -36,7 +41,7 @@ export function createHocuspocus(
         documentName,
       );
       if (!canWrite) connectionConfig.readOnly = true;
-      return { userId: session.user.id };
+      return { userId: session.user.id, userName: session.user.name };
     },
 
     async onLoadDocument({ document, documentName, context }) {
@@ -46,14 +51,46 @@ export function createHocuspocus(
       if (doc.ydocState) {
         Y.applyUpdate(document, doc.ydocState);
       } else if (doc.contentMd) {
-        const seeded = prosemirrorJSONToYDoc(
-          schema,
-          markdownToJSON(doc.contentMd),
-          COLLAB_FIELD,
-        );
+        // Legacy doc from before Yjs persistence: its original authors are
+        // unknowable, so the seed is explicitly attributed as such (and can
+        // never be claimed by whichever user happens to load it first).
+        const seeded = seedAttributedDoc(markdownToJSON(doc.contentMd), UNKNOWN_AUTHOR);
         Y.applyUpdate(document, Y.encodeStateAsUpdate(seeded));
       }
       return document;
+    },
+
+    // The attribution authority: any clientID that shows up in an update and
+    // has no author entry yet is stamped with the *authenticated* identity of
+    // the connection that sent it. Clients never self-report authorship.
+    // Server-side edits (MCP writer, seeding) stamp themselves in the same
+    // transaction that writes, so they are never "unknown" here.
+    async onChange({ document, context, update, transactionOrigin }) {
+      if (!context?.userId) return;
+      const identity = () => ({
+        userId: context.userId as string,
+        name: (context.userName as string) ?? "",
+        ai: false,
+        at: Date.now(),
+      });
+      // Carry the connection context as the transaction origin so the store
+      // hook this write schedules still persists under the user's identity
+      // (a bare transact would blank lastContext and fail the store loud).
+      document.transact(
+        () => {
+          // Only real websocket clients get sanitized: server-side writes
+          // ("local" origins — MCP edits, our own stamps) legitimately write
+          // the authors map with non-human identities.
+          const fromWebsocketClient =
+            isTransactionOrigin(transactionOrigin) &&
+            transactionOrigin.source === "connection";
+          if (fromWebsocketClient) {
+            sanitizeClientAuthorsWrites(document, update, identity);
+          }
+          stampMissingFromUpdate(document, update, identity);
+        },
+        { source: "local", context },
+      );
     },
 
     async onStoreDocument({ document, documentName, lastContext }) {

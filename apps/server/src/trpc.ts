@@ -51,6 +51,9 @@ const uuid = z.string().uuid();
 export const appRouter = t.router({
   workspaces: t.router({
     mine: protectedProcedure.query(({ ctx }) => ctx.services.workspaces.listMine()),
+    members: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.workspaces.members(input.workspaceId)),
     create: protectedProcedure
       .input(z.object({ name: z.string().min(1), slug: z.string().min(1) }))
       .mutation(({ ctx, input }) => ctx.services.workspaces.create(input)),
@@ -85,6 +88,17 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         ctx.services.groups.addMember(input.groupId, input.userId),
       ),
+    removeMember: protectedProcedure
+      .input(z.object({ groupId: uuid, userId: z.string().min(1) }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.groups.removeMember(input.groupId, input.userId),
+      ),
+    members: protectedProcedure
+      .input(z.object({ groupId: uuid }))
+      .query(({ ctx, input }) => ctx.services.groups.members(input.groupId)),
+    delete: protectedProcedure
+      .input(z.object({ groupId: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.groups.delete(input.groupId)),
   }),
 
   collections: t.router({
@@ -99,6 +113,21 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) => ctx.services.collections.create(input)),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: uuid,
+          name: z.string().min(1).optional(),
+          description: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, ...patch } = input;
+        return ctx.services.collections.update(id, patch);
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.collections.softDelete(input.id)),
     setDefaultRole: protectedProcedure
       .input(z.object({ id: uuid, role: z.enum(["none", "read", "read_write"]) }))
       .mutation(({ ctx, input }) =>
@@ -142,11 +171,8 @@ export const appRouter = t.router({
       .input(z.object({ collectionId: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.tree(input.collectionId)),
 
-    get: protectedProcedure
-      .input(z.object({ id: uuid }))
-      .query(({ ctx, input }) => ctx.services.documents.get(input.id)),
-
-    // Metadata only (no body/binary) — what the editor header needs.
+    // Metadata only (no body/binary) — what the editor header needs. The body
+    // itself always arrives over the Yjs collab channel.
     getMeta: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.getMeta(input.id)),
@@ -163,16 +189,12 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => ctx.services.documents.create(input)),
 
     update: protectedProcedure
-      .input(
-        z.object({
-          id: uuid,
-          title: z.string().optional(),
-          markdown: z.string().optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => {
-        const { id, ...patch } = input;
-        return ctx.services.documents.update(id, patch);
+      .input(z.object({ id: uuid, title: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const doc = await ctx.services.documents.update(input.id, { title: input.title });
+        // A null row on an RLS-scoped write means denied, not "not found".
+        if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot rename this document." });
+        return doc;
       }),
 
     move: protectedProcedure
@@ -190,7 +212,32 @@ export const appRouter = t.router({
 
     archive: protectedProcedure
       .input(z.object({ id: uuid }))
-      .mutation(({ ctx, input }) => ctx.services.documents.archive(input.id)),
+      .mutation(async ({ ctx, input }) => {
+        const doc = await ctx.services.documents.archive(input.id);
+        if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot archive this document." });
+        return doc;
+      }),
+
+    restore: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const doc = await ctx.services.documents.restore(input.id);
+        if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot restore this document." });
+        return doc;
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const deleted = await ctx.services.documents.softDelete(input.id);
+        if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
+      }),
+
+    listArchived: protectedProcedure
+      .input(z.object({ collectionId: uuid }))
+      .query(({ ctx, input }) => ctx.services.documents.listArchived(input.collectionId)),
+
+    myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documents.listMyTodos()),
 
     search: protectedProcedure
       .input(

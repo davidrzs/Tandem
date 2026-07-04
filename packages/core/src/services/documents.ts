@@ -1,13 +1,21 @@
-import { and, asc, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   collections,
   documents,
   runAsActor,
   SYSTEM,
+  user,
   type Actor,
   type Database,
   type Document,
 } from "@tandem/db";
+import {
+  applyEditToState,
+  scanTaskItems,
+  type AuthorIdentity,
+  type AuthorInfo,
+} from "@tandem/editor";
 import { jsonToMarkdown, markdownToJSON } from "../markdown.js";
 
 export interface CreateDocumentInput {
@@ -19,7 +27,13 @@ export interface CreateDocumentInput {
 
 export interface UpdateDocumentInput {
   title?: string;
-  markdown?: string;
+}
+
+/** The actor tried to write a document their role only lets them read. */
+export class DocumentWriteDeniedError extends Error {
+  constructor(message = "you do not have write access to this document") {
+    super(message);
+  }
 }
 
 export interface SearchOptions {
@@ -39,13 +53,24 @@ export type DocumentMeta = Pick<
   | "title"
   | "createdAt"
   | "updatedAt"
-  | "publishedAt"
   | "archivedAt"
   | "deletedAt"
 >;
 
 export interface DocumentNode extends DocumentMeta {
   children: DocumentNode[];
+}
+
+/** An in-document task (`- [ ] @user …`) assigned to a user, for the start page. */
+export interface TodoItem {
+  documentId: string;
+  documentTitle: string;
+  collectionId: string;
+  workspaceId: string;
+  /** 0-based line in the document's markdown (a stable-enough anchor). */
+  line: number;
+  text: string;
+  done: boolean;
 }
 
 /** Derive the persisted read-model fields (content_md + content_json) from markdown. */
@@ -58,10 +83,21 @@ export class DocumentService {
   constructor(
     private readonly db: Database,
     private readonly actor: Actor = SYSTEM,
+    private readonly author?: AuthorIdentity,
   ) {}
 
   private exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
     return runAsActor(this.db, this.actor, fn);
+  }
+
+  /** Attribution identity for content this service writes into Yjs state. */
+  private authorInfo(): AuthorInfo {
+    const identity =
+      this.author ??
+      (this.actor.kind === "user"
+        ? { userId: this.actor.userId, name: "", ai: false }
+        : { userId: "system", name: "System", ai: true });
+    return { ...identity, at: Date.now() };
   }
 
   /** Columns safe to ship to clients — excludes content_md/json, ydoc_state, search_vector. */
@@ -74,7 +110,6 @@ export class DocumentService {
     title: documents.title,
     createdAt: documents.createdAt,
     updatedAt: documents.updatedAt,
-    publishedAt: documents.publishedAt,
     archivedAt: documents.archivedAt,
     deletedAt: documents.deletedAt,
   };
@@ -93,10 +128,6 @@ export class DocumentService {
   /** Markdown view of a document — what the MCP `get_document` read tool returns. */
   toMarkdown(doc: Document): string {
     return doc.contentMd;
-  }
-
-  renderMarkdown(doc: Document): string {
-    return doc.contentJson ? jsonToMarkdown(doc.contentJson) : doc.contentMd;
   }
 
   private async nextPosition(
@@ -130,8 +161,25 @@ export class DocumentService {
       if (!col) throw new Error("collection not found");
 
       const parentId = input.parentDocumentId ?? null;
+      if (parentId) {
+        // Same rule as move(): the parent must be a visible document in the
+        // same collection (the FK alone runs as table owner and would accept
+        // a cross-tenant uuid).
+        const [parent] = await db
+          .select({ collectionId: documents.collectionId })
+          .from(documents)
+          .where(and(eq(documents.id, parentId), isNull(documents.deletedAt)));
+        if (!parent || parent.collectionId !== input.collectionId) {
+          throw new Error("parent must be a document in the same collection");
+        }
+      }
       const position = await this.nextPosition(db, input.collectionId, parentId);
-      const { contentMd, contentJson } = deriveContent(input.markdown ?? "");
+      // Seed the Yjs write model at creation so the initial content is
+      // attributed to its creator (not to whoever opens the doc first).
+      const seeded = input.markdown?.trim()
+        ? applyEditToState(null, () => input.markdown!, this.authorInfo())
+        : null;
+      const { contentMd, contentJson } = seeded ?? deriveContent("");
       const [row] = await db
         .insert(documents)
         .values({
@@ -142,6 +190,7 @@ export class DocumentService {
           position,
           contentMd,
           contentJson,
+          ydocState: seeded?.ydocState ?? null,
         })
         .returning();
       return row!;
@@ -160,6 +209,7 @@ export class DocumentService {
 
   /** Whether the actor may write this document (its collection is writable). */
   async canWrite(id: string): Promise<boolean> {
+    if (this.actor.kind !== "user") return true; // system bypasses RLS
     return this.exec(async (db) => {
       const [row] = await db
         .select({ id: documents.id })
@@ -178,11 +228,6 @@ export class DocumentService {
     return this.exec(async (db) => {
       const set: Record<string, unknown> = { updatedAt: new Date() };
       if (patch.title !== undefined) set.title = patch.title;
-      if (patch.markdown !== undefined) {
-        const { contentMd, contentJson } = deriveContent(patch.markdown);
-        set.contentMd = contentMd;
-        set.contentJson = contentJson;
-      }
       const [row] = await db
         .update(documents)
         .set(set)
@@ -192,13 +237,49 @@ export class DocumentService {
     });
   }
 
+  /**
+   * Body edit for writers WITHOUT a live collaboration session (the stdio MCP
+   * fallback): hydrate the persisted Yjs state, apply the markdown transform
+   * as an attributed edit, persist state + derived read model together so
+   * ydoc_state never goes stale. Throws DocumentWriteDeniedError on read-only
+   * docs and lets transform errors (bad targets) propagate to the caller.
+   */
+  async editBody(
+    id: string,
+    transform: (currentMd: string) => string,
+  ): Promise<Document> {
+    const doc = await this.get(id);
+    if (!doc) throw new Error("document not found");
+    if (!(await this.canWrite(id))) throw new DocumentWriteDeniedError();
+    const edited = applyEditToState(
+      doc.ydocState,
+      transform,
+      this.authorInfo(),
+      doc.contentMd,
+    );
+    return this.exec(async (db) => {
+      const [row] = await db
+        .update(documents)
+        .set({
+          ydocState: edited.ydocState,
+          contentMd: edited.contentMd,
+          contentJson: edited.contentJson,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
+        .returning();
+      if (!row) throw new DocumentWriteDeniedError();
+      return row;
+    });
+  }
+
   /** Persist the live Yjs state + derived read model (Hocuspocus onStoreDocument). */
   async saveCollabSnapshot(
     id: string,
     snapshot: { ydocState: Uint8Array; contentMd: string; contentJson: unknown },
   ): Promise<void> {
     await this.exec(async (db) => {
-      await db
+      const rows = await db
         .update(documents)
         .set({
           ydocState: snapshot.ydocState,
@@ -207,7 +288,17 @@ export class DocumentService {
           updatedAt: new Date(),
         })
         // Don't let a debounced store resurrect a soft-deleted document.
-        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
+        .returning({ id: documents.id });
+      if (rows.length === 0) {
+        // Deleted docs are intentionally skipped. Anything else means RLS
+        // filtered the write (read-only actor) — fail loud, don't drop data.
+        const [existing] = await db
+          .select({ id: documents.id })
+          .from(documents)
+          .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+        if (existing) throw new DocumentWriteDeniedError();
+      }
     });
   }
 
@@ -253,34 +344,62 @@ export class DocumentService {
     });
   }
 
+  /** Stamp a column on a document AND all its descendants (subtree ops keep
+   * the tree consistent: a child can't stay active under an archived parent).
+   * Runs RLS-scoped, so it only touches rows the actor may write. */
+  private async stampSubtree(
+    db: Database,
+    id: string,
+    column: "archived_at" | "deleted_at",
+    value: Date | null,
+  ): Promise<void> {
+    await db.execute(sql`
+      WITH RECURSIVE subtree AS (
+        SELECT id FROM documents WHERE id = ${id}
+        UNION ALL
+        SELECT d.id FROM documents d JOIN subtree s ON d.parent_document_id = s.id
+      )
+      UPDATE documents
+      SET ${sql.raw(column)} = ${value}, updated_at = now()
+      WHERE id IN (SELECT id FROM subtree) AND deleted_at IS NULL
+    `);
+  }
+
+  /** Archive a document and its descendants (hidden from the tree/search,
+   * recoverable via restore). Returns null if the actor may not write it. */
   async archive(id: string): Promise<Document | null> {
     return this.exec(async (db) => {
+      await this.stampSubtree(db, id, "archived_at", new Date());
       const [row] = await db
-        .update(documents)
-        .set({ archivedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
-        .returning();
-      return row ?? null;
+        .select()
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      return row?.archivedAt ? row : null;
     });
   }
 
+  /** Un-archive a document and its descendants. */
   async restore(id: string): Promise<Document | null> {
     return this.exec(async (db) => {
+      await this.stampSubtree(db, id, "archived_at", null);
       const [row] = await db
-        .update(documents)
-        .set({ archivedAt: null, updatedAt: new Date() })
-        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
-        .returning();
-      return row ?? null;
+        .select()
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      return row && !row.archivedAt ? row : null;
     });
   }
 
-  async softDelete(id: string): Promise<void> {
-    await this.exec(async (db) => {
-      await db
-        .update(documents)
-        .set({ deletedAt: new Date() })
-        .where(eq(documents.id, id));
+  /** Soft-delete a document and its descendants. Returns false if nothing was
+   * deleted (missing or not writable). */
+  async softDelete(id: string): Promise<boolean> {
+    return this.exec(async (db) => {
+      await this.stampSubtree(db, id, "deleted_at", new Date());
+      const [row] = await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      return !row;
     });
   }
 
@@ -290,10 +409,34 @@ export class DocumentService {
         .select(DocumentService.metaColumns)
         .from(documents)
         .where(
-          and(eq(documents.collectionId, collectionId), isNull(documents.deletedAt)),
+          and(
+            eq(documents.collectionId, collectionId),
+            isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
+          ),
         )
         .orderBy(asc(documents.position)),
     );
+  }
+
+  /** Archived subtree roots in a collection (their descendants restore with them). */
+  async listArchived(collectionId: string): Promise<DocumentMeta[]> {
+    return this.exec(async (db) => {
+      const parent = alias(documents, "parent");
+      return db
+        .select(DocumentService.metaColumns)
+        .from(documents)
+        .leftJoin(parent, eq(parent.id, documents.parentDocumentId))
+        .where(
+          and(
+            eq(documents.collectionId, collectionId),
+            isNull(documents.deletedAt),
+            sql`${documents.archivedAt} IS NOT NULL`,
+            sql`(${documents.parentDocumentId} IS NULL OR ${parent.archivedAt} IS NULL OR ${parent.deletedAt} IS NOT NULL)`,
+          ),
+        )
+        .orderBy(desc(documents.archivedAt));
+    });
   }
 
   async tree(collectionId: string): Promise<DocumentNode[]> {
@@ -306,25 +449,33 @@ export class DocumentService {
         ? byId.get(node.parentDocumentId)
         : undefined;
       if (parent) parent.children.push(node);
-      else roots.push(node);
+      else if (!node.parentDocumentId) roots.push(node);
+      // A child whose parent is filtered out (archived separately) is omitted
+      // rather than promoted to a fake root.
     }
     return roots;
   }
 
+  /** Full-text search. Returns metadata + a highlighted snippet — never the
+   * body/binary columns (results ship to browsers and agents). */
   async search(
     query: string,
     opts: SearchOptions = {},
-  ): Promise<Array<Document & { rank: number }>> {
+  ): Promise<Array<DocumentMeta & { rank: number; snippet: string }>> {
     return this.exec((db) => {
       const tsquery = sql`websearch_to_tsquery('simple', ${query})`;
       const rank = sql<number>`ts_rank(${documents.searchVector}, ${tsquery})`;
+      // Highlight delimiters are control chars (chr 2/3): impossible in the
+      // text itself, so clients can mark fragments without parsing HTML.
+      const snippet = sql<string>`ts_headline('simple', ${documents.contentMd}, ${tsquery}, 'MaxFragments=2, MaxWords=16, MinWords=6, StartSel=' || chr(2) || ', StopSel=' || chr(3))`;
       return db
-        .select({ ...getTableColumns(documents), rank })
+        .select({ ...DocumentService.metaColumns, rank, snippet })
         .from(documents)
         .where(
           and(
             sql`${documents.searchVector} @@ ${tsquery}`,
             isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
             opts.collectionId
               ? eq(documents.collectionId, opts.collectionId)
               : undefined,
@@ -333,5 +484,59 @@ export class DocumentService {
         .orderBy(desc(rank))
         .limit(opts.limit ?? 20);
     });
+  }
+
+  /**
+   * Tasks assigned to the current user across every document they can read
+   * (RLS scopes the scan). A task is assigned via an `@mention` of the user's
+   * email or its local part: `- [ ] @alice ship the thing`.
+   */
+  async listMyTodos(): Promise<TodoItem[]> {
+    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    const userId = this.actor.userId;
+    // Email lookup runs system-scoped: the auth user table isn't RLS-granted.
+    const [me] = await runAsActor(this.db, SYSTEM, (db) =>
+      db.select({ email: user.email }).from(user).where(eq(user.id, userId)),
+    );
+    if (!me) return [];
+    const email = me.email.toLowerCase();
+    const handles = new Set([email, email.split("@")[0]!]);
+
+    const rows = await this.exec((db) =>
+      db
+        .select({
+          id: documents.id,
+          title: documents.title,
+          collectionId: documents.collectionId,
+          workspaceId: documents.workspaceId,
+          contentMd: documents.contentMd,
+        })
+        .from(documents)
+        .where(
+          and(
+            isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
+            // Cheap prefilter; exact matching happens in the parser below.
+            sql`${documents.contentMd} LIKE '%- [%'`,
+          ),
+        ),
+    );
+
+    const todos: TodoItem[] = [];
+    for (const row of rows) {
+      for (const task of scanTaskItems(row.contentMd)) {
+        if (!task.mentions.some((m) => handles.has(m))) continue;
+        todos.push({
+          documentId: row.id,
+          documentTitle: row.title,
+          collectionId: row.collectionId,
+          workspaceId: row.workspaceId,
+          line: task.line,
+          text: task.text,
+          done: task.done,
+        });
+      }
+    }
+    return todos;
   }
 }

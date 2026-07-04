@@ -50,6 +50,13 @@
       "when": 1782304626285,
       "tag": "0006_sharp_invaders",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783199966752,
+      "tag": "0007_narrow_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

@@ -3,14 +3,22 @@ import { and, eq, isNull } from "drizzle-orm";
 import {
   runAsActor,
   SYSTEM,
+  user,
   workspaceInvites,
   workspaceMembers,
   workspaces,
   type Actor,
   type Database,
   type Workspace,
-  type WorkspaceMember,
 } from "@tandem/db";
+
+export interface WorkspaceMemberInfo {
+  userId: string;
+  role: string;
+  name: string;
+  email: string;
+  joinedAt: Date;
+}
 
 export class WorkspaceService {
   constructor(
@@ -35,13 +43,6 @@ export class WorkspaceService {
   /** Workspaces the actor belongs to (RLS-scoped for user actors). */
   async listMine(): Promise<Workspace[]> {
     return this.exec((db) => db.select().from(workspaces).orderBy(workspaces.name));
-  }
-
-  async defaultWorkspaceId(): Promise<string | null> {
-    return this.exec(async (db) => {
-      const [row] = await db.select({ id: workspaces.id }).from(workspaces).limit(1);
-      return row?.id ?? null;
-    });
   }
 
   /** Create workspace + owner membership for the given user (system). */
@@ -156,12 +157,26 @@ export class WorkspaceService {
     });
   }
 
-  async members(workspaceId: string): Promise<WorkspaceMember[]> {
-    return this.exec((db) =>
+  /** Workspace members with their user identity — for the member list,
+   * sharing pickers, and blame name resolution. Members only. */
+  async members(workspaceId: string): Promise<WorkspaceMemberInfo[]> {
+    const role = await this.myRole(workspaceId);
+    if (!role) throw new Error("not a member of this workspace");
+    // The auth user table isn't RLS-granted; join it system-scoped after the
+    // membership check above.
+    return this.system((db) =>
       db
-        .select()
+        .select({
+          userId: workspaceMembers.userId,
+          role: workspaceMembers.role,
+          name: user.name,
+          email: user.email,
+          joinedAt: workspaceMembers.createdAt,
+        })
         .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, workspaceId)),
+        .innerJoin(user, eq(user.id, workspaceMembers.userId))
+        .where(eq(workspaceMembers.workspaceId, workspaceId))
+        .orderBy(workspaceMembers.createdAt),
     );
   }
 }
