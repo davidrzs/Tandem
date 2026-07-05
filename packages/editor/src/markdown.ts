@@ -88,6 +88,47 @@ function taskListPlugin(md: MarkdownIt) {
   });
 }
 
+const DOC_HREF =
+  /^\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/**
+ * markdown-it rule: a plain link whose target is a document URL
+ * (`[title](/d/<uuid>)`) becomes a pageRef token, so cross-references
+ * round-trip as first-class nodes. Links with styled/nested content are left
+ * as ordinary links.
+ */
+function pageRefPlugin(md: MarkdownIt) {
+  md.core.ruler.push("page_refs", (state) => {
+    for (const block of state.tokens) {
+      if (block.type !== "inline" || !block.children) continue;
+      const out: (typeof block.children)[number][] = [];
+      for (let i = 0; i < block.children.length; i++) {
+        const tok = block.children[i]!;
+        const next = block.children[i + 1];
+        const close = block.children[i + 2];
+        const href = tok.type === "link_open" ? (tok.attrGet("href") ?? "") : "";
+        const match = DOC_HREF.exec(href);
+        if (
+          match &&
+          next?.type === "text" &&
+          close?.type === "link_close"
+        ) {
+          const ref = new state.Token("pageRef", "a", 0);
+          ref.attrs = [
+            ["docId", match[1]!.toLowerCase()],
+            ["title", next.content],
+          ];
+          out.push(ref);
+          i += 2;
+        } else {
+          out.push(tok);
+        }
+      }
+      block.children = out;
+    }
+  });
+}
+
 /** markdown-it rule: turn `<img …>` HTML (inline within a paragraph, or block
  * on its own line) into image tokens so display width round-trips. Other HTML
  * is left for the parser to ignore. */
@@ -175,6 +216,10 @@ const serializer = new MarkdownSerializer(
         return state.repeat(" ", maxW - nStr.length) + nStr + ". ";
       });
     },
+    pageRef(state, node) {
+      const title = String(node.attrs.title || "Untitled");
+      state.write(`[${state.esc(title)}](/d/${node.attrs.docId})`);
+    },
     image(state, node) {
       const { src, alt, title, width } = node.attrs as {
         src: string;
@@ -216,7 +261,8 @@ const parser = new MarkdownParser(
   MarkdownIt("commonmark", { html: true })
     .enable("strikethrough")
     .use(imgHtmlPlugin)
-    .use(taskListPlugin),
+    .use(taskListPlugin)
+    .use(pageRefPlugin),
   {
   blockquote: { block: "blockquote" },
   paragraph: { block: "paragraph" },
@@ -252,6 +298,13 @@ const parser = new MarkdownParser(
     getAttrs: (tok) => ({
       href: tok.attrGet("href"),
       title: tok.attrGet("title") || null,
+    }),
+  },
+  pageRef: {
+    node: "pageRef",
+    getAttrs: (tok) => ({
+      docId: tok.attrGet("docId"),
+      title: tok.attrGet("title") ?? "",
     }),
   },
   image: {

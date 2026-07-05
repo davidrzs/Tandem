@@ -67,9 +67,8 @@ export function createMentionExtension(
                 .deleteRange(range)
                 .insertContent([
                   {
-                    type: "text",
-                    text: item.title || "Untitled",
-                    marks: [{ type: "link", attrs: { href: `/d/${item.id}` } }],
+                    type: "pageRef",
+                    attrs: { docId: item.id, title: item.title || "Untitled" },
                   },
                   { type: "text", text: " " },
                 ])

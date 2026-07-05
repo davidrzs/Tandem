@@ -1794,3 +1794,70 @@ button {
     padding: 20px 20px 40px;
   }
 }
+
+/* ---------- cross-references ---------- */
+
+.page-ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 6px 1px;
+  border-radius: var(--radius-s);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.page-ref svg {
+  align-self: center;
+}
+
+.page-ref:hover {
+  background: rgba(23, 101, 109, 0.15);
+}
+
+.page-ref.missing {
+  background: var(--sunken);
+  color: var(--ink-3);
+  text-decoration: line-through;
+  cursor: default;
+}
+
+.ProseMirror-selectednode.page-ref,
+.page-ref.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+}
+
+.backlinks {
+  margin-top: 40px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.backlinks h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+}
+
+.backlink {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.backlink:hover {
+  color: var(--accent-ink);
+}

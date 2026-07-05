@@ -1,4 +1,4 @@
-import { getSchema } from "@tiptap/core";
+import { getSchema, Node } from "@tiptap/core";
 import ImageBase from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import TaskItem from "@tiptap/extension-task-item";
@@ -26,6 +26,58 @@ export const Image = ImageBase.extend({
 });
 
 /**
+ * A first-class reference to another document (Outline-style mention). The
+ * binding is the document ID — moving/reparenting the target never breaks it.
+ * `title` is only a snapshot for the derived markdown ("[title](/d/id)"); the
+ * editor renders the target's CURRENT title, so renames propagate on view
+ * without anyone touching this node (mutating it would create phantom edits
+ * attributed to whoever happened to be looking).
+ */
+export const PageRef = Node.create({
+  name: "pageRef",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      docId: { default: null },
+      title: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "a[data-page-ref]",
+        // Structural type: this package compiles without DOM libs (it runs
+        // on the server too), and parseHTML only ever sees elements.
+        getAttrs: (el) => {
+          const node = el as unknown as {
+            getAttribute(name: string): string | null;
+            textContent: string | null;
+          };
+          return {
+            docId: node.getAttribute("data-page-ref"),
+            title: node.textContent ?? "",
+          };
+        },
+      },
+    ];
+  },
+  renderHTML({ node }) {
+    return [
+      "a",
+      {
+        "data-page-ref": node.attrs.docId,
+        href: `/d/${node.attrs.docId}`,
+        class: "page-ref",
+      },
+      String(node.attrs.title || "Untitled"),
+    ];
+  },
+});
+
+/**
  * The single source of truth for the document model. Both the client editor
  * and the server (Hocuspocus persistence, MCP writes) build their ProseMirror
  * schema from THIS extension list, so Y.Doc <-> JSON <-> markdown all align.
@@ -42,6 +94,7 @@ export const baseExtensions: Extensions = [
   Image.configure({ inline: true }),
   TaskList,
   TaskItem.configure({ nested: true }),
+  PageRef,
 ];
 
 /** ProseMirror schema derived from the shared extensions (no DOM required). */

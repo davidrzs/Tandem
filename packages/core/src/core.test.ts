@@ -409,3 +409,28 @@ test("comments: readers can discuss, resolve rides on write access, delete is th
   assert.ok(await bob.remove(thread.id));
   assert.equal((await alice.list(doc.id)).length, 0, "replies cascaded");
 });
+
+test("backlinks: pages referencing a doc, RLS-scoped, archived sources excluded", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Refs", slug: "refs" });
+  await c1.setDefaultRole(col.id, "none"); // u1-only
+
+  const target = await d1.create({ collectionId: col.id, title: "Target" });
+  const source = await d1.create({
+    collectionId: col.id,
+    title: "Source",
+    markdown: `See [Target](/d/${target.id}) for details.`,
+  });
+  await d1.create({ collectionId: col.id, title: "Unrelated", markdown: "No links here." });
+
+  const links = await d1.backlinks(target.id);
+  assert.deepEqual(links.map((l) => l.id), [source.id]);
+
+  // Another workspace's user sees no backlinks (can't read the sources).
+  assert.equal((await new DocumentService(db, user("u2")).backlinks(target.id)).length, 0);
+
+  // Archiving the source drops it from the list.
+  await d1.archive(source.id);
+  assert.equal((await d1.backlinks(target.id)).length, 0);
+});

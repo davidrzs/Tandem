@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   collections,
@@ -490,6 +490,27 @@ export class DocumentService {
         .orderBy(desc(rank))
         .limit(opts.limit ?? 20);
     });
+  }
+
+  /** Documents that reference this one (a `[title](/d/<id>)` link in their
+   * markdown — what pageRef nodes serialize to). RLS-scoped: you only see
+   * referencing documents you could open anyway. */
+  async backlinks(id: string): Promise<DocumentMeta[]> {
+    return this.exec((db) =>
+      db
+        .select(DocumentService.metaColumns)
+        .from(documents)
+        .where(
+          and(
+            isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
+            ne(documents.id, id),
+            like(documents.contentMd, `%](/d/${id})%`),
+          ),
+        )
+        .orderBy(desc(documents.updatedAt))
+        .limit(50),
+    );
   }
 
   /**

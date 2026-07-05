@@ -120,3 +120,24 @@ test("nested task lists round-trip", () => {
   assert.match(normalized, /- \[ \] child task/);
   assert.equal(normalizeMarkdown(normalized), normalized, "stable after one pass");
 });
+
+test("page references round-trip as [title](/d/<id>) links", () => {
+  const id = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9";
+  const md = `See [Reading the river](/d/${id}) for context.`;
+  const json = markdownToJSON(md) as {
+    content: Array<{ content: Array<{ type: string; attrs?: Record<string, unknown> }> }>;
+  };
+  const inline = json.content[0]!.content;
+  const ref = inline.find((n) => n.type === "pageRef");
+  assert.ok(ref, "link to a document URL becomes a pageRef node");
+  assert.equal(ref!.attrs!.docId, id);
+  assert.equal(ref!.attrs!.title, "Reading the river");
+  assert.equal(normalizeMarkdown(md), md, "stable round-trip");
+});
+
+test("ordinary links do not become page references", () => {
+  const md = "An [external link](https://example.com) and [not a doc](/dashboard).";
+  const json = JSON.stringify(markdownToJSON(md));
+  assert.ok(!json.includes("pageRef"));
+  assert.equal(normalizeMarkdown(md), md);
+});

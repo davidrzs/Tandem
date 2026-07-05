@@ -9,7 +9,7 @@ import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { getAuthors } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 import * as Y from "yjs";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
@@ -26,6 +26,7 @@ import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
 import { Icon } from "./Icon.js";
 import { createMentionExtension, type MentionCandidate } from "./mention.js";
+import { ClientPageRef } from "./page-ref.js";
 import { SlashCommand } from "./slash-command.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
@@ -95,7 +96,12 @@ export function Editor({
   // Metadata only — the body arrives over Yjs, so we don't fetch it here.
   const doc = trpc.documents.getMeta.useQuery({ id: docId });
   const update = trpc.documents.update.useMutation({
-    onSuccess: () => utils.documents.tree.invalidate(),
+    onSuccess: () => {
+      void utils.documents.tree.invalidate();
+      // Anything showing this doc's title (page-reference chips, headers)
+      // re-reads it after a rename.
+      void utils.documents.getMeta.invalidate({ id: docId });
+    },
   });
   const members = trpc.workspaces.members.useQuery(
     { workspaceId },
@@ -183,6 +189,9 @@ export function Editor({
     [utils],
   );
 
+  // --- cross-references: who links here ---
+  const backlinks = trpc.documents.backlinks.useQuery({ id: docId });
+
   // --- comments ---
   const commentsQuery = trpc.comments.list.useQuery({ documentId: docId });
   const commentItems: CommentItem[] = useMemo(
@@ -221,6 +230,7 @@ export function Editor({
         ClientImage,
         TaskList,
         TaskItem.configure({ nested: true }),
+        ClientPageRef,
         Collaboration.configure({ document: ydoc, field: "default" }),
         CollaborationCursor.configure({ provider, user: me }),
         SlashCommand,
@@ -494,6 +504,17 @@ export function Editor({
       <div onMouseOver={onMouseOver} onMouseLeave={() => setHover(null)} onClick={onProseClick}>
         <EditorContent className="prose" editor={editor} />
       </div>
+      {(backlinks.data?.length ?? 0) > 0 && (
+        <div className="backlinks">
+          <h3>Linked from</h3>
+          {backlinks.data!.map((d) => (
+            <RouterLink key={d.id} className="backlink" to={`/d/${d.id}`}>
+              <Icon name="page" size={13} />
+              {d.title || "Untitled"}
+            </RouterLink>
+          ))}
+        </div>
+      )}
       {hover && (
         <div className="blame-card" style={{ left: hover.x, top: hover.y }}>
           <strong>{hover.label}</strong>

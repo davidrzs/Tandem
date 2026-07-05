@@ -243,6 +243,10 @@ export const appRouter = t.router({
 
     myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documents.listMyTodos()),
 
+    backlinks: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(({ ctx, input }) => ctx.services.documents.backlinks(input.id)),
+
     search: protectedProcedure
       .input(
         z.object({

@@ -333,3 +333,81 @@ test("comments: select text, discuss, reply, resolve", async ({ page }) => {
   // The highlight is gone once resolved.
   await expect(page.locator(".comment-span")).toHaveCount(0);
 });
+
+test("cross-references: @-link a page, rename and move survive, backlinks", async ({ page }) => {
+  await signUp(page, "Hana Kim", "hana@example.com");
+  await createCollection(page, "Wiki");
+  await page.getByRole("button", { name: /Wiki/ }).click();
+  const wikiRow = page.locator(".collection-row", { hasText: "Wiki" });
+
+  // Two sibling documents.
+  const mkDoc = async (title: string) => {
+    const before = page.url();
+    await wikiRow.hover();
+    await page.getByTitle("New document").first().click();
+    await expect(page).not.toHaveURL(before);
+    await page.locator(".title-input").fill(title);
+    await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
+    return page.url();
+  };
+  await mkDoc("Alpha notes");
+  const urlB = await mkDoc("Beta results");
+  await page.waitForTimeout(600); // title save debounce before searching
+
+  // In Alpha, "@" links the Beta page as a first-class reference chip.
+  await page.locator(".doc-row", { hasText: "Alpha notes" }).click();
+  await page.locator(".ProseMirror").click();
+  await page.keyboard.type("Compare with @beta");
+  await page.getByRole("button", { name: /Beta results/ }).click();
+  await expect(page.locator(".page-ref")).toContainText("Beta results");
+  await page.waitForTimeout(2600); // persist (debounced store)
+
+  // The chip navigates by ID.
+  await page.locator(".page-ref").click();
+  await expect(page).toHaveURL(urlB);
+
+  // Rename the target -> the reference shows the new title (live, no edit).
+  await page.locator(".title-input").fill("Beta results v2");
+  await page.waitForTimeout(800); // title save debounce
+  await page.locator(".doc-row", { hasText: "Alpha notes" }).click();
+  await expect(page.locator(".page-ref")).toContainText("Beta results v2");
+
+  // Move the target under Alpha (drag) -> the reference still resolves.
+  const alpha = page.locator(".doc-row", { hasText: "Alpha notes" });
+  const beta = page.locator(".doc-row", { hasText: "Beta results v2" });
+  await page.evaluate(`
+    (() => {
+      const rows = [...document.querySelectorAll(".doc-row")];
+      const src = rows.find((r) => r.textContent?.includes("Beta results v2"));
+      const dst = rows.find((r) => r.textContent?.includes("Alpha notes"));
+      const dt = new DataTransfer();
+      window.__xref = { dt, dst };
+      src.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
+      const rect = dst.getBoundingClientRect();
+      dst.dispatchEvent(new DragEvent("dragover", {
+        bubbles: true, cancelable: true, dataTransfer: dt,
+        clientY: rect.top + rect.height / 2,
+      }));
+    })()
+  `);
+  await page.waitForTimeout(120);
+  await page.evaluate(`
+    (() => {
+      const { dt, dst } = window.__xref;
+      const rect = dst.getBoundingClientRect();
+      dst.dispatchEvent(new DragEvent("drop", {
+        bubbles: true, cancelable: true, dataTransfer: dt,
+        clientY: rect.top + rect.height / 2,
+      }));
+    })()
+  `);
+  await expect(beta).toHaveCSS("padding-left", "40px"); // nested now
+  await page.locator(".page-ref").click();
+  await expect(page).toHaveURL(urlB); // same id, new place — still resolves
+
+  // Backlinks: Beta lists Alpha under "Linked from".
+  await expect(page.locator(".backlinks")).toContainText("Alpha notes");
+  await page.locator(".backlink", { hasText: "Alpha notes" }).click();
+  await expect(page.locator(".title-input")).toHaveValue("Alpha notes");
+  void alpha;
+});

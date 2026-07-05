@@ -16,6 +16,9 @@ you should always be able to see, calmly and truthfully, **who wrote what**.
   re-attributes only what it actually changed.
 - **Tasks that find their owner.** Write a to-do anywhere and mention someone;
   it appears on their start page when they sign in.
+- **Cross-references.** Type `@` to link another page as a live chip: the
+  reference is bound to the document's ID, so moving it never breaks a link
+  and renaming updates every mention. Each page lists what links to it.
 - **Inline comments.** Select any text and start a thread, Outline-style —
   anchors ride the CRDT, so discussions follow the text through edits. Reply,
   resolve, reopen; commenting needs only read access.
