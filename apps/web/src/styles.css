@@ -840,8 +840,15 @@ button {
 
 .ProseMirror ul[data-type="taskList"] li > label {
   flex: 0 0 auto;
-  margin-top: 6px;
+  /* Centre the 15px box on the first text line (line-height 1.75 × 17px). */
+  margin-top: calc((1.75em - 15px) / 2);
   user-select: none;
+}
+
+/* Task text is a paragraph; its prose margins would push it below the
+   checkbox and balloon the gaps between items. */
+.ProseMirror ul[data-type="taskList"] li > div > p {
+  margin: 0;
 }
 
 .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {

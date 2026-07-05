@@ -31,6 +31,7 @@ import { createMentionHighlight, mentionHighlightKey } from "./mention-highlight
 import { ClientPageRef } from "./page-ref.js";
 import { timeAgo } from "./time.js";
 import { SlashCommand } from "./slash-command.js";
+import { TaskListInputRule } from "./task-input-rule.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
 async function uploadAndInsert(view: EditorView, file: File, docId: string) {
@@ -228,6 +229,7 @@ export function Editor({
         ClientImage,
         TaskList,
         TaskItem.configure({ nested: true }),
+        TaskListInputRule,
         ClientPageRef,
         Collaboration.configure({ document: ydoc, field: "default" }),
         CollaborationCursor.configure({ provider, user: me }),
