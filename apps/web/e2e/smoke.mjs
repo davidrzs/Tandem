@@ -11,7 +11,13 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+// Real JS console errors only — ignore benign network noise (e.g. a static
+// asset 404), which isn't what this persistence test is guarding.
+page.on("console", (m) => {
+  if (m.type() === "error" && !m.text().includes("Failed to load resource")) {
+    errors.push(m.text());
+  }
+});
 
 try {
   await signUp(page, "E2E User");

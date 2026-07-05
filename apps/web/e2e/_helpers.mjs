@@ -22,11 +22,14 @@ export async function createCollection(page, name) {
   await page.getByText(name, { exact: true }).waitFor();
 }
 
-/** Create a document in the named collection and wait for the editor. */
+/** Create a document in the named collection and wait for the editor. Waits for
+ * the URL to CHANGE to the new doc (not just match /d/) so that creating a
+ * second doc from an existing doc page doesn't return before navigation. */
 export async function newDocument(page, collectionName) {
+  const before = new URL(page.url()).pathname;
   const row = page.locator(".collection-row", { hasText: collectionName });
   await row.hover();
   await row.locator('.row-action[title="New document"]').click();
-  await page.waitForURL(/\/d\//);
+  await page.waitForURL((url) => url.pathname !== before && url.pathname.startsWith("/d/"));
   await page.waitForSelector(".ProseMirror");
 }

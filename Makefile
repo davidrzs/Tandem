@@ -31,6 +31,9 @@ test: .env migrate ## Run unit/integration tests
 e2e: ## Run a browser e2e (usage: make e2e T=collab) — default smoke
 	bash apps/web/e2e/run.sh $(or $(T),smoke)
 
+e2e-all: ## Run the whole browser e2e suite against one booted stack (as CI does)
+	bash apps/web/e2e/run-all.sh
+
 pg: ## Start a local Postgres 18 (podman) for prod-like testing
 	podman start tandem-pg 2>/dev/null || \
 	  podman run -d --name tandem-pg -e POSTGRES_PASSWORD=postgres \
