@@ -84,3 +84,21 @@ attribution exception documented in README; DnD now e2e-covered.
 - README written (product identity, task syntax, blame model + honest limits).
 - Security + compliance reviews done; all findings addressed.
 - FINAL: 54 unit/integration tests, typecheck 5/5, web build, 4/4 e2e — all green.
+
+## Post-review round (user-driven, all verified + committed)
+
+- Design system rebuilt from scratch ("paper & ink": Inter UI + Source Serif
+  prose, petrol accent, SVG icons, real dialogs); then dialogs/menus moved onto
+  Radix primitives under the same skin (focus trap, keyboard nav, positioning).
+- Inline comments (Outline-style): RelativePosition anchors, replies, resolve;
+  live sync over Hocuspocus stateless pings (no polling).
+- Cross-references: pageRef inline node bound to document ID (move-proof),
+  live-title chips (rename-proof), [title](/d/id) markdown round-trip,
+  backlinks ("Linked from") per document.
+- Search: per-term prefix matching (titles + bodies); mention tints; byline;
+  width toggle; unified 720px column; error boundary humanized.
+- History rail: per-session edit history from the authorship layer with
+  per-session highlight filtering (snapshots/restore explicitly future work).
+- Settings: per-user MCP kill switch enforced at /mcp; connect instructions;
+  workspace audit trail of agent actions (append-only, RLS-read, system-write).
+- Suites: 63 unit/integration tests, 6 e2e specs, typecheck, build — all green.
