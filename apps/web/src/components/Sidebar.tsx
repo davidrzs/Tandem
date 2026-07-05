@@ -2,6 +2,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { authClient } from "../auth-client.js";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
@@ -86,7 +87,7 @@ export function Sidebar({
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(friendlyError(e));
     }
   };
 
@@ -170,7 +171,7 @@ export function Sidebar({
       <div className="section">
         <div className="section-title">
           <span>Collections</span>
-          <button className="row-action" title="New collection" onClick={newCollection}>
+          <button className="row-action" title="New collection" aria-label="New collection" onClick={newCollection}>
             <Icon name="plus" />
           </button>
         </div>
@@ -214,7 +215,7 @@ export function Sidebar({
           </span>
           <button
             className="row-action"
-            title="Sign out"
+            title="Sign out" aria-label="Sign out"
             onClick={() => void authClient.signOut()}
           >
             <Icon name="signout" />
@@ -323,7 +324,7 @@ function CollectionSection({
       await fn();
       await refresh();
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Something went wrong");
+      onError(friendlyError(e));
     }
   };
 
@@ -405,7 +406,7 @@ function CollectionSection({
         </button>
         <span className="row-actions">
           {collection.writable && (
-            <button className="row-action" title="New document" onClick={() => void newDoc()}>
+            <button className="row-action" title="New document" aria-label="New document" onClick={() => void newDoc()}>
               <Icon name="plus" />
             </button>
           )}
@@ -421,6 +422,10 @@ function CollectionSection({
                 Retry
               </button>
             </div>
+          )}
+          {tree.isLoading && <div className="side-note">Loading…</div>}
+          {!tree.isLoading && !tree.error && (tree.data?.length ?? 0) === 0 && (
+            <div className="side-note">No documents yet.</div>
           )}
           <DocTree
             nodes={tree.data ?? []}
@@ -599,7 +604,7 @@ function DocRow({
           <span className="row-actions">
             <button
               className="row-action"
-              title="New sub-document"
+              title="New sub-document" aria-label="New sub-document"
               onClick={(e) => {
                 e.preventDefault();
                 onNewChild(node.id);
@@ -682,14 +687,14 @@ function ArchivedRow({
         <span className="row-actions">
           <button
             className="row-action"
-            title="Restore"
+            title="Restore" aria-label="Restore"
             onClick={() => void run(() => restore.mutateAsync({ id: doc.id }))}
           >
             <Icon name="restore" />
           </button>
           <button
             className="row-action"
-            title="Delete permanently"
+            title="Delete permanently" aria-label="Delete permanently"
             onClick={() =>
               setDialog(
                 <ConfirmDialog

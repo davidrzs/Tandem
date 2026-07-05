@@ -50,7 +50,7 @@ export function HistoryPanel({
     <aside className="comments-panel history-panel">
       <div className="comments-head">
         <h2>History</h2>
-        <button className="row-action" title="Close history" onClick={onClose}>
+        <button className="row-action" title="Close history" aria-label="Close history" onClick={onClose}>
           <Icon name="close" />
         </button>
       </div>

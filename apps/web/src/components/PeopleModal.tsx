@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
 import { ConfirmDialog, Modal, RowMenu } from "./Modal.js";
@@ -29,7 +30,7 @@ export function PeopleModal({
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(friendlyError(e));
     }
   };
 
@@ -37,7 +38,7 @@ export function PeopleModal({
     <Modal title="People & groups" onClose={onClose} wide>
       <h3>Members</h3>
       {members.error && (
-        <p className="modal-note">Couldn't load members: {members.error.message}</p>
+        <p className="modal-note">{friendlyError(members.error, "Couldn't load members.")}</p>
       )}
       <ul className="member-list">
         {(members.data ?? []).map((m) => (
@@ -149,7 +150,7 @@ function GroupRow({
         utils.groups.list.invalidate({ workspaceId }),
       ]);
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Something went wrong");
+      onError(friendlyError(e));
     }
   };
 
@@ -193,7 +194,7 @@ function GroupRow({
               <span>{memberName(userId)}</span>
               <button
                 className="row-action"
-                title="Remove from group"
+                title="Remove from group" aria-label="Remove from group"
                 onClick={() => void run(() => removeMember.mutateAsync({ groupId, userId }))}
               >
                 <Icon name="close" size={14} />

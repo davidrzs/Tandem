@@ -42,7 +42,7 @@ export function TagBar({
           {canEdit && (
             <button
               className="tag-remove"
-              title="Remove tag"
+              title="Remove tag" aria-label="Remove tag"
               onClick={() => onChange(tags.filter((t) => t !== tag))}
             >
               <Icon name="close" size={11} />

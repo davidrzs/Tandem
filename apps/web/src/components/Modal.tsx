@@ -30,7 +30,7 @@ export function Modal({
               <h2>{title}</h2>
             </Dialog.Title>
             <Dialog.Close asChild>
-              <button className="modal-close" title="Close">
+              <button className="modal-close" title="Close" aria-label="Close">
                 <Icon name="close" />
               </button>
             </Dialog.Close>
@@ -156,6 +156,7 @@ export function RowMenu({
         <button
           className="row-action"
           title={title}
+          aria-label={title}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();

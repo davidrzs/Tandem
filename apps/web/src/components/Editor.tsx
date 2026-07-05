@@ -42,6 +42,7 @@ import { TaskListInputRule } from "./task-input-rule.js";
 import { createMathExtension } from "./math.js";
 import { TagBar } from "./TagBar.js";
 import { useAppContext } from "../App.js";
+import { friendlyError } from "../errors.js";
 
 /** Shared lowlight instance (common languages) for code-block highlighting. */
 const lowlight = createLowlight(common);
@@ -469,7 +470,8 @@ export function Editor({
   }, 500);
 
   if (doc.isLoading) return <div className="empty">Loading…</div>;
-  if (doc.error) return <div className="empty">Couldn't load this document: {doc.error.message}</div>;
+  if (doc.error)
+    return <div className="empty">{friendlyError(doc.error, "Couldn't load this document.")}</div>;
   if (!doc.data) return <div className="empty">Document not found, or you don't have access to it.</div>;
 
   const status: { label: string; tone: string } = !synced

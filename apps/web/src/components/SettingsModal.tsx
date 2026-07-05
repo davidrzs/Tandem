@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
@@ -28,7 +29,7 @@ export function SettingsModal({
       utils.settings.get.setData(undefined, { mcpEnabled: enabled });
     },
     onSettled: () => utils.settings.get.invalidate(),
-    onError: (e) => setError(e.message),
+    onError: (e) => setError(friendlyError(e)),
   });
 
   const [importing, setImporting] = useState(false);
@@ -59,7 +60,7 @@ export function SettingsModal({
       setImportResult(await res.json());
       await Promise.all([utils.collections.list.invalidate(), utils.documents.tree.invalidate()]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The import couldn't be completed.");
+      setError(friendlyError(e, "The import couldn't be completed."));
     } finally {
       setImporting(false);
     }
@@ -110,7 +111,7 @@ export function SettingsModal({
       <h3>Agent activity in this workspace</h3>
       {!workspaceId && <p className="modal-note">Select a workspace first.</p>}
       {audit.error && (
-        <p className="modal-note">Couldn't load the audit trail: {audit.error.message}</p>
+        <p className="modal-note">{friendlyError(audit.error, "Couldn't load the audit trail.")}</p>
       )}
       {audit.data && audit.data.length === 0 && (
         <p className="modal-note">No agent actions recorded yet.</p>

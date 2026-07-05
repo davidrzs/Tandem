@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { Outlet, useMatch, useOutletContext } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
+import { friendlyError } from "./errors.js";
 import { PeopleModal } from "./components/PeopleModal.js";
 import { SearchModal } from "./components/SearchModal.js";
 import { SettingsModal } from "./components/SettingsModal.js";
@@ -83,7 +84,7 @@ export function App() {
     return (
       <div className="error-panel">
         <h2>Couldn't load your workspace</h2>
-        <p className="error-detail">{failed.error?.message}</p>
+        <p className="error-detail">{friendlyError(failed.error, "Please try again.")}</p>
         <button className="btn" onClick={() => void failed.refetch()}>
           Retry
         </button>

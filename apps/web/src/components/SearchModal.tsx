@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 
 /** Highlighted-fragment markers from ts_headline (chr(2)/chr(3) delimiters). */
@@ -100,7 +101,7 @@ export function SearchModal({
           </div>
         )}
         {results.error && (
-          <div className="search-status">Search failed: {results.error.message}</div>
+          <div className="search-status">{friendlyError(results.error, "Search failed. Try again.")}</div>
         )}
         {active && !results.isLoading && hits.length === 0 && !results.error && (
           <div className="search-status">Nothing matches that search.</div>

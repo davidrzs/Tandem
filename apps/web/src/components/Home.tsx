@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { authClient } from "../auth-client.js";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 
 interface TodoGroup {
@@ -48,7 +49,7 @@ export function Home() {
 
       {todos.error && (
         <div className="error-panel inline">
-          <p className="error-detail">Couldn't load your tasks: {todos.error.message}</p>
+          <p className="error-detail">{friendlyError(todos.error, "Couldn't load your tasks. Try again.")}</p>
           <button className="btn" onClick={() => void todos.refetch()}>
             Retry
           </button>

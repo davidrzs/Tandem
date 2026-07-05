@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../App.js";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Editor } from "./Editor.js";
 
@@ -25,7 +26,7 @@ export function DocumentPage() {
     return (
       <div className="error-panel">
         <h2>Couldn't load this document</h2>
-        <p className="error-detail">{meta.error.message}</p>
+        <p className="error-detail">{friendlyError(meta.error, "Please try again.")}</p>
         <button className="btn" onClick={() => void meta.refetch()}>
           Retry
         </button>

@@ -60,7 +60,7 @@ export function CommentsPanel({
     <aside className="comments-panel">
       <div className="comments-head">
         <h2>Comments</h2>
-        <button className="row-action" title="Close comments" onClick={onClose}>
+        <button className="row-action" title="Close comments" aria-label="Close comments" onClick={onClose}>
           <Icon name="close" />
         </button>
       </div>
@@ -161,6 +161,7 @@ function Thread({
           <button
             className="row-action"
             title={resolvedState ? "Reopen" : "Resolve"}
+            aria-label={resolvedState ? "Reopen comment" : "Resolve comment"}
             onClick={(e) => {
               e.stopPropagation();
               onResolve(thread.id, !resolvedState);
@@ -229,7 +230,7 @@ function CommentBody({
           {mine && (
             <button
               className="row-action"
-              title="Delete comment"
+              title="Delete comment" aria-label="Delete comment"
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(comment.id);

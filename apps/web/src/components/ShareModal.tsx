@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CollectionInfo } from "../App.js";
+import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
@@ -40,7 +41,7 @@ export function ShareModal({
         utils.collections.list.invalidate(),
       ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(friendlyError(e));
     }
   };
 
@@ -100,7 +101,7 @@ export function ShareModal({
                 </span>
                 <button
                   className="row-action"
-                  title="Revoke"
+                  title="Revoke" aria-label="Revoke"
                   onClick={() =>
                     void run(() =>
                       revoke.mutateAsync({

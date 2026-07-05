@@ -693,6 +693,12 @@ button {
   padding: 0;
 }
 
+/* Keyboard focus needs an indicator even though the caret usually suffices. */
+.title-input:focus-visible {
+  outline: none;
+  box-shadow: 0 2px 0 var(--accent);
+}
+
 .title-input::placeholder {
   color: var(--ink-3);
 }
