@@ -22,6 +22,7 @@ import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
 import { registerImageRoutes } from "./images.js";
+import { registerTransferRoutes } from "./transfer/routes.js";
 import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
 import { appRouter } from "./trpc.js";
@@ -54,6 +55,7 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   await app.register(multipart);
   await app.register(websocket);
   await registerImageRoutes(app, db, auth);
+  await registerTransferRoutes(app, db, auth);
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
   // ourselves (it dropped the `ws` library for crossws).
@@ -228,7 +230,7 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   const webDist = fileURLToPath(new URL("../../web/dist", import.meta.url));
   if (existsSync(webDist)) {
     await app.register(fastifyStatic, { root: webDist, wildcard: false });
-    const apiPrefixes = ["/trpc", "/api/auth", "/mcp", "/collab", "/.well-known", "/health"];
+    const apiPrefixes = ["/trpc", "/api", "/mcp", "/collab", "/.well-known", "/health"];
     app.setNotFoundHandler((req, reply) => {
       if (req.method === "GET" && !apiPrefixes.some((p) => req.url.startsWith(p))) {
         return reply.sendFile("index.html"); // SPA fallback for client routes

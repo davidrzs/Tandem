@@ -31,6 +31,40 @@ export function SettingsModal({
     onError: (e) => setError(e.message),
   });
 
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    collections: number;
+    documents: number;
+    images: number;
+    warnings: string[];
+  } | null>(null);
+
+  const onImportFile = async (file: File) => {
+    if (!workspaceId) return;
+    setImporting(true);
+    setImportResult(null);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch(`/api/import?workspace=${workspaceId}`, {
+        method: "POST",
+        body,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(detail.error ?? "The import couldn't be completed.");
+      }
+      setImportResult(await res.json());
+      await Promise.all([utils.collections.list.invalidate(), utils.documents.tree.invalidate()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The import couldn't be completed.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const enabled = settings.data?.mcpEnabled ?? true;
   const endpoint = `${window.location.origin}/mcp`;
 
@@ -94,6 +128,58 @@ export function SettingsModal({
             </li>
           ))}
         </ul>
+      )}
+
+      <h3>Data</h3>
+      {!workspaceId ? (
+        <p className="modal-note">Select a workspace first.</p>
+      ) : (
+        <>
+          <div className="data-actions">
+            <a className="btn" href={`/api/export?workspace=${workspaceId}`}>
+              Export workspace
+            </a>
+            <label className={"btn" + (importing ? " disabled" : "")}>
+              {importing ? "Importing…" : "Import a zip"}
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                hidden
+                disabled={importing}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void onImportFile(file);
+                }}
+              />
+            </label>
+          </div>
+          <p className="switch-hint">
+            Export downloads every document you can read as markdown. Import
+            accepts Outline backups and Obsidian-style vaults.
+          </p>
+          {importResult && (
+            <div className="import-summary">
+              Imported {importResult.collections} collection
+              {importResult.collections === 1 ? "" : "s"}, {importResult.documents} document
+              {importResult.documents === 1 ? "" : "s"}, {importResult.images} image
+              {importResult.images === 1 ? "" : "s"}.
+              {importResult.warnings.length > 0 && (
+                <details>
+                  <summary>
+                    {importResult.warnings.length} thing
+                    {importResult.warnings.length === 1 ? "" : "s"} to review
+                  </summary>
+                  <ul>
+                    {importResult.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+        </>
       )}
       {error && <div className="modal-error">{error}</div>}
     </Modal>

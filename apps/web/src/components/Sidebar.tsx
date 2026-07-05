@@ -367,6 +367,13 @@ function CollectionSection({
       : []),
     { label: "Share & access", icon: "share" as const, onClick: onShare },
     {
+      label: "Export",
+      icon: "download" as const,
+      onClick: () => {
+        window.location.href = `/api/export?collection=${collection.id}`;
+      },
+    },
+    {
       label: "Delete collection",
       icon: "trash" as const,
       danger: true,

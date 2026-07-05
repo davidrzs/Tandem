@@ -2161,6 +2161,42 @@ button {
   line-height: 1.55;
 }
 
+.data-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.data-actions .btn.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.import-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--sunken);
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.import-summary details {
+  margin-top: 6px;
+}
+
+.import-summary summary {
+  cursor: pointer;
+  color: var(--accent-ink);
+}
+
+.import-summary ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
 .connect-steps {
   margin: 0;
   padding-left: 20px;

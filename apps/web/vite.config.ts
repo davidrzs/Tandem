@@ -7,8 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/trpc": "http://localhost:3001",
-      "/api/auth": "http://localhost:3001",
-      "/api/images": "http://localhost:3001",
+      "/api": "http://localhost:3001",
       "/mcp": "http://localhost:3001",
       "/.well-known": "http://localhost:3001",
       "/collab": { target: "ws://localhost:3001", ws: true },

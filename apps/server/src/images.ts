@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
@@ -8,15 +8,43 @@ import { fromNodeHeaders } from "better-auth/node";
 import type { Database } from "@tandem/db";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Auth } from "./auth.js";
-import { createServices } from "./services.js";
+import { createServices, type Services } from "./services.js";
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 /** Local disk dir for image bytes (UPLOADS_DIR; a mounted volume in prod). */
-function uploadsDir(): string {
+export function uploadsDir(): string {
   const dir = process.env.UPLOADS_DIR ?? ".uploads";
   return isAbsolute(dir) ? dir : resolve(REPO_ROOT, dir);
+}
+
+/** Persist raw image bytes as a new workspace-scoped image, returning its id.
+ * Shared by the upload route and the zip importer. Caller vets the mime. */
+export async function saveImageBytes(
+  services: Services,
+  input: { workspaceId: string; uploadedBy: string; mime: string; bytes: Buffer },
+): Promise<string> {
+  const dir = uploadsDir();
+  await mkdir(dir, { recursive: true });
+  const image = await services.images.create({
+    workspaceId: input.workspaceId,
+    uploadedBy: input.uploadedBy,
+    mime: input.mime,
+    size: input.bytes.length,
+  });
+  await writeFile(join(dir, image.id), input.bytes);
+  return image.id;
+}
+
+/** Read an image's bytes off disk (null if missing) — for export. Access is
+ * gated by the caller having already resolved the row under RLS. */
+export async function readImageBytes(id: string): Promise<Buffer | null> {
+  try {
+    return await readFile(join(uploadsDir(), id));
+  } catch {
+    return null;
+  }
 }
 
 /**
