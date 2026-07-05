@@ -13,6 +13,7 @@ import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/source-serif-4";
+import "katex/dist/katex.min.css";
 import "./styles.css";
 
 // Auth-flow pages (OAuth consent, resume, invites) render outside the app

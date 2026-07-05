@@ -1,6 +1,10 @@
 import { getSchema, Node } from "@tiptap/core";
 import ImageBase from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import Table from "@tiptap/extension-table";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
+import TableRow from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
@@ -95,6 +99,12 @@ export const baseExtensions: Extensions = [
   TaskList,
   TaskItem.configure({ nested: true }),
   PageRef,
+  // Column resize stores a per-cell colwidth that the markdown read model can't
+  // carry, so it's off — GFM tables round-trip cleanly, widths don't.
+  Table.configure({ resizable: false }),
+  TableRow,
+  TableHeader,
+  TableCell,
 ];
 
 /** ProseMirror schema derived from the shared extensions (no DOM required). */

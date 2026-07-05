@@ -121,6 +121,36 @@ test("nested task lists round-trip", () => {
   assert.equal(normalizeMarkdown(normalized), normalized, "stable after one pass");
 });
 
+test("GFM tables round-trip and build a real table node tree", () => {
+  const md = "| Name | Role |\n| --- | --- |\n| Ada | Lead |\n| Bo | Eng |";
+  assert.equal(normalizeMarkdown(md), md, "canonical GFM round-trips exactly");
+
+  const json = markdownToJSON(md) as {
+    content: Array<{ type: string; content: Array<{ type: string; content: Array<{ type: string }> }> }>;
+  };
+  const table = json.content[0]!;
+  assert.equal(table.type, "table");
+  assert.equal(table.content[0]!.type, "tableRow");
+  assert.equal(table.content[0]!.content[0]!.type, "tableHeader");
+  assert.equal(table.content[1]!.content[0]!.type, "tableCell");
+});
+
+test("table cells keep inline marks and escape pipes; alignment is dropped", () => {
+  const md = "| A | B |\n| :--- | ---: |\n| **bold** | a \\| b |";
+  const out = normalizeMarkdown(md);
+  assert.match(out, /\*\*bold\*\*/, "marks survive in cells");
+  assert.match(out, /a \\\| b/, "literal pipe stays escaped");
+  assert.match(out, /^\| --- \| --- \|$/m, "alignment normalizes to plain ---");
+  assert.equal(normalizeMarkdown(out), out, "idempotent");
+});
+
+test("an empty table cell round-trips as an empty column", () => {
+  const md = "| A | B |\n| --- | --- |\n| x |  |";
+  const out = normalizeMarkdown(md);
+  assert.match(out, /\| x \|  \|/, "empty cell preserved");
+  assert.equal(normalizeMarkdown(out), out, "idempotent");
+});
+
 test("page references round-trip as [title](/d/<id>) links", () => {
   const id = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9";
   const md = `See [Reading the river](/d/${id}) for context.`;

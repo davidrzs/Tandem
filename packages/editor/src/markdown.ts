@@ -173,6 +173,72 @@ function imgHtmlPlugin(md: MarkdownIt) {
   });
 }
 
+/**
+ * markdown-it rule: remap GFM table tokens into the shape prosemirror-markdown
+ * expects for this schema. markdown-it emits `table/thead/tbody/tr/th/td`; the
+ * PM schema wants `table > tableRow > (tableHeader|tableCell) > paragraph`. We
+ * drop the thead/tbody wrappers, rename tr/th/td, and wrap each cell's inline
+ * content in a paragraph (cells are `block+`). Column alignment isn't modeled,
+ * so its attrs are simply ignored downstream.
+ */
+function tableTokensPlugin(md: MarkdownIt) {
+  md.core.ruler.push("tandem_tables", (state) => {
+    let touched = false;
+    const out: (typeof state.tokens)[number][] = [];
+    const paraOpen = () => new state.Token("paragraph_open", "p", 1);
+    const paraClose = () => new state.Token("paragraph_close", "p", -1);
+    for (const tok of state.tokens) {
+      switch (tok.type) {
+        case "thead_open":
+        case "thead_close":
+        case "tbody_open":
+        case "tbody_close":
+          touched = true;
+          continue; // drop structural wrappers
+        case "tr_open":
+          tok.type = "tableRow_open";
+          out.push(tok);
+          break;
+        case "tr_close":
+          tok.type = "tableRow_close";
+          out.push(tok);
+          break;
+        case "th_open":
+          tok.type = "tableHeader_open";
+          out.push(tok, paraOpen());
+          break;
+        case "th_close":
+          out.push(paraClose());
+          tok.type = "tableHeader_close";
+          out.push(tok);
+          break;
+        case "td_open":
+          tok.type = "tableCell_open";
+          out.push(tok, paraOpen());
+          break;
+        case "td_close":
+          out.push(paraClose());
+          tok.type = "tableCell_close";
+          out.push(tok);
+          break;
+        default:
+          out.push(tok);
+      }
+    }
+    if (touched) state.tokens = out;
+  });
+}
+
+/** Serialize a table cell's blocks to a single inline string (marks kept),
+ * safe to drop into a `| … |` row. Reuses the full serializer at call time. */
+function cellToInline(cell: Node): string {
+  if (cell.content.size === 0) return "";
+  const md = serializer.serialize(schema.node("doc", null, cell.content), {
+    tightLists: true,
+  });
+  return md.trim().replace(/\n+/g, " ").replace(/\|/g, "\\|");
+}
+
 // Serializer keyed to TipTap StarterKit node/mark names. We reuse the default
 // implementations where the logic is identical, and override the two that read
 // TipTap-specific attrs (codeBlock.language, orderedList.start).
@@ -220,6 +286,32 @@ const serializer = new MarkdownSerializer(
       const title = String(node.attrs.title || "Untitled");
       state.write(`[${state.esc(title)}](/d/${node.attrs.docId})`);
     },
+    // GFM pipe table. The first row is written as the header (the editor always
+    // inserts one). Cells hold inline content only: we serialize each cell's
+    // blocks, then flatten newlines to spaces and escape pipes so the row can't
+    // break. Column alignment and cell block structure aren't representable.
+    table(state, node) {
+      const rows: string[][] = [];
+      node.forEach((row) => {
+        const cells: string[] = [];
+        row.forEach((cell) => cells.push(cellToInline(cell)));
+        rows.push(cells);
+      });
+      if (rows.length === 0) {
+        state.closeBlock(node);
+        return;
+      }
+      const cols = Math.max(...rows.map((r) => r.length));
+      const line = (cells: string[]) => {
+        const padded = [...cells];
+        while (padded.length < cols) padded.push("");
+        return `| ${padded.join(" | ")} |`;
+      };
+      const lines = [line(rows[0]!), `| ${Array(cols).fill("---").join(" | ")} |`];
+      for (let i = 1; i < rows.length; i++) lines.push(line(rows[i]!));
+      state.write(lines.join("\n"));
+      state.closeBlock(node);
+    },
     image(state, node) {
       const { src, alt, title, width } = node.attrs as {
         src: string;
@@ -260,8 +352,10 @@ const parser = new MarkdownParser(
   schema,
   MarkdownIt("commonmark", { html: true })
     .enable("strikethrough")
+    .enable("table")
     .use(imgHtmlPlugin)
     .use(taskListPlugin)
+    .use(tableTokensPlugin)
     .use(pageRefPlugin),
   {
   blockquote: { block: "blockquote" },
@@ -273,6 +367,10 @@ const parser = new MarkdownParser(
     block: "taskItem",
     getAttrs: (tok) => ({ checked: tok.attrGet("checked") === "true" }),
   },
+  table: { block: "table" },
+  tableRow: { block: "tableRow" },
+  tableHeader: { block: "tableHeader" },
+  tableCell: { block: "tableCell" },
   ordered_list: {
     block: "orderedList",
     getAttrs: (tok) => ({ start: +(tok.attrGet("start") ?? 1) || 1 }),

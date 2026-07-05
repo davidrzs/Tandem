@@ -2,11 +2,17 @@ import { HocuspocusProvider, type HocuspocusProviderConfiguration } from "@hocus
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import Link from "@tiptap/extension-link";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import Table from "@tiptap/extension-table";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
+import TableRow from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
+import { createLowlight, common } from "lowlight";
 import { getAuthors } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
@@ -32,8 +38,12 @@ import { ClientPageRef } from "./page-ref.js";
 import { timeAgo } from "./time.js";
 import { SlashCommand } from "./slash-command.js";
 import { TaskListInputRule } from "./task-input-rule.js";
+import { createMathExtension } from "./math.js";
 import { TagBar } from "./TagBar.js";
 import { useAppContext } from "../App.js";
+
+/** Shared lowlight instance (common languages) for code-block highlighting. */
+const lowlight = createLowlight(common);
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
 async function uploadAndInsert(view: EditorView, file: File, docId: string) {
@@ -228,14 +238,21 @@ export function Editor({
     {
       editable: canEdit,
       extensions: [
-        // History is disabled — Collaboration manages undo via Yjs.
-        StarterKit.configure({ history: false }),
+        // History is disabled — Collaboration manages undo via Yjs. Code blocks
+        // come from CodeBlockLowlight (syntax highlighting) instead of StarterKit.
+        StarterKit.configure({ history: false, codeBlock: false }),
+        CodeBlockLowlight.configure({ lowlight }),
         Link.configure({ openOnClick: false }),
         ClientImage,
         TaskList,
         TaskItem.configure({ nested: true }),
         TaskListInputRule,
         ClientPageRef,
+        Table.configure({ resizable: false }),
+        TableRow,
+        TableHeader,
+        TableCell,
+        createMathExtension(),
         Collaboration.configure({ document: ydoc, field: "default" }),
         CollaborationCursor.configure({ provider, user: me }),
         SlashCommand,
@@ -446,13 +463,30 @@ export function Editor({
       {editor && (
         <BubbleMenu
           editor={editor}
+          pluginKey="commentMenu"
           tippyOptions={{ placement: "top" }}
-          shouldShow={({ state }) => !state.selection.empty}
+          shouldShow={({ editor, state }) => !state.selection.empty && !editor.isActive("table")}
         >
           <button className="bubble-btn" onClick={startComment}>
             <Icon name="comment" size={13} />
             Comment
           </button>
+        </BubbleMenu>
+      )}
+      {editor && canEdit && (
+        <BubbleMenu
+          editor={editor}
+          pluginKey="tableMenu"
+          tippyOptions={{ placement: "top" }}
+          shouldShow={({ editor }) => editor.isActive("table")}
+        >
+          <div className="bubble-group">
+            <button className="bubble-btn" title="Insert row below" onClick={() => editor.chain().focus().addRowAfter().run()}>+ Row</button>
+            <button className="bubble-btn" title="Insert column right" onClick={() => editor.chain().focus().addColumnAfter().run()}>+ Col</button>
+            <button className="bubble-btn" title="Delete row" onClick={() => editor.chain().focus().deleteRow().run()}>− Row</button>
+            <button className="bubble-btn" title="Delete column" onClick={() => editor.chain().focus().deleteColumn().run()}>− Col</button>
+            <button className="bubble-btn danger" title="Delete table" onClick={() => editor.chain().focus().deleteTable().run()}>Delete</button>
+          </div>
         </BubbleMenu>
       )}
       <div className={"editor" + (wide ? " wide" : "")}>

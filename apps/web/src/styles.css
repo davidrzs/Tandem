@@ -869,6 +869,101 @@ button {
   font-size: inherit;
 }
 
+/* Syntax highlighting (lowlight/hljs) — muted palette on the dark code block. */
+.ProseMirror pre .hljs-comment,
+.ProseMirror pre .hljs-quote {
+  color: #7c8a99;
+  font-style: italic;
+}
+.ProseMirror pre .hljs-keyword,
+.ProseMirror pre .hljs-selector-tag,
+.ProseMirror pre .hljs-literal {
+  color: #c792ea;
+}
+.ProseMirror pre .hljs-string,
+.ProseMirror pre .hljs-regexp,
+.ProseMirror pre .hljs-addition {
+  color: #a5d6a7;
+}
+.ProseMirror pre .hljs-number,
+.ProseMirror pre .hljs-symbol,
+.ProseMirror pre .hljs-meta {
+  color: #f5b971;
+}
+.ProseMirror pre .hljs-title,
+.ProseMirror pre .hljs-section,
+.ProseMirror pre .hljs-name {
+  color: #82aaff;
+}
+.ProseMirror pre .hljs-attr,
+.ProseMirror pre .hljs-attribute,
+.ProseMirror pre .hljs-type,
+.ProseMirror pre .hljs-built_in {
+  color: #ffcb6b;
+}
+.ProseMirror pre .hljs-variable,
+.ProseMirror pre .hljs-template-variable {
+  color: #89ddff;
+}
+.ProseMirror pre .hljs-deletion {
+  color: #ff8a80;
+}
+.ProseMirror pre .hljs-emphasis {
+  font-style: italic;
+}
+.ProseMirror pre .hljs-strong {
+  font-weight: 700;
+}
+
+/* tables (GFM) */
+.ProseMirror .tableWrapper {
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  width: auto;
+  font-family: var(--font-ui);
+  font-size: 0.92em;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--line-strong);
+  padding: 6px 11px;
+  vertical-align: top;
+  text-align: left;
+  min-width: 3.5em;
+}
+
+.ProseMirror th {
+  background: var(--sunken);
+  font-weight: 600;
+}
+
+.ProseMirror th > p,
+.ProseMirror td > p {
+  margin: 0;
+}
+
+.ProseMirror .selectedCell {
+  background: var(--accent-wash);
+}
+
+/* inline math ($…$ rendered with KaTeX; source hidden unless being edited) */
+.math-src-hidden {
+  display: none;
+}
+
+.math-render {
+  cursor: default;
+}
+
+.math-render .katex {
+  font-size: 1.02em;
+}
+
 .ProseMirror blockquote {
   border-left: 2px solid var(--line-strong);
   margin: 0.9em 0;
@@ -1732,6 +1827,15 @@ button {
 
 .bubble-btn:hover {
   background: #303c4d;
+}
+
+.bubble-group {
+  display: flex;
+  gap: 3px;
+}
+
+.bubble-btn.danger:hover {
+  background: var(--danger);
 }
 
 .comments-panel {
