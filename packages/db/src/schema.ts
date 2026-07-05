@@ -180,6 +180,8 @@ export const documents = pgTable(
     position: doublePrecision("position").notNull().default(0),
 
     title: text("title").notNull().default(""),
+    // Free-form labels for filtering/organization. Normalized in the service.
+    tags: text("tags").array().notNull().default([]),
 
     // Derived READ model: canonical markdown, serialized from the Y.Doc on save.
     contentMd: text("content_md").notNull().default(""),
@@ -202,6 +204,7 @@ export const documents = pgTable(
     index("documents_collection_idx").on(t.collectionId),
     index("documents_parent_idx").on(t.parentDocumentId),
     index("documents_search_idx").using("gin", t.searchVector),
+    index("documents_tags_idx").using("gin", t.tags),
   ],
 );
 

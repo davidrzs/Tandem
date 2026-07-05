@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { trpc } from "../trpc.js";
 
@@ -18,9 +18,26 @@ function Snippet({ text }: { text: string }) {
   );
 }
 
-export function SearchModal({ onClose }: { onClose: () => void }) {
-  const [query, setQuery] = useState("");
-  const [debounced, setDebounced] = useState("");
+/** Split a raw query into free text and a single `#tag` filter. */
+function parseQuery(raw: string): { text: string; tag?: string } {
+  let tag: string | undefined;
+  const rest: string[] = [];
+  for (const tok of raw.trim().split(/\s+/).filter(Boolean)) {
+    if (!tag && tok.length > 1 && tok.startsWith("#")) tag = tok.slice(1);
+    else rest.push(tok);
+  }
+  return { text: rest.join(" "), tag };
+}
+
+export function SearchModal({
+  initialQuery = "",
+  onClose,
+}: {
+  initialQuery?: string;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState(initialQuery);
+  const [debounced, setDebounced] = useState(initialQuery.trim());
   const [selected, setSelected] = useState(0);
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,13 +46,21 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
     const t = setTimeout(() => setDebounced(query.trim()), 200);
     return () => clearTimeout(t);
   }, [query]);
-  useEffect(() => inputRef.current?.focus(), []);
+  useEffect(() => {
+    inputRef.current?.focus();
+    // Caret to the end so a prefilled "#tag " is ready to type after.
+    const len = inputRef.current?.value.length ?? 0;
+    inputRef.current?.setSelectionRange(len, len);
+  }, []);
+
+  const { text, tag } = useMemo(() => parseQuery(debounced), [debounced]);
+  const active = text.length > 0 || !!tag;
 
   const results = trpc.documents.search.useQuery(
-    { query: debounced, limit: 20 },
-    { enabled: debounced.length > 0, placeholderData: (prev) => prev },
+    { query: text, tag, limit: 20 },
+    { enabled: active, placeholderData: (prev) => prev },
   );
-  const hits = debounced.length > 0 ? (results.data ?? []) : [];
+  const hits = active ? (results.data ?? []) : [];
 
   useEffect(() => setSelected(0), [debounced]);
 
@@ -63,16 +88,22 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
         <input
           ref={inputRef}
           className="search-input"
-          placeholder="Search documents…"
+          placeholder="Search documents…  (try #tag)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
+        {tag && (
+          <div className="search-status">
+            Filtering by tag <span className="tag-chip">{tag}</span>
+            {text ? ` and text "${text}"` : ""}
+          </div>
+        )}
         {results.error && (
           <div className="search-status">Search failed: {results.error.message}</div>
         )}
-        {debounced && !results.isLoading && hits.length === 0 && !results.error && (
-          <div className="search-status">No documents match "{debounced}".</div>
+        {active && !results.isLoading && hits.length === 0 && !results.error && (
+          <div className="search-status">Nothing matches that search.</div>
         )}
         {hits.length > 0 && (
           <div className="search-results">
@@ -84,7 +115,16 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
                 onClick={() => openDoc(hit.id)}
               >
                 <span className="search-title">{hit.title || "Untitled"}</span>
-                <Snippet text={hit.snippet} />
+                {hit.snippet && <Snippet text={hit.snippet} />}
+                {hit.tags.length > 0 && (
+                  <span className="search-tags">
+                    {hit.tags.map((t) => (
+                      <span key={t} className="tag-chip">
+                        {t}
+                      </span>
+                    ))}
+                  </span>
+                )}
               </button>
             ))}
           </div>

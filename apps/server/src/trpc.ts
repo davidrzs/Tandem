@@ -188,16 +188,24 @@ export const appRouter = t.router({
           title: z.string().optional(),
           markdown: z.string().optional(),
           parentDocumentId: uuid.optional(),
+          tags: z.array(z.string()).optional(),
         }),
       )
       .mutation(({ ctx, input }) => ctx.services.documents.create(input)),
 
     update: protectedProcedure
-      .input(z.object({ id: uuid, title: z.string() }))
+      .input(
+        z.object({
+          id: uuid,
+          title: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
-        const doc = await ctx.services.documents.update(input.id, { title: input.title });
+        const { id, ...patch } = input;
+        const doc = await ctx.services.documents.update(id, patch);
         // A null row on an RLS-scoped write means denied, not "not found".
-        if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot rename this document." });
+        if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
         return doc;
       }),
 
@@ -243,6 +251,8 @@ export const appRouter = t.router({
 
     myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documents.listMyTodos()),
 
+    listTags: protectedProcedure.query(({ ctx }) => ctx.services.documents.listTags()),
+
     backlinks: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.backlinks(input.id)),
@@ -250,9 +260,10 @@ export const appRouter = t.router({
     search: protectedProcedure
       .input(
         z.object({
-          query: z.string().min(1),
+          query: z.string(),
           collectionId: uuid.optional(),
           limit: z.number().int().min(1).max(100).optional(),
+          tag: z.string().optional(),
         }),
       )
       .query(({ ctx, input }) => {

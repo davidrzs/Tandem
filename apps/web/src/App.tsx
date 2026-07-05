@@ -19,6 +19,8 @@ export interface CollectionInfo {
 export interface AppContext {
   workspaceId: string | null;
   collections: CollectionInfo[];
+  /** Open the search modal, optionally prefilled (e.g. "#ml " to browse a tag). */
+  openSearch: (query?: string) => void;
 }
 
 export function useAppContext(): AppContext {
@@ -58,7 +60,8 @@ export function App() {
     if (ws && ws !== workspaceId) setWorkspaceId(ws);
   }, [activeMeta.data?.workspaceId, workspaceId]);
 
-  const [searchOpen, setSearchOpen] = useState(false);
+  // null = closed; a string (possibly empty) = open, prefilled with that query.
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareCollectionId, setShareCollectionId] = useState<string | null>(null);
@@ -68,7 +71,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setSearchOpen((s) => !s);
+        setSearchQuery((q) => (q === null ? "" : null));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -96,6 +99,7 @@ export function App() {
   const context: AppContext = {
     workspaceId,
     collections: collections.data ?? [],
+    openSearch: (query = "") => setSearchQuery(query),
   };
 
   return (
@@ -108,7 +112,7 @@ export function App() {
         activeDocId={activeDocId}
         activeCollectionId={activeMeta.data?.collectionId ?? null}
         onSelectWorkspace={setWorkspaceId}
-        onOpenSearch={() => setSearchOpen(true)}
+        onOpenSearch={() => setSearchQuery("")}
         onOpenPeople={() => setPeopleOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onShareCollection={setShareCollectionId}
@@ -118,7 +122,9 @@ export function App() {
           <Outlet context={context} />
         </ErrorBoundary>
       </main>
-      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+      {searchQuery !== null && (
+        <SearchModal initialQuery={searchQuery} onClose={() => setSearchQuery(null)} />
+      )}
       {settingsOpen && (
         <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
       )}

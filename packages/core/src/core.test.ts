@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createDatabase, migrateDatabase, SYSTEM, type Actor } from "@tandem/db";
 import { CollectionService } from "./services/collections.js";
-import { DocumentService } from "./services/documents.js";
+import { DocumentService, normalizeTags } from "./services/documents.js";
 import { GroupService } from "./services/groups.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
@@ -58,6 +58,48 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
   const titleHits = await documents.search("onboard");
   assert.ok(titleHits.some((h) => h.id === parent.id), "title prefix matches");
   assert.equal((await documents.search("   ")).length, 0, "blank query is empty");
+});
+
+test("normalizeTags trims, collapses, dedupes case-insensitively, and caps", () => {
+  assert.deepEqual(normalizeTags(["  Alpha ", "alpha", "", "  ", "be   ta"]), ["Alpha", "be ta"]);
+  assert.equal(normalizeTags(Array.from({ length: 30 }, (_v, i) => `t${i}`)).length, 20);
+  assert.equal(normalizeTags(["x".repeat(80)])[0]!.length, 50);
+});
+
+test("tags: create/update, RLS-scoped listing, tag search and browse", async () => {
+  const collections = new CollectionService(db, user("u1"));
+  const documents = new DocumentService(db, user("u1"));
+  const col = await collections.create({ name: "Papers", slug: "papers" });
+
+  const draft = await documents.create({
+    collectionId: col.id,
+    title: "Diffusion draft",
+    markdown: "Notes on sampling.",
+    tags: ["ml", "ML", " Draft "], // dedupe + trim happen in the service
+  });
+  assert.deepEqual(draft.tags, ["ml", "Draft"], "tags normalized on create");
+
+  const meta = await documents.getMeta(draft.id);
+  assert.deepEqual(meta!.tags, ["ml", "Draft"], "getMeta returns tags");
+
+  // Update replaces the set.
+  const other = await documents.create({ collectionId: col.id, title: "Transformer notes", tags: ["ml"] });
+  await documents.update(draft.id, { tags: ["ml", "published"] });
+
+  const tags = await documents.listTags();
+  assert.deepEqual(tags, ["ml", "published"], "distinct, sorted, current tags only");
+
+  // Tag filter + text.
+  const mlHits = await documents.search("", { tag: "ml" });
+  assert.deepEqual(new Set(mlHits.map((h) => h.id)), new Set([draft.id, other.id]), "tag browse lists both");
+  const combined = await documents.search("transformer", { tag: "ml" });
+  assert.deepEqual(combined.map((h) => h.id), [other.id], "text + tag narrows");
+  assert.equal((await documents.search("", { tag: "nope" })).length, 0, "unknown tag is empty");
+
+  // RLS: u2 sees none of u1's tags.
+  const d2 = new DocumentService(db, user("u2"));
+  assert.equal((await d2.listTags()).length, 0, "u2 cannot see u1's tags");
+  assert.equal((await d2.search("", { tag: "ml" })).length, 0, "u2 tag search is empty");
 });
 
 test("tenant isolation: a user cannot see or write another workspace's data", async () => {

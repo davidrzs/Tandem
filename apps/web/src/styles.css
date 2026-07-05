@@ -704,6 +704,100 @@ button {
   color: var(--ink-3);
 }
 
+/* ---------- tags ---------- */
+
+.tag-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-family: var(--font-ui);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+/* Read-only contexts (search results) render the chip as a plain label. */
+.tag-chip:not(:has(.tag-remove)) {
+  padding-right: 8px;
+}
+
+.tag-label {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tag-label:hover {
+  text-decoration: underline;
+}
+
+.tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent-ink);
+  opacity: 0.5;
+  cursor: pointer;
+  border-radius: 999px;
+}
+
+.tag-remove:hover {
+  opacity: 1;
+  background: rgba(23, 101, 109, 0.14);
+}
+
+.tag-add {
+  padding: 1px 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tag-add:hover {
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+
+.tag-input {
+  width: 8rem;
+  padding: 1px 8px;
+  border: 1px solid var(--accent-ink);
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  outline: none;
+}
+
+.search-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 .prose {
   margin-top: 10px;
 }

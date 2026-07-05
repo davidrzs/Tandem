@@ -16,6 +16,7 @@ function publicDoc(d: DocumentMeta & { rank?: number }) {
   return {
     id: d.id,
     title: d.title,
+    tags: d.tags,
     collectionId: d.collectionId,
     parentDocumentId: d.parentDocumentId,
     position: d.position,
@@ -169,15 +170,18 @@ export function createMcpServer(
     {
       title: "Search documents",
       description:
-        "Full-text search over document titles and bodies. Optionally scope to a collection.",
+        "Full-text search over document titles and bodies. Optionally scope to a " +
+        "collection, or filter/browse by an exact tag (pass an empty query with a " +
+        "tag to list everything carrying that tag).",
       inputSchema: {
-        query: z.string().min(1),
+        query: z.string(),
         collectionId: z.string().uuid().optional(),
         limit: z.number().int().min(1).max(100).optional(),
+        tag: z.string().optional(),
       },
     },
-    async ({ query, collectionId, limit }) => {
-      const hits = await documents.search(query, { collectionId, limit });
+    async ({ query, collectionId, limit, tag }) => {
+      const hits = await documents.search(query, { collectionId, limit, tag });
       return json(hits.map((h) => ({ ...publicDoc(h), snippet: h.snippet })));
     },
   );
@@ -205,19 +209,24 @@ export function createMcpServer(
   server.registerTool(
     "update_document",
     {
-      title: "Rename document",
+      title: "Update document metadata",
       description:
-        "Set a document's title. Body edits use the targeted edit tools " +
-        "(edit_document, insert_after_heading, replace_section, append_section) " +
-        "so that only what actually changed is attributed to this agent.",
+        "Set a document's title and/or tags (labels for organization and search). " +
+        "Body edits use the targeted edit tools (edit_document, " +
+        "insert_after_heading, replace_section, append_section) so that only what " +
+        "actually changed is attributed to this agent.",
       inputSchema: {
         id: z.string().uuid(),
-        title: z.string(),
+        title: z.string().optional(),
+        tags: z.array(z.string()).optional(),
       },
     },
-    async ({ id, title }) => {
-      const doc = await documents.update(id, { title });
-      if (doc) logAudit("rename_document", doc);
+    async ({ id, title, tags }) => {
+      if (title === undefined && tags === undefined) {
+        return toolError("provide a title and/or tags to update");
+      }
+      const doc = await documents.update(id, { title, tags });
+      if (doc) logAudit(title !== undefined ? "rename_document" : "tag_document", doc);
       return writeResult(id, doc);
     },
   );

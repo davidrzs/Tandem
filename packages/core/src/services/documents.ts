@@ -23,10 +23,29 @@ export interface CreateDocumentInput {
   parentDocumentId?: string | null;
   title?: string;
   markdown?: string;
+  tags?: string[];
 }
 
 export interface UpdateDocumentInput {
   title?: string;
+  tags?: string[];
+}
+
+/** Clean up user/agent-supplied tags: trim, collapse inner whitespace, drop
+ * empties, dedupe case-insensitively (first spelling wins), cap length + count. */
+export function normalizeTags(tags: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const tag = raw.trim().replace(/\s+/g, " ").slice(0, 50);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 /** The actor tried to write a document their role only lets them read. */
@@ -39,6 +58,8 @@ export class DocumentWriteDeniedError extends Error {
 export interface SearchOptions {
   collectionId?: string;
   limit?: number;
+  /** Restrict to documents carrying this tag (exact, case-sensitive). */
+  tag?: string;
 }
 
 /** Metadata-only view (no content_md / content_json / ydoc_state / search_vector)
@@ -51,6 +72,7 @@ export type DocumentMeta = Pick<
   | "parentDocumentId"
   | "position"
   | "title"
+  | "tags"
   | "createdAt"
   | "updatedAt"
   | "archivedAt"
@@ -108,6 +130,7 @@ export class DocumentService {
     parentDocumentId: documents.parentDocumentId,
     position: documents.position,
     title: documents.title,
+    tags: documents.tags,
     createdAt: documents.createdAt,
     updatedAt: documents.updatedAt,
     archivedAt: documents.archivedAt,
@@ -187,6 +210,7 @@ export class DocumentService {
           collectionId: input.collectionId,
           parentDocumentId: parentId,
           title: input.title ?? "",
+          tags: input.tags ? normalizeTags(input.tags) : [],
           position,
           contentMd,
           contentJson,
@@ -228,6 +252,7 @@ export class DocumentService {
     return this.exec(async (db) => {
       const set: Record<string, unknown> = { updatedAt: new Date() };
       if (patch.title !== undefined) set.title = patch.title;
+      if (patch.tags !== undefined) set.tags = normalizeTags(patch.tags);
       const [row] = await db
         .update(documents)
         .set(set)
@@ -466,9 +491,31 @@ export class DocumentService {
     // Prefix-match every term: the index uses the un-stemmed 'simple' config,
     // so "Read" must still find "Reading the river" while someone types.
     const terms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 8) ?? [];
-    if (terms.length === 0) return [];
-    const prefixQuery = terms.map((t) => `'${t}':*`).join(" & ");
+    const tag = opts.tag?.trim();
+    // A tag on its own is a valid search (browse by label); text alone or both.
+    if (terms.length === 0 && !tag) return [];
     return this.exec((db) => {
+      const tagFilter = tag ? sql`${documents.tags} @> ARRAY[${tag}]::text[]` : undefined;
+      const base = and(
+        isNull(documents.deletedAt),
+        isNull(documents.archivedAt),
+        opts.collectionId ? eq(documents.collectionId, opts.collectionId) : undefined,
+        tagFilter,
+      );
+
+      // Tag-only browse: no text ranking, newest first, no snippet.
+      if (terms.length === 0) {
+        const zero = sql<number>`0`;
+        const empty = sql<string>`''`;
+        return db
+          .select({ ...DocumentService.metaColumns, rank: zero, snippet: empty })
+          .from(documents)
+          .where(base)
+          .orderBy(desc(documents.updatedAt))
+          .limit(opts.limit ?? 20);
+      }
+
+      const prefixQuery = terms.map((t) => `'${t}':*`).join(" & ");
       const tsquery = sql`to_tsquery('simple', ${prefixQuery})`;
       const rank = sql<number>`ts_rank(${documents.searchVector}, ${tsquery})`;
       // Highlight delimiters are control chars (chr 2/3): impossible in the
@@ -477,19 +524,24 @@ export class DocumentService {
       return db
         .select({ ...DocumentService.metaColumns, rank, snippet })
         .from(documents)
-        .where(
-          and(
-            sql`${documents.searchVector} @@ ${tsquery}`,
-            isNull(documents.deletedAt),
-            isNull(documents.archivedAt),
-            opts.collectionId
-              ? eq(documents.collectionId, opts.collectionId)
-              : undefined,
-          ),
-        )
+        .where(and(sql`${documents.searchVector} @@ ${tsquery}`, base))
         .orderBy(desc(rank))
         .limit(opts.limit ?? 20);
     });
+  }
+
+  /** Every distinct tag across the documents this actor can read (RLS-scoped),
+   * for tag autocomplete. Excludes archived/deleted. */
+  async listTags(): Promise<string[]> {
+    const rows = await this.exec((db) =>
+      db
+        .select({ tag: sql<string>`unnest(${documents.tags})` })
+        .from(documents)
+        .where(and(isNull(documents.deletedAt), isNull(documents.archivedAt))),
+    );
+    return [...new Set(rows.map((r) => r.tag))].sort((a, b) =>
+      a.toLowerCase().localeCompare(b.toLowerCase()),
+    );
   }
 
   /** Documents that reference this one (a `[title](/d/<id>)` link in their

@@ -137,6 +137,19 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
   );
   assert.equal(renamed.title, "Deployment guide");
 
+  // tags via update_document (normalized) then browse by tag
+  const tagged = payload(
+    await client.callTool({
+      name: "update_document",
+      arguments: { id: parent.id, tags: ["infra", "Infra", " ops "] },
+    }),
+  );
+  assert.deepEqual(tagged.tags, ["infra", "ops"], "tags normalized and returned");
+  const byTag = payload(
+    await client.callTool({ name: "search_documents", arguments: { query: "", tag: "ops" } }),
+  );
+  assert.ok(byTag.some((h: any) => h.id === parent.id), "tag browse finds the doc");
+
   // tree nests child under parent
   const tree = payload(
     await client.callTool({

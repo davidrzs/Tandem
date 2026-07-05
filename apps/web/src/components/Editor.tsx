@@ -32,6 +32,8 @@ import { ClientPageRef } from "./page-ref.js";
 import { timeAgo } from "./time.js";
 import { SlashCommand } from "./slash-command.js";
 import { TaskListInputRule } from "./task-input-rule.js";
+import { TagBar } from "./TagBar.js";
+import { useAppContext } from "../App.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
 async function uploadAndInsert(view: EditorView, file: File, docId: string) {
@@ -93,18 +95,21 @@ export function Editor({
   const session = authClient.useSession();
   // Metadata only — the body arrives over Yjs, so we don't fetch it here.
   const doc = trpc.documents.getMeta.useQuery({ id: docId });
+  const tagOptions = trpc.documents.listTags.useQuery();
   const update = trpc.documents.update.useMutation({
     onSuccess: () => {
       void utils.documents.tree.invalidate();
       // Anything showing this doc's title (page-reference chips, headers)
-      // re-reads it after a rename.
+      // re-reads it after a rename; tag edits refresh the autocomplete pool.
       void utils.documents.getMeta.invalidate({ id: docId });
+      void utils.documents.listTags.invalidate();
     },
   });
   const members = trpc.workspaces.members.useQuery(
     { workspaceId },
     { enabled: !!workspaceId },
   );
+  const { openSearch } = useAppContext();
 
   // Members feed the @-mention autocomplete through a ref (they load async;
   // the extension is created once).
@@ -513,6 +518,13 @@ export function Editor({
       >
         Updated {timeAgo(doc.data.updatedAt)}
       </div>
+      <TagBar
+        tags={doc.data.tags}
+        canEdit={canEdit}
+        suggestions={tagOptions.data ?? []}
+        onChange={(tags) => update.mutate({ id: docId, tags })}
+        onTagClick={(tag) => openSearch(`#${tag} `)}
+      />
       <div onMouseOver={onMouseOver} onMouseLeave={() => setHover(null)} onClick={onProseClick}>
         <EditorContent className="prose" editor={editor} />
       </div>
