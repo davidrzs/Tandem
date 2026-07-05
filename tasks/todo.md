@@ -102,3 +102,34 @@ attribution exception documented in README; DnD now e2e-covered.
 - Settings: per-user MCP kill switch enforced at /mcp; connect instructions;
   workspace audit trail of agent actions (append-only, RLS-read, system-write).
 - Suites: 63 unit/integration tests, 6 e2e specs, typecheck, build — all green.
+
+## Feature batch: fixes, tags, rich content, import/export, versions
+
+Order was: fixes -> tags -> editor blocks -> import/export -> snapshots, one
+commit each, suites green per step.
+
+- Step 0 (fixes): task-checkbox vertical alignment (zero inner <p> margins,
+  centre the box); a TaskListInputRule so `- [ ]`/`[x]` in a bullet list
+  converts to a checklist live (built-in wrappingInputRule can't fire inside a
+  list). Refreshed the stale .mjs e2e setup into a shared _helpers.mjs.
+- Step 1 (tags, migration 0010): documents.tags text[] + GIN index; normalized
+  in the service; listTags + tag search (incl. tag-only browse); tRPC + MCP
+  surface; TagBar chips under the title; `#tag` parsing in search.
+- Step 2 (rich content): Table nodes in the shared schema + GFM parse/serialize
+  (token-remap plugin + pipe serializer; alignment/merges not modeled);
+  CodeBlockLowlight highlighting (web); inline KaTeX via a decoration plugin
+  ($…$ stays plain text -> round-trips, blame- and MCP-safe). Slash "Table" +
+  a table bubble menu.
+- Step 3 (import/export): fflate; transfer/{markdown-zip,export,import,routes}.
+  Outline layout, Obsidian vault support, front matter for tags, relative link
+  + wikilink rewriting, image up/download, zip-bomb caps, two-phase import for
+  single-session importer blame. Shared saveImageBytes/readImageBytes/uploadsDir.
+  Vite dev proxy collapsed to /api. Settings "Data" + collection "Export".
+- Step 4 (snapshots, migration 0011): document_snapshots (system-write, RLS
+  read-only); SnapshotService (boundary/interval/pre-restore capture with a
+  byte-equality dedupe guard); restore by ProseMirror JSON via collab-writer
+  (minimal-diff blame; no-op guard; pre-restore capture); tRPC list/get/restore
+  (JSON, never bytes); History "Versions" + SnapshotPreview + restore banner.
+- Suites: 84 unit/integration tests (editor 35, core 20, server 29), typecheck
+  5/5, web build, e2e (tasks, tagging, richtext, transfer, versions + refreshed
+  smoke) — all green. Final fresh-context security review of the new surfaces.
