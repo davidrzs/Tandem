@@ -134,14 +134,12 @@ export class CommentService {
     });
   }
 
-  /** Delete own comment; deleting a thread removes its replies with it. */
-  async remove(id: string): Promise<boolean> {
+  /** Delete own comment; deleting a thread removes its replies with it.
+   * Returns the deleted row (for change notification), or null if RLS said no. */
+  async remove(id: string): Promise<Comment | null> {
     return this.exec(async (db) => {
-      const rows = await db
-        .delete(comments)
-        .where(eq(comments.id, id))
-        .returning({ id: comments.id });
-      return rows.length > 0;
+      const [row] = await db.delete(comments).where(eq(comments.id, id)).returning();
+      return row ?? null;
     });
   }
 }

@@ -11,6 +11,10 @@ export interface AuthUser {
 export interface Context {
   services: Services;
   user: AuthUser | null;
+  /** Push a "something about this document changed" ping to its live
+   * collaboration channel (no data — clients refetch through their own,
+   * RLS-scoped queries). Absent in tests that run without Hocuspocus. */
+  notifyDocument?: (documentId: string, topic: "comments") => void;
 }
 
 const isProd = process.env.NODE_ENV === "production";
@@ -267,12 +271,18 @@ export const appRouter = t.router({
           parentId: uuid.optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.services.comments.create(input)),
+      .mutation(async ({ ctx, input }) => {
+        const comment = await ctx.services.comments.create(input);
+        ctx.notifyDocument?.(input.documentId, "comments");
+        return comment;
+      }),
     setResolved: protectedProcedure
       .input(z.object({ id: uuid, resolved: z.boolean() }))
-      .mutation(({ ctx, input }) =>
-        ctx.services.comments.setResolved(input.id, input.resolved),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        const comment = await ctx.services.comments.setResolved(input.id, input.resolved);
+        ctx.notifyDocument?.(comment.documentId, "comments");
+        return comment;
+      }),
     delete: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(async ({ ctx, input }) => {
@@ -280,6 +290,7 @@ export const appRouter = t.router({
         if (!deleted) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Only the author can delete a comment." });
         }
+        ctx.notifyDocument?.(deleted.documentId, "comments");
       }),
   }),
 });

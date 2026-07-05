@@ -405,7 +405,7 @@ test("comments: readers can discuss, resolve rides on write access, delete is th
   );
 
   // Only the author deletes; a thread takes its replies with it.
-  assert.equal(await alice.remove(thread.id), false, "not alice's thread");
-  assert.equal(await bob.remove(thread.id), true);
+  assert.equal(await alice.remove(thread.id), null, "not alice's thread");
+  assert.ok(await bob.remove(thread.id));
   assert.equal((await alice.list(doc.id)).length, 0, "replies cascaded");
 });

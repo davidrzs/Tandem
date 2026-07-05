@@ -89,6 +89,8 @@ export function Editor({
   workspaceId: string;
 }) {
   const utils = trpc.useUtils();
+  const utilsRef = useRef(utils);
+  utilsRef.current = utils;
   const session = authClient.useSession();
   // Metadata only — the body arrives over Yjs, so we don't fetch it here.
   const doc = trpc.documents.getMeta.useQuery({ id: docId });
@@ -134,6 +136,18 @@ export function Editor({
             status === "connected" ? "live" : status === "connecting" ? "connecting" : "offline",
           ),
         onSynced: () => setSynced(true),
+        // Server pushes data-free pings on the doc's channel (e.g. someone
+        // commented); refetch through our own RLS-scoped queries.
+        onStateless: ({ payload }: { payload: string }) => {
+          try {
+            const message = JSON.parse(payload) as { topic?: string };
+            if (message.topic === "comments") {
+              void utilsRef.current.comments.list.invalidate({ documentId: docId });
+            }
+          } catch {
+            // Unknown payloads are ignored.
+          }
+        },
       } as HocuspocusProviderConfiguration),
   );
   const destroyTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -170,10 +184,7 @@ export function Editor({
   );
 
   // --- comments ---
-  const commentsQuery = trpc.comments.list.useQuery(
-    { documentId: docId },
-    { refetchInterval: 15_000 },
-  );
+  const commentsQuery = trpc.comments.list.useQuery({ documentId: docId });
   const commentItems: CommentItem[] = useMemo(
     () => commentsQuery.data ?? [],
     [commentsQuery.data],

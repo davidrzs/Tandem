@@ -191,6 +191,20 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await expect(dave.locator(".ProseMirror")).not.toContainText("SNEAKY EDIT");
   expect(await dave.locator(".ProseMirror").innerText()).toBe(before);
 
+  // --- comments sync live over the collab channel ---
+  await carol.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
+  await carol.locator(".bubble-btn").click();
+  await carol.locator(".comment-composer textarea").fill("Can we cite this?");
+  await carol.locator(".comment-composer").getByRole("button", { name: "Comment" }).click();
+  // Dave has the doc open read-only; the thread appears without any reload.
+  await dave.getByRole("button", { name: /Comments \(1\)/ }).click();
+  await expect(dave.locator(".comment-thread")).toContainText("Can we cite this?");
+  // And a read-only member can reply.
+  await dave.locator(".comment-thread").getByRole("button", { name: "Reply" }).click();
+  await dave.locator(".comment-composer textarea").fill("Adding the DOI.");
+  await dave.locator(".comment-composer").getByRole("button", { name: "Reply" }).click();
+  await expect(carol.locator(".comment-thread")).toContainText("Adding the DOI.");
+
   // --- a group grant restores Dave's write access ---
   await carol.getByRole("button", { name: "People & groups" }).click();
   await carol.getByPlaceholder("New group name").fill("Editors");

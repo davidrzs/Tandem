@@ -135,7 +135,18 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
         const author = session
           ? { userId: session.user.id, name: session.user.name, ai: false }
           : undefined;
-        return { services: createServices(db, actor, author), user: session?.user ?? null };
+        return {
+          services: createServices(db, actor, author),
+          user: session?.user ?? null,
+          // Data-free ping over the doc's live channel; only connections that
+          // already passed onAuthenticate for this doc receive it, and they
+          // refetch through their own RLS-scoped queries.
+          notifyDocument: (documentId: string, topic: "comments") => {
+            hocuspocus.documents
+              .get(documentId)
+              ?.broadcastStateless(JSON.stringify({ topic }));
+          },
+        };
       },
     },
   });
