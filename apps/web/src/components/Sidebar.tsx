@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
@@ -231,58 +232,44 @@ function WorkspaceSwitcher({
   onSelect: (id: string) => void;
   onNew: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const active = workspaces.find((w) => w.id === workspaceId);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-
   return (
-    <div className="ws-switcher" ref={ref}>
-      <button className="ws-button" onClick={() => setOpen((o) => !o)}>
-        <span className="ws-mark">{(active?.name ?? "…").slice(0, 1).toUpperCase()}</span>
-        <span className="ws-name">{active?.name ?? "Select a workspace"}</span>
-        <Icon name="chevron" className={"ws-chevron" + (open ? " open" : "")} />
-      </button>
-      {open && (
-        <div className="menu-pop ws-menu">
-          {workspaces.map((w) => (
-            <button
-              key={w.id}
-              className="menu-item"
-              onClick={() => {
-                setOpen(false);
-                if (w.id !== workspaceId) onSelect(w.id);
-              }}
-            >
-              <span className="menu-check">
-                {w.id === workspaceId && <Icon name="check" />}
-              </span>
-              {w.name}
-            </button>
-          ))}
-          <div className="menu-sep" />
-          <button
-            className="menu-item"
-            onClick={() => {
-              setOpen(false);
-              onNew();
-            }}
-          >
-            <span className="menu-check">
-              <Icon name="plus" />
-            </span>
-            New workspace
+    <div className="ws-switcher">
+      <DropdownMenu.Root modal={false}>
+        <DropdownMenu.Trigger asChild>
+          <button className="ws-button">
+            <span className="ws-mark">{(active?.name ?? "…").slice(0, 1).toUpperCase()}</span>
+            <span className="ws-name">{active?.name ?? "Select a workspace"}</span>
+            <Icon name="chevron" className="ws-chevron" />
           </button>
-        </div>
-      )}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="menu-pop ws-menu" align="start" sideOffset={4}>
+            {workspaces.map((w) => (
+              <DropdownMenu.Item
+                key={w.id}
+                className="menu-item"
+                onSelect={() => {
+                  if (w.id !== workspaceId) onSelect(w.id);
+                }}
+              >
+                <span className="menu-check">
+                  {w.id === workspaceId && <Icon name="check" />}
+                </span>
+                {w.name}
+              </DropdownMenu.Item>
+            ))}
+            <DropdownMenu.Separator className="menu-sep" />
+            <DropdownMenu.Item className="menu-item" onSelect={onNew}>
+              <span className="menu-check">
+                <Icon name="plus" />
+              </span>
+              New workspace
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
 }

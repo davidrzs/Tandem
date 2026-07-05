@@ -1,11 +1,13 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import * as Dialog from "@radix-ui/react-dialog";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon.js";
+
+/**
+ * Dialog and menu chrome on Radix primitives: focus trapping, keyboard
+ * navigation, dismissal, and collision-aware positioning come from the
+ * library; only the skin (classes below) is ours.
+ */
 
 export function Modal({
   title,
@@ -18,31 +20,25 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className={"modal" + (wide ? " wide" : "")}
-        role="dialog"
-        aria-label={title}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <h2>{title}</h2>
-          <button className="modal-close" title="Close" onClick={onClose}>
-            <Icon name="close" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className={"modal" + (wide ? " wide" : "")} aria-describedby={undefined}>
+          <div className="modal-head">
+            <Dialog.Title asChild>
+              <h2>{title}</h2>
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="modal-close" title="Close">
+                <Icon name="close" />
+              </button>
+            </Dialog.Close>
+          </div>
+          {children}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -143,7 +139,8 @@ export interface MenuItem {
   onClick: () => void;
 }
 
-/** Row-level "…" dropdown. Stops propagation so it works inside links. */
+/** Row-level "…" dropdown. Rendered in a portal with real menu semantics;
+ * clicks never leak into the row/link underneath. */
 export function RowMenu({
   items,
   title = "More actions",
@@ -151,50 +148,45 @@ export function RowMenu({
   items: MenuItem[];
   title?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-
   return (
-    <span className="row-menu" ref={ref}>
-      <button
-        className={"row-action" + (open ? " open" : "")}
-        title={title}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-      >
-        <Icon name="dots" />
-      </button>
-      {open && (
-        <div className="menu-pop">
+    <DropdownMenu.Root modal={false}>
+      <DropdownMenu.Trigger asChild>
+        {/* preventDefault marks the event handled so an enclosing router
+            <Link> skips navigation; Radix toggles on pointerdown, unaffected. */}
+        <button
+          className="row-action"
+          title={title}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Icon name="dots" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        {/* Portal contents still bubble through the REACT tree into the row's
+            <Link>; stop clicks here (after items handled them) — but never
+            preventDefault, which would cancel Radix's own select handling. */}
+        <DropdownMenu.Content
+          className="menu-pop"
+          align="end"
+          sideOffset={4}
+          onClick={(e) => e.stopPropagation()}
+        >
           {items.map((item) => (
-            <button
+            <DropdownMenu.Item
               key={item.label}
               className={"menu-item" + (item.danger ? " danger" : "")}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setOpen(false);
-                item.onClick();
-              }}
+              onSelect={item.onClick}
             >
               {item.icon && <Icon name={item.icon} />}
               {item.label}
-            </button>
+            </DropdownMenu.Item>
           ))}
-        </div>
-      )}
-    </span>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }

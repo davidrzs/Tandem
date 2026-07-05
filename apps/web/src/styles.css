@@ -156,9 +156,11 @@ button {
 }
 
 .ws-menu {
-  left: 0;
-  right: 0;
-  top: 38px;
+  width: var(--radix-dropdown-menu-trigger-width);
+}
+
+.ws-button[data-state="open"] .ws-chevron {
+  transform: rotate(-90deg);
 }
 
 .side-nav {
@@ -315,11 +317,7 @@ button {
 .collection-row:hover .row-actions,
 .doc-row:hover .row-actions,
 .group-head:hover .row-actions,
-.row-actions:has(.menu-pop) {
-  visibility: visible;
-}
-
-.menu-pop {
+.row-actions:has([data-state="open"]) {
   visibility: visible;
 }
 
@@ -470,10 +468,7 @@ button {
 }
 
 .menu-pop {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 40;
+  z-index: 110;
   min-width: 180px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -510,8 +505,10 @@ button {
   color: var(--ink-2);
 }
 
-.menu-item:hover {
+.menu-item:hover,
+.menu-item[data-highlighted] {
   background: rgba(31, 39, 50, 0.06);
+  outline: none;
 }
 
 .menu-item.danger,
@@ -979,6 +976,11 @@ button {
 }
 
 .modal {
+  position: fixed;
+  top: 13vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 101;
   background: var(--surface);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-modal);

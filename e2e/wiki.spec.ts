@@ -90,7 +90,7 @@ test.describe.serial("wiki journey", () => {
     const docRow = page.locator(".doc-row", { hasText: "Onboarding" });
     await docRow.hover();
     await docRow.getByTitle("More actions").click();
-    await page.getByRole("button", { name: "Archive" }).click();
+    await page.getByRole("menuitem", { name: "Archive" }).click();
     await expect(page.getByRole("heading", { name: "Hi Alice" })).toBeVisible();
     await expect(page.locator(".doc-row", { hasText: "Onboarding" })).toHaveCount(0);
     // Archived tasks leave the start page.
@@ -178,7 +178,7 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   const researchRow = carol.locator(".collection-row", { hasText: "Research" });
   await researchRow.hover();
   await researchRow.getByTitle("More actions").click();
-  await carol.getByRole("button", { name: "Share & access" }).click();
+  await carol.getByRole("menuitem", { name: "Share & access" }).click();
   await carol.locator(".field select").selectOption("read");
   await carol.locator(".modal-close").click();
 
@@ -216,7 +216,7 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
 
   await researchRow.hover();
   await researchRow.getByTitle("More actions").click();
-  await carol.getByRole("button", { name: "Share & access" }).click();
+  await carol.getByRole("menuitem", { name: "Share & access" }).click();
   await carol.locator(".grant-add select").first().selectOption({ label: "Editors (group)" });
   await carol.locator(".grant-add select").nth(1).selectOption("read_write");
   await carol.getByRole("button", { name: "Grant" }).click();
