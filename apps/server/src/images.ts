@@ -60,8 +60,9 @@ export async function registerImageRoutes(app: FastifyInstance, db: Database, au
     return session?.user.id ?? null;
   };
 
-  // Upload an image attached to a document's workspace.
-  app.post("/api/images", async (req, reply) => {
+  // Upload an image attached to a document's workspace. Rate-limited: uploads
+  // write to disk, so cap the burst rate per client.
+  app.post("/api/images", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (req, reply) => {
     const uid = await userId(req);
     if (!uid) return reply.code(401).send({ error: "unauthorized" });
 

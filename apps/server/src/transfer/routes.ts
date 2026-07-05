@@ -58,7 +58,8 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
   });
 
   // Import a markdown zip into ?workspace=.
-  app.post("/api/import", async (req, reply) => {
+  // Imports are heavy (whole-archive); keep them infrequent per client.
+  app.post("/api/import", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req, reply) => {
     const session = await sessionOf(req);
     if (!session) return reply.code(401).send({ error: "unauthorized" });
 

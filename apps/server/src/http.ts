@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import formbody from "@fastify/formbody";
 import multipart from "@fastify/multipart";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import {
@@ -45,11 +46,45 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   // Hocuspocus builds actor-scoped services per connection from the db.
   const hocuspocus = createHocuspocus(db, auth);
   const app = Fastify({ logger: true });
+  const isProd = process.env.NODE_ENV === "production";
 
   await app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
     credentials: true,
   });
+
+  // Security headers on every response except the image route, which sets its
+  // own stricter sandbox CSP. Everything the app loads is same-origin (bundled
+  // assets, fonts, KaTeX), so a tight policy holds; inline styles (author tints,
+  // presence dots) need 'unsafe-inline' for style-src, and the collab WebSocket
+  // needs ws:/wss: in connect-src.
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self' ws: wss:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+  app.addHook("onRequest", async (req, reply) => {
+    // Skip the image route (own CSP) and the WebSocket upgrade (/collab).
+    if (req.url.startsWith("/api/images") || req.url.startsWith("/collab")) return;
+    reply.header("content-security-policy", csp);
+    reply.header("x-content-type-options", "nosniff");
+    reply.header("x-frame-options", "DENY");
+    reply.header("referrer-policy", "strict-origin-when-cross-origin");
+    reply.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+    if (isProd) reply.header("strict-transport-security", "max-age=15552000; includeSubDomains");
+  });
+
+  // Rate limiting (in-memory). Not global — the high-frequency tRPC/collab
+  // traffic is left alone; only the abusable/expensive endpoints opt in below
+  // (MCP, image upload, zip import) via each route's `config.rateLimit`.
+  await app.register(rateLimit, { global: false });
+
   // OAuth token requests are form-encoded; parse them so /api/auth/* accepts them.
   await app.register(formbody);
   await app.register(multipart);
@@ -164,7 +199,8 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   // MCP over HTTP, in-process with Hocuspocus so agent writes use the live
   // write path. Gated by Better Auth's MCP OAuth (bearer access token); the
   // 401 carries the resource-metadata challenge MCP clients follow.
-  app.post("/mcp", async (req, reply) => {
+  // A well-behaved agent makes well under this; higher is a runaway loop.
+  app.post("/mcp", { config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (req, reply) => {
     const token = await auth.api.getMcpSession({
       headers: fromNodeHeaders(req.headers),
     });
