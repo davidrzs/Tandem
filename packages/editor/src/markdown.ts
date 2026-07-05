@@ -419,12 +419,26 @@ const parser = new MarkdownParser(
   html_block: { ignore: true, noCloseToken: true },
 });
 
+/**
+ * Reverse markdown escaping inside math spans (`$…$`, `$$…$$`). Math is stored
+ * as plain text, so the serializer escapes its backslashes/underscores/etc.;
+ * that would leave `$\\frac{a}{b}$` in the derived markdown, which breaks TeX
+ * for export and MCP reads. Undo the escaping within delimiters so the source
+ * stays clean. (Block first so `$$…$$` isn't split by the inline pass.)
+ */
+function unescapeMath(md: string): string {
+  const undo = (tex: string) => tex.replace(/\\(.)/g, "$1");
+  return md
+    .replace(/\$\$([^$]+?)\$\$/g, (_m, tex: string) => `$$${undo(tex)}$$`)
+    .replace(/(?<!\$)\$([^\n$]+?)\$(?!\$)/g, (_m, tex: string) => `$${undo(tex)}$`);
+}
+
 /** Serialize a ProseMirror node (this schema) to canonical markdown. */
 export function nodeToMarkdown(node: Node): string {
   // Tight lists: no blank line between items (the GitHub-typical form, and
   // what task lists must look like). Loose/tight isn't represented in the
   // document model, so serialization normalizes it.
-  return serializer.serialize(node, { tightLists: true });
+  return unescapeMath(serializer.serialize(node, { tightLists: true }));
 }
 
 /** Serialize ProseMirror JSON to markdown. */

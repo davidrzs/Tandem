@@ -95,11 +95,11 @@ or user id) so its edits appear in blame as your AI.
 ## Rich content, tags, and versions
 
 - **Tables / code / math.** Insert a table from the `/` menu; code blocks are
-  highlighted by language (from the ```` ```lang ```` fence); inline `$…$` renders
-  with KaTeX. Math is stored as its TeX source, so it round-trips through
-  markdown, carries blame, and stays editable by agents. Block `$$…$$` math and
-  table column-alignment/merged-cells aren't modeled yet (a table serializes to
-  plain GitHub pipes).
+  highlighted by language (from the ```` ```lang ```` fence); `$…$` (inline) and
+  `$$…$$` (centered display) render with KaTeX. Math is stored as its TeX source,
+  so it round-trips through markdown, carries blame, and stays editable by
+  agents. Table column-alignment and merged cells aren't modeled yet (a table
+  serializes to plain GitHub pipes).
 - **Tags.** Add tags under a document's title; filter with `#tag` in search
   (a `#tag` on its own browses everything carrying it). Tags are per-document
   labels — not a folder system.

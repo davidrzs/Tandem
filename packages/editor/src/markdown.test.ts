@@ -144,6 +144,15 @@ test("table cells keep inline marks and escape pipes; alignment is dropped", () 
   assert.equal(normalizeMarkdown(out), out, "idempotent");
 });
 
+test("math ($…$ / $$…$$) round-trips with its backslashes intact", () => {
+  // Math is plain text; the serializer would escape its backslashes, so the
+  // pipeline undoes that within delimiters — TeX must survive for export/MCP.
+  assert.equal(normalizeMarkdown("Energy $E = mc^2$ and $\\alpha$."), "Energy $E = mc^2$ and $\\alpha$.");
+  assert.equal(normalizeMarkdown("$$\\frac{a}{b} = \\sum_i x_i$$"), "$$\\frac{a}{b} = \\sum_i x_i$$");
+  // Plain dollar signs in prose aren't mistaken for math and mangled.
+  assert.equal(normalizeMarkdown("It cost $5, then $10."), "It cost $5, then $10.");
+});
+
 test("an empty table cell round-trips as an empty column", () => {
   const md = "| A | B |\n| --- | --- |\n| x |  |";
   const out = normalizeMarkdown(md);

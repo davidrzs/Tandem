@@ -970,6 +970,17 @@ button {
   font-size: 1.02em;
 }
 
+/* Block/display math ($$…$$): its own centered line. */
+.math-render.math-block {
+  display: block;
+  text-align: center;
+  margin: 0.6em 0;
+}
+
+.math-render.math-block .katex {
+  font-size: 1.18em;
+}
+
 .ProseMirror blockquote {
   border-left: 2px solid var(--line-strong);
   margin: 0.9em 0;
