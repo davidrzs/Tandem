@@ -23,5 +23,5 @@ export function authorColor(key: string): string {
 
 /** Subtle background tint — blame spans must whisper, not shout. */
 export function authorTint(key: string): string {
-  return `hsla(${authorHue(key)} 70% 45% / 0.16)`;
+  return `hsla(${authorHue(key)} 70% 42% / 0.11)`;
 }

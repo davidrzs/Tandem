@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CollectionInfo } from "../App.js";
 import { trpc } from "../trpc.js";
+import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
 
 /**
@@ -110,7 +111,7 @@ export function ShareModal({
                     )
                   }
                 >
-                  ×
+                  <Icon name="close" size={14} />
                 </button>
               </li>
             ))}
@@ -138,7 +139,7 @@ export function ShareModal({
               <option value="read_write">Can edit</option>
             </select>
             <button
-              className="tool-btn"
+              className="btn primary"
               disabled={!principal || grant.isPending}
               onClick={() => {
                 const [type, id] = principal.split(/:(.*)/s) as [string, string];

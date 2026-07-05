@@ -252,6 +252,36 @@ export const appRouter = t.router({
         return ctx.services.documents.search(query, opts);
       }),
   }),
+
+  comments: t.router({
+    list: protectedProcedure
+      .input(z.object({ documentId: uuid }))
+      .query(({ ctx, input }) => ctx.services.comments.list(input.documentId)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          documentId: uuid,
+          body: z.string().min(1).max(10_000),
+          anchor: z.string().max(4096).optional(),
+          head: z.string().max(4096).optional(),
+          parentId: uuid.optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.services.comments.create(input)),
+    setResolved: protectedProcedure
+      .input(z.object({ id: uuid, resolved: z.boolean() }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.comments.setResolved(input.id, input.resolved),
+      ),
+    delete: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const deleted = await ctx.services.comments.remove(input.id);
+        if (!deleted) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only the author can delete a comment." });
+        }
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

@@ -16,6 +16,9 @@ you should always be able to see, calmly and truthfully, **who wrote what**.
   re-attributes only what it actually changed.
 - **Tasks that find their owner.** Write a to-do anywhere and mention someone;
   it appears on their start page when they sign in.
+- **Inline comments.** Select any text and start a thread, Outline-style —
+  anchors ride the CRDT, so discussions follow the text through edits. Reply,
+  resolve, reopen; commenting needs only read access.
 - **The usual wiki bones.** Nested documents in collections, full-text search
   (⌘K), archive/restore, drag-to-reorganize, per-collection sharing with
   users/groups, invites — all enforced by Postgres row-level security.

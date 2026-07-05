@@ -49,7 +49,7 @@ export function Home() {
       {todos.error && (
         <div className="error-panel inline">
           <p className="error-detail">Couldn't load your tasks: {todos.error.message}</p>
-          <button className="tool-btn" onClick={() => void todos.refetch()}>
+          <button className="btn" onClick={() => void todos.refetch()}>
             Retry
           </button>
         </div>

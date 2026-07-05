@@ -3,6 +3,7 @@ import { createDatabase, SYSTEM, user, type Actor, type Database } from "@tandem
 import type { AuthorIdentity } from "@tandem/editor";
 import {
   CollectionService,
+  CommentService,
   DocumentService,
   GroupService,
   ImageService,
@@ -15,6 +16,7 @@ export interface Services {
   workspaces: WorkspaceService;
   documents: DocumentService;
   collections: CollectionService;
+  comments: CommentService;
   groups: GroupService;
   images: ImageService;
 }
@@ -68,6 +70,7 @@ export function createServices(
     workspaces: new WorkspaceService(db, actor),
     documents: new DocumentService(db, actor, author),
     collections: new CollectionService(db, actor),
+    comments: new CommentService(db, actor),
     groups: new GroupService(db, actor),
     images: new ImageService(db, actor),
   };

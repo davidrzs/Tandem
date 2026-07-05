@@ -53,6 +53,11 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
 
   const hits = await documents.search("pnpm monorepo", { collectionId: col.id });
   assert.ok(hits.some((h) => h.id === child.id));
+
+  // Prefix search: a partial word must match the TITLE too ("Onboard[ing]").
+  const titleHits = await documents.search("onboard");
+  assert.ok(titleHits.some((h) => h.id === parent.id), "title prefix matches");
+  assert.equal((await documents.search("   ")).length, 0, "blank query is empty");
 });
 
 test("tenant isolation: a user cannot see or write another workspace's data", async () => {
@@ -349,4 +354,58 @@ test("grants and group membership only accept principals of the workspace", asyn
     () => new GroupService(db, user("u1")).addMember(g.id, "stranger"),
     /not a member/,
   );
+});
+
+test("comments: readers can discuss, resolve rides on write access, delete is the author's", async () => {
+  const { CommentService } = await import("./services/comments.js");
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Discuss", slug: "discuss" });
+  await c1.setDefaultRole(col.id, "read"); // members read-only
+  const doc = await d1.create({ collectionId: col.id, title: "Paper", markdown: "Draft text." });
+
+  const alice = new CommentService(db, user("u1")); // owner (writable)
+  const bob = new CommentService(db, user("u2")); // member (read-only)
+
+  // A read-only member can open a thread and the author can reply.
+  const thread = await bob.create({
+    documentId: doc.id,
+    body: "Is this claim sourced?",
+    anchor: "QQ==",
+    head: "Qg==",
+  });
+  const reply = await alice.create({
+    documentId: doc.id,
+    body: "Adding a citation.",
+    parentId: thread.id,
+  });
+  await assert.rejects(
+    () => bob.create({ documentId: doc.id, body: "nested", parentId: reply.id }),
+    /replies cannot be nested/,
+  );
+
+  const listed = await bob.list(doc.id);
+  assert.equal(listed.length, 2);
+  assert.equal(listed[0]!.authorName, "Bob", "author names resolved");
+  assert.equal(listed[0]!.anchor, "QQ==");
+  assert.equal(listed[1]!.parentId, thread.id);
+  assert.equal(listed[1]!.anchor, null, "replies carry no anchor");
+
+  // Resolving: the doc-writable owner may; reopening works the same way.
+  const resolved = await alice.setResolved(thread.id, true);
+  assert.ok(resolved.resolvedAt);
+  await bob.setResolved(thread.id, false); // author of the thread may too
+
+  // An outsider sees nothing and cannot comment.
+  const outsider = new CommentService(db, user("outsider"));
+  assert.equal((await outsider.list(doc.id)).length, 0);
+  await assert.rejects(
+    () => outsider.create({ documentId: doc.id, body: "hi" }),
+    /document not found/,
+  );
+
+  // Only the author deletes; a thread takes its replies with it.
+  assert.equal(await alice.remove(thread.id), false, "not alice's thread");
+  assert.equal(await bob.remove(thread.id), true);
+  assert.equal((await alice.list(doc.id)).length, 0, "replies cascaded");
 });

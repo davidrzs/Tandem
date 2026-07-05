@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
-import { RowMenu } from "./Modal.js";
+import { authorColor, authorKey } from "./colors.js";
+import { Icon } from "./Icon.js";
+import { ConfirmDialog, PromptDialog, RowMenu } from "./Modal.js";
 
 interface Workspace {
   id: string;
@@ -56,10 +59,12 @@ export function Sidebar({
 }: Props) {
   const utils = trpc.useUtils();
   const navigate = useNavigate();
+  const session = authClient.useSession();
   const createWorkspace = trpc.workspaces.create.useMutation();
   const createCollection = trpc.collections.create.useMutation();
 
   const [error, setError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<ReactNode>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // The open document's collection is always expanded.
@@ -82,76 +87,84 @@ export function Sidebar({
     }
   };
 
+  const closeDialog = () => setDialog(null);
+
   const newWorkspace = () =>
-    run(async () => {
-      const name = window.prompt("Workspace name")?.trim();
-      if (!name) return;
-      const ws = await createWorkspace.mutateAsync({ name, slug: slugify(name) });
-      await utils.workspaces.mine.invalidate();
-      onSelectWorkspace(ws.id);
-    });
+    setDialog(
+      <PromptDialog
+        title="New workspace"
+        label="Name"
+        submitLabel="Create workspace"
+        placeholder="e.g. Lab wiki"
+        onClose={closeDialog}
+        onSubmit={(name) =>
+          void run(async () => {
+            const ws = await createWorkspace.mutateAsync({ name, slug: slugify(name) });
+            await utils.workspaces.mine.invalidate();
+            onSelectWorkspace(ws.id);
+          })
+        }
+      />,
+    );
 
   const newCollection = () =>
-    run(async () => {
-      const name = window.prompt("Collection name")?.trim();
-      if (!name) return;
-      await createCollection.mutateAsync({
-        name,
-        slug: slugify(name),
-        ...(workspaceId ? { workspaceId } : {}),
-      });
-      await utils.collections.list.invalidate();
-    });
+    setDialog(
+      <PromptDialog
+        title="New collection"
+        label="Name"
+        submitLabel="Create collection"
+        placeholder="e.g. Research notes"
+        onClose={closeDialog}
+        onSubmit={(name) =>
+          void run(async () => {
+            await createCollection.mutateAsync({
+              name,
+              slug: slugify(name),
+              ...(workspaceId ? { workspaceId } : {}),
+            });
+            await utils.collections.list.invalidate();
+          })
+        }
+      />,
+    );
+
+  const user = session.data?.user;
 
   return (
     <aside className="sidebar">
-      <div className="section">
-        <div className="section-title">
-          Workspace
-          <button className="add" title="New workspace" onClick={() => void newWorkspace()}>
-            +
+      <WorkspaceSwitcher
+        workspaces={workspaces}
+        workspaceId={workspaceId}
+        onSelect={(id) => {
+          onSelectWorkspace(id);
+          navigate("/");
+        }}
+        onNew={newWorkspace}
+      />
+
+      <nav className="side-nav">
+        <Link className={"nav-row" + (activeDocId ? "" : " active")} to="/">
+          <Icon name="home" />
+          Home
+        </Link>
+        <button className="nav-row" onClick={onOpenSearch}>
+          <Icon name="search" />
+          Search
+          <kbd>⌘K</kbd>
+        </button>
+        {workspaceId && (
+          <button className="nav-row" onClick={onOpenPeople}>
+            <Icon name="users" />
+            People &amp; groups
           </button>
-        </div>
-        <select
-          className="ws-select"
-          value={workspaceId ?? ""}
-          onChange={(e) => {
-            onSelectWorkspace(e.target.value);
-            navigate("/");
-          }}
-        >
-          {!workspaceId && (
-            <option value="" disabled hidden>
-              Select a workspace…
-            </option>
-          )}
-          {workspaces.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
-        <nav className="side-nav">
-          <Link className={"row" + (activeDocId ? "" : " active")} to="/">
-            Home
-          </Link>
-          <button className="row" onClick={onOpenSearch}>
-            Search <kbd>⌘K</kbd>
-          </button>
-          {workspaceId && (
-            <button className="row" onClick={onOpenPeople}>
-              People &amp; groups
-            </button>
-          )}
-        </nav>
-        {error && <div className="sidebar-error">{error}</div>}
-      </div>
+        )}
+      </nav>
 
       <div className="section">
         <div className="section-title">
-          Collections
-          <button className="add" title="New collection" onClick={() => void newCollection()}>
-            +
+          <span>Collections</span>
+          <button className="row-action" title="New collection" onClick={newCollection}>
+            <Icon name="plus" />
           </button>
         </div>
         {loading && <div className="side-note">Loading…</div>}
@@ -174,10 +187,103 @@ export function Sidebar({
             }
             onShare={() => onShareCollection(c.id)}
             onError={setError}
+            setDialog={setDialog}
           />
         ))}
+        {error && <div className="sidebar-error">{error}</div>}
       </div>
+
+      {user && (
+        <div className="sidebar-footer">
+          <span
+            className="avatar"
+            style={{ background: authorColor(authorKey(user.id, false)) }}
+          >
+            {(user.name || user.email).slice(0, 1).toUpperCase()}
+          </span>
+          <span className="user-meta">
+            <span className="user-name">{user.name}</span>
+            <span className="user-email">{user.email}</span>
+          </span>
+          <button
+            className="row-action"
+            title="Sign out"
+            onClick={() => void authClient.signOut()}
+          >
+            <Icon name="signout" />
+          </button>
+        </div>
+      )}
+
+      {dialog}
     </aside>
+  );
+}
+
+function WorkspaceSwitcher({
+  workspaces,
+  workspaceId,
+  onSelect,
+  onNew,
+}: {
+  workspaces: Workspace[];
+  workspaceId: string | null;
+  onSelect: (id: string) => void;
+  onNew: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const active = workspaces.find((w) => w.id === workspaceId);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  return (
+    <div className="ws-switcher" ref={ref}>
+      <button className="ws-button" onClick={() => setOpen((o) => !o)}>
+        <span className="ws-mark">{(active?.name ?? "…").slice(0, 1).toUpperCase()}</span>
+        <span className="ws-name">{active?.name ?? "Select a workspace"}</span>
+        <Icon name="chevron" className={"ws-chevron" + (open ? " open" : "")} />
+      </button>
+      {open && (
+        <div className="menu-pop ws-menu">
+          {workspaces.map((w) => (
+            <button
+              key={w.id}
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                if (w.id !== workspaceId) onSelect(w.id);
+              }}
+            >
+              <span className="menu-check">
+                {w.id === workspaceId && <Icon name="check" />}
+              </span>
+              {w.name}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            onClick={() => {
+              setOpen(false);
+              onNew();
+            }}
+          >
+            <span className="menu-check">
+              <Icon name="plus" />
+            </span>
+            New workspace
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -188,6 +294,7 @@ function CollectionSection({
   onToggle,
   onShare,
   onError,
+  setDialog,
 }: {
   collection: Collection;
   expanded: boolean;
@@ -195,6 +302,7 @@ function CollectionSection({
   onToggle: () => void;
   onShare: () => void;
   onError: (msg: string) => void;
+  setDialog: (node: ReactNode) => void;
 }) {
   const utils = trpc.useUtils();
   const navigate = useNavigate();
@@ -237,54 +345,68 @@ function CollectionSection({
       navigate(`/d/${doc.id}`);
     });
 
+  const closeDialog = () => setDialog(null);
   const menuItems = [
     ...(collection.writable
       ? [
-          { label: "New document", onClick: () => void newDoc() },
+          { label: "New document", icon: "plus" as const, onClick: () => void newDoc() },
           {
             label: "Rename",
-            onClick: () => {
-              const name = window.prompt("Collection name", collection.name)?.trim();
-              if (!name) return;
-              void run(async () => {
-                await renameCollection.mutateAsync({ id: collection.id, name });
-                await utils.collections.list.invalidate();
-              });
-            },
+            icon: "pen" as const,
+            onClick: () =>
+              setDialog(
+                <PromptDialog
+                  title="Rename collection"
+                  label="Name"
+                  submitLabel="Rename"
+                  initialValue={collection.name}
+                  onClose={closeDialog}
+                  onSubmit={(name) =>
+                    void run(async () => {
+                      await renameCollection.mutateAsync({ id: collection.id, name });
+                      await utils.collections.list.invalidate();
+                    })
+                  }
+                />,
+              ),
           },
         ]
       : []),
-    { label: "Share & access", onClick: onShare },
+    { label: "Share & access", icon: "share" as const, onClick: onShare },
     {
       label: "Delete collection",
+      icon: "trash" as const,
       danger: true,
-      onClick: () => {
-        if (
-          window.confirm(
-            `Delete "${collection.name}" and all its documents? (Owners/admins only.)`,
-          )
-        ) {
-          void run(async () => {
-            await deleteCollection.mutateAsync({ id: collection.id });
-            await utils.collections.list.invalidate();
-            navigate("/");
-          });
-        }
-      },
+      onClick: () =>
+        setDialog(
+          <ConfirmDialog
+            title="Delete collection"
+            body={`"${collection.name}" and every document in it will be deleted. Only a workspace owner or admin can do this.`}
+            confirmLabel="Delete collection"
+            onClose={closeDialog}
+            onConfirm={() =>
+              void run(async () => {
+                await deleteCollection.mutateAsync({ id: collection.id });
+                await utils.collections.list.invalidate();
+                navigate("/");
+              })
+            }
+          />,
+        ),
     },
   ];
 
   return (
     <div className="collection">
-      <div className={"row collection-row" + (expanded ? " open" : "")}>
+      <div className={"collection-row" + (expanded ? " open" : "")}>
         <button className="collection-name" onClick={onToggle}>
-          <span className="twist">{expanded ? "▾" : "▸"}</span>
-          {collection.name}
+          <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
+          <span className="collection-label">{collection.name}</span>
         </button>
         <span className="row-actions">
           {collection.writable && (
             <button className="row-action" title="New document" onClick={() => void newDoc()}>
-              +
+              <Icon name="plus" />
             </button>
           )}
           <RowMenu items={menuItems} />
@@ -309,18 +431,26 @@ function CollectionSection({
             depth={0}
             onNewChild={(id) => void newDoc(id)}
             run={run}
+            setDialog={setDialog}
           />
           {(archived.data?.length ?? 0) > 0 && (
             <>
               <button
-                className="row archived-toggle"
+                className="archived-toggle"
                 onClick={() => setShowArchived((s) => !s)}
               >
-                {showArchived ? "▾" : "▸"} Archived ({archived.data!.length})
+                <Icon name="chevron" className={"twist" + (showArchived ? " open" : "")} />
+                Archived ({archived.data!.length})
               </button>
               {showArchived &&
                 archived.data!.map((d) => (
-                  <ArchivedRow key={d.id} doc={d} writable={collection.writable} run={run} />
+                  <ArchivedRow
+                    key={d.id}
+                    doc={d}
+                    writable={collection.writable}
+                    run={run}
+                    setDialog={setDialog}
+                  />
                 ))}
             </>
           )}
@@ -342,6 +472,7 @@ function DocTree({
   depth,
   onNewChild,
   run,
+  setDialog,
 }: {
   nodes: DocNode[];
   parentId: string | null;
@@ -351,6 +482,7 @@ function DocTree({
   depth: number;
   onNewChild: (parentId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
+  setDialog: (node: ReactNode) => void;
 }) {
   return (
     <>
@@ -367,6 +499,7 @@ function DocTree({
           depth={depth}
           onNewChild={onNewChild}
           run={run}
+          setDialog={setDialog}
         />
       ))}
     </>
@@ -384,6 +517,7 @@ function DocRow({
   depth,
   onNewChild,
   run,
+  setDialog,
 }: {
   node: DocNode;
   siblings: DocNode[];
@@ -395,6 +529,7 @@ function DocRow({
   depth: number;
   onNewChild: (parentId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
+  setDialog: (node: ReactNode) => void;
 }) {
   const navigate = useNavigate();
   const move = trpc.documents.move.useMutation();
@@ -438,11 +573,11 @@ function DocRow({
         to={`/d/${node.id}`}
         draggable={writable}
         className={
-          "row doc-row" +
+          "doc-row" +
           (node.id === activeDocId ? " active" : "") +
           (dropMode ? ` drop-${dropMode}` : "")
         }
-        style={{ paddingLeft: 12 + depth * 14 }}
+        style={{ paddingLeft: 26 + depth * 14 }}
         onDragStart={(e) => {
           e.dataTransfer.setData(
             "application/x-tandem-doc",
@@ -470,12 +605,13 @@ function DocRow({
                 onNewChild(node.id);
               }}
             >
-              +
+              <Icon name="plus" />
             </button>
             <RowMenu
               items={[
                 {
                   label: "Archive",
+                  icon: "archive",
                   onClick: () =>
                     void run(async () => {
                       await archive.mutateAsync({ id: node.id });
@@ -484,19 +620,23 @@ function DocRow({
                 },
                 {
                   label: "Delete",
+                  icon: "trash",
                   danger: true,
-                  onClick: () => {
-                    if (
-                      window.confirm(
-                        `Delete "${node.title || "Untitled"}" and its sub-documents?`,
-                      )
-                    ) {
-                      void run(async () => {
-                        await softDelete.mutateAsync({ id: node.id });
-                        if (node.id === activeDocId) navigate("/");
-                      });
-                    }
-                  },
+                  onClick: () =>
+                    setDialog(
+                      <ConfirmDialog
+                        title="Delete document"
+                        body={`"${node.title || "Untitled"}" and its sub-documents will be deleted.`}
+                        confirmLabel="Delete"
+                        onClose={() => setDialog(null)}
+                        onConfirm={() =>
+                          void run(async () => {
+                            await softDelete.mutateAsync({ id: node.id });
+                            if (node.id === activeDocId) navigate("/");
+                          })
+                        }
+                      />,
+                    ),
                 },
               ]}
             />
@@ -513,6 +653,7 @@ function DocRow({
           depth={depth + 1}
           onNewChild={onNewChild}
           run={run}
+          setDialog={setDialog}
         />
       )}
     </div>
@@ -523,15 +664,17 @@ function ArchivedRow({
   doc,
   writable,
   run,
+  setDialog,
 }: {
   doc: { id: string; title: string };
   writable: boolean;
   run: (fn: () => Promise<unknown>) => Promise<void>;
+  setDialog: (node: ReactNode) => void;
 }) {
   const restore = trpc.documents.restore.useMutation();
   const softDelete = trpc.documents.delete.useMutation();
   return (
-    <div className="row archived-row">
+    <div className="doc-row archived-row">
       <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
         {doc.title || "Untitled"}
       </Link>
@@ -542,18 +685,24 @@ function ArchivedRow({
             title="Restore"
             onClick={() => void run(() => restore.mutateAsync({ id: doc.id }))}
           >
-            ↩
+            <Icon name="restore" />
           </button>
           <button
             className="row-action"
             title="Delete permanently"
-            onClick={() => {
-              if (window.confirm(`Delete "${doc.title || "Untitled"}"?`)) {
-                void run(() => softDelete.mutateAsync({ id: doc.id }));
-              }
-            }}
+            onClick={() =>
+              setDialog(
+                <ConfirmDialog
+                  title="Delete document"
+                  body={`"${doc.title || "Untitled"}" will be deleted permanently.`}
+                  confirmLabel="Delete"
+                  onClose={() => setDialog(null)}
+                  onConfirm={() => void run(() => softDelete.mutateAsync({ id: doc.id }))}
+                />,
+              )
+            }
           >
-            ×
+            <Icon name="trash" />
           </button>
         </span>
       )}

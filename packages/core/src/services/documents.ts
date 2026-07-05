@@ -456,14 +456,20 @@ export class DocumentService {
     return roots;
   }
 
-  /** Full-text search. Returns metadata + a highlighted snippet — never the
-   * body/binary columns (results ship to browsers and agents). */
+  /** Full-text search over titles (weight A) and bodies (weight B). Returns
+   * metadata + a highlighted snippet — never the body/binary columns (results
+   * ship to browsers and agents). */
   async search(
     query: string,
     opts: SearchOptions = {},
   ): Promise<Array<DocumentMeta & { rank: number; snippet: string }>> {
+    // Prefix-match every term: the index uses the un-stemmed 'simple' config,
+    // so "Read" must still find "Reading the river" while someone types.
+    const terms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 8) ?? [];
+    if (terms.length === 0) return [];
+    const prefixQuery = terms.map((t) => `'${t}':*`).join(" & ");
     return this.exec((db) => {
-      const tsquery = sql`websearch_to_tsquery('simple', ${query})`;
+      const tsquery = sql`to_tsquery('simple', ${prefixQuery})`;
       const rank = sql<number>`ts_rank(${documents.searchVector}, ${tsquery})`;
       // Highlight delimiters are control chars (chr 2/3): impossible in the
       // text itself, so clients can mark fragments without parsing HTML.

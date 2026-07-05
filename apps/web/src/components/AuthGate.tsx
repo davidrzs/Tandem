@@ -6,15 +6,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (isPending) return <div className="empty">Loading…</div>;
   if (!session) return <AuthForm />;
-
-  return (
-    <>
-      <button className="signout" onClick={() => authClient.signOut()}>
-        Sign out ({session.user.email})
-      </button>
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }
 
 function AuthForm() {
@@ -41,7 +33,9 @@ function AuthForm() {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <h1>{mode === "signup" ? "Create account" : "Sign in"}</h1>
+        <div className="wordmark">Tandem</div>
+        <p className="auth-tagline">The wiki that knows who wrote what.</p>
+        <h1>{mode === "signup" ? "Create your account" : "Sign in"}</h1>
         {mode === "signup" && (
           <input
             placeholder="Name"
@@ -66,7 +60,7 @@ function AuthForm() {
           minLength={8}
         />
         {error && <div className="auth-error">{error}</div>}
-        <button type="submit" disabled={busy}>
+        <button type="submit" className="btn primary" disabled={busy}>
           {busy ? "…" : mode === "signup" ? "Sign up" : "Sign in"}
         </button>
         <button

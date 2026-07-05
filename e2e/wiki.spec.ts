@@ -14,13 +14,16 @@ async function signUp(page: Page, name: string, email: string) {
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill("password-123");
   await page.getByRole("button", { name: "Sign up", exact: true }).click();
-  await expect(page.getByText(`Sign out (${email})`)).toBeVisible();
+  // Signed in: the sidebar footer shows the account with a sign-out control.
+  await expect(page.getByTitle("Sign out")).toBeVisible();
+  await expect(page.getByText(email)).toBeVisible();
 }
 
 async function createCollection(page: Page, name: string) {
-  page.once("dialog", (d) => void d.accept(name));
   await page.getByTitle("New collection").click();
-  // The row renders as "▸ <name>" (expansion twist included in the name).
+  const dialog = page.getByRole("dialog", { name: "New collection" });
+  await dialog.locator("input").fill(name);
+  await dialog.getByRole("button", { name: "Create collection" }).click();
   await expect(page.getByRole("button", { name: new RegExp(name) })).toBeVisible();
 }
 
@@ -96,7 +99,8 @@ test.describe.serial("wiki journey", () => {
     await page.getByRole("button", { name: /Archived \(1\)/ }).click();
     await page.getByRole("link", { name: "Onboarding" }).click();
     await expect(page.getByText("This document is archived")).toBeVisible();
-    await page.getByRole("button", { name: "Restore" }).click();
+    // The archived sidebar row has a Restore icon too; use the banner's.
+    await page.locator(".archived-banner").getByRole("button", { name: "Restore" }).click();
     await expect(page.getByText("This document is archived")).toHaveCount(0);
     await expect(page.locator(".doc-row", { hasText: "Onboarding" })).toBeVisible();
 
@@ -267,12 +271,51 @@ test("drag and drop nests a document under another", async ({ page }) => {
     .poll(async () =>
       page.locator(".doc-row", { hasText: "Second" }).evaluate((el) => getComputedStyle(el).paddingLeft),
     )
-    .toBe("26px"); // depth 1 = 12 + 14
+    .toBe("40px"); // depth 1 = 26 + 14
 
   // The nesting survives a reload (persisted through documents.move).
   await page.reload();
   await expect(page.locator(".doc-row", { hasText: "Second" })).toHaveCSS(
     "padding-left",
-    "26px",
+    "40px",
   );
+});
+
+test("comments: select text, discuss, reply, resolve", async ({ page }) => {
+  await signUp(page, "Grace Hopper", "grace@example.com");
+  await createCollection(page, "Reviews");
+  await page.getByRole("button", { name: /Reviews/ }).click();
+  await page.locator(".collection-row", { hasText: "Reviews" }).hover();
+  await page.getByTitle("New document").first().click();
+  await page.locator(".title-input").fill("Draft");
+  await page.locator(".ProseMirror").click();
+  await page.keyboard.type("The methods section needs work.");
+  await expect(page.locator(".save-state").last()).toHaveText(/Live/);
+
+  // Select a word -> bubble -> comment.
+  await page.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
+  await page.locator(".bubble-btn").click();
+  const composer = page.locator(".comment-composer textarea");
+  await composer.fill("Please expand this before Friday.");
+  await page.locator(".comment-composer").getByRole("button", { name: "Comment" }).click();
+
+  const thread = page.locator(".comment-thread");
+  await expect(thread).toContainText("Grace Hopper");
+  await expect(thread).toContainText("Please expand this before Friday.");
+  await expect(page.locator(".comment-span").first()).toBeVisible();
+
+  // Reply and resolve.
+  await thread.getByRole("button", { name: "Reply" }).click();
+  await page.locator(".comment-composer textarea").fill("Done, see the new paragraph.");
+  await page.locator(".comment-composer").getByRole("button", { name: "Reply" }).click();
+  await expect(thread).toContainText("Done, see the new paragraph.");
+
+  await thread.hover();
+  await thread.getByTitle("Resolve").click();
+  await expect(page.getByText("No open comments.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Show 1 resolved" }).click();
+  await expect(page.locator(".comment-thread.resolved")).toContainText("Please expand this");
+
+  // The highlight is gone once resolved.
+  await expect(page.locator(".comment-span")).toHaveCount(0);
 });

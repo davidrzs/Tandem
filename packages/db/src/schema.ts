@@ -204,6 +204,33 @@ export const documents = pgTable(
   ],
 );
 
+/** Inline discussion on a document. A top-level comment may be anchored to a
+ * span via encoded Yjs relative positions (anchor/head), so the highlight
+ * follows the text through edits; replies reference their parent. */
+export const comments = pgTable(
+  "comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): any => comments.id, {
+      onDelete: "cascade",
+    }),
+    authorId: text("author_id").notNull(),
+    body: text("body").notNull(),
+    // Base64-encoded Y.RelativePosition pair; null = whole-document comment.
+    anchor: text("anchor"),
+    head: text("head"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [index("comments_document_idx").on(t.documentId)],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Image = typeof images.$inferSelect;
@@ -212,4 +239,5 @@ export type CollectionPermission = typeof collectionPermissions.$inferSelect;
 export type Collection = typeof collections.$inferSelect;
 export type NewCollection = typeof collections.$inferInsert;
 export type Document = typeof documents.$inferSelect;
+export type Comment = typeof comments.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;

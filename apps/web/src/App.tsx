@@ -79,7 +79,7 @@ export function App() {
       <div className="error-panel">
         <h2>Couldn't load your workspace</h2>
         <p className="error-detail">{failed.error?.message}</p>
-        <button className="tool-btn" onClick={() => void failed.refetch()}>
+        <button className="btn" onClick={() => void failed.refetch()}>
           Retry
         </button>
       </div>

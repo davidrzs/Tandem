@@ -4,17 +4,27 @@ import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import Link from "@tiptap/extension-link";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { getAuthors } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import * as Y from "yjs";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
 import { authorLabel, blamePluginKey, createBlameExtension } from "./blame.js";
+import {
+  anchorRange,
+  commentsPluginKey,
+  createCommentsExtension,
+  selectionAnchor,
+  type CommentAnchor,
+} from "./comments.js";
+import { CommentsPanel, type CommentItem, type PendingComment } from "./CommentsPanel.js";
 import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
+import { Icon } from "./Icon.js";
 import { createMentionExtension, type MentionCandidate } from "./mention.js";
 import { SlashCommand } from "./slash-command.js";
 
@@ -95,6 +105,7 @@ export function Editor({
   const membersRef = useRef<MentionCandidate[]>([]);
   useEffect(() => {
     membersRef.current = (members.data ?? []).map((m) => ({
+      kind: "user" as const,
       handle: m.email.split("@")[0]!,
       name: m.name,
       email: m.email,
@@ -146,21 +157,65 @@ export function Editor({
     [user?.id, user?.name],
   );
 
+  const navigate = useNavigate();
+  // "@" can link other pages: search titles/bodies as the user types.
+  const searchDocs = useCallback(
+    (query: string) =>
+      utils.documents.search
+        .fetch({ query, limit: 5 })
+        .then((hits) =>
+          hits.map((h) => ({ kind: "doc" as const, id: h.id, title: h.title })),
+        ),
+    [utils],
+  );
+
+  // --- comments ---
+  const commentsQuery = trpc.comments.list.useQuery(
+    { documentId: docId },
+    { refetchInterval: 15_000 },
+  );
+  const commentItems: CommentItem[] = useMemo(
+    () => commentsQuery.data ?? [],
+    [commentsQuery.data],
+  );
+  const createComment = trpc.comments.create.useMutation({
+    onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
+  });
+  const resolveComment = trpc.comments.setResolved.useMutation({
+    onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
+  });
+  const deleteComment = trpc.comments.delete.useMutation({
+    onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
+  });
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [pending, setPending] = useState<PendingComment | null>(null);
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  // The decoration plugin reads anchors/active through refs (created once).
+  const anchorsRef = useRef<CommentAnchor[]>([]);
+  const activeCommentRef = useRef<string | null>(null);
+  activeCommentRef.current = activeCommentId;
+  useEffect(() => {
+    anchorsRef.current = commentItems
+      .filter((c) => !c.parentId && !c.resolvedAt && c.anchor && c.head)
+      .map((c) => ({ id: c.id, anchor: c.anchor!, head: c.head! }));
+  }, [commentItems]);
+
   const editor = useEditor(
     {
       editable: canEdit,
       extensions: [
         // History is disabled — Collaboration manages undo via Yjs.
         StarterKit.configure({ history: false }),
-        Link,
+        Link.configure({ openOnClick: false }),
         ClientImage,
         TaskList,
         TaskItem.configure({ nested: true }),
         Collaboration.configure({ document: ydoc, field: "default" }),
         CollaborationCursor.configure({ provider, user: me }),
         SlashCommand,
-        createMentionExtension(() => membersRef.current),
+        createMentionExtension(() => membersRef.current, searchDocs),
         createBlameExtension(ydoc),
+        createCommentsExtension(ydoc, () => anchorsRef.current, () => activeCommentRef.current),
       ],
       editorProps: {
         handlePaste(view, event) {
@@ -212,6 +267,41 @@ export function Editor({
     return () => awareness.off("change", refresh);
   }, [provider]);
 
+  // Redraw comment highlights when threads or the focused thread change.
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(editor.state.tr.setMeta(commentsPluginKey, { recompute: true }));
+  }, [editor, commentItems, activeCommentId]);
+
+  const startComment = useCallback(() => {
+    if (!editor) return;
+    const anchors = selectionAnchor(editor.state);
+    if (!anchors) return;
+    const { from, to } = editor.state.selection;
+    const quote = editor.state.doc.textBetween(from, to, " ").slice(0, 160);
+    setPending({ ...anchors, quote });
+    setPanelOpen(true);
+  }, [editor]);
+
+  const jumpToComment = useCallback(
+    (comment: CommentItem) => {
+      setActiveCommentId(comment.id);
+      if (!editor || !comment.anchor || !comment.head) return;
+      const range = anchorRange(editor.state, ydoc, comment.anchor, comment.head);
+      if (!range) return;
+      editor.chain().setTextSelection(range).scrollIntoView().run();
+    },
+    [editor, ydoc],
+  );
+
+  const openThreadCount = commentItems.filter((c) => !c.parentId && !c.resolvedAt).length;
+
+  // --- reading width preference ---
+  const [wide, setWide] = useState(() => localStorage.getItem("tandem.wide") === "1");
+  useEffect(() => {
+    localStorage.setItem("tandem.wide", wide ? "1" : "0");
+  }, [wide]);
+
   // --- blame view ---
   const [blameOn, setBlameOn] = useState(false);
   const [legend, setLegend] = useState<LegendAuthor[]>([]);
@@ -256,6 +346,19 @@ export function Editor({
     label: string;
     at: number;
   } | null>(null);
+  const onProseClick = useCallback(
+    (e: React.MouseEvent) => {
+      const link = (e.target as HTMLElement).closest?.("a[href]");
+      if (!(link instanceof HTMLAnchorElement)) return;
+      if (canEdit && !(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      const href = link.getAttribute("href") ?? "";
+      if (href.startsWith("/")) navigate(href);
+      else window.open(href, "_blank", "noopener");
+    },
+    [canEdit, navigate],
+  );
+
   const onMouseOver = useCallback((e: React.MouseEvent) => {
     const el = (e.target as HTMLElement).closest?.("[data-blame-label]");
     if (!(el instanceof HTMLElement)) {
@@ -300,47 +403,73 @@ export function Editor({
         : { label: "Offline", tone: "bad" };
 
   return (
-    <div className="editor">
-      <div className="editor-header">
-        <input
-          className="title-input"
-          value={title}
-          placeholder="Untitled"
-          readOnly={!canEdit}
-          onChange={(e) => {
-            if (!canEdit) return;
-            setTitle(e.target.value);
-            saveTitle(e.target.value);
-          }}
-        />
-        <div className="editor-tools">
-          {peers.length > 0 && (
-            <span className="presence" title={peers.map((p) => p.name).join(", ")}>
-              {peers.slice(0, 4).map((p) => (
-                <span
-                  key={p.clientId}
-                  className="presence-dot"
-                  style={{ background: p.color }}
-                >
-                  {p.name.slice(0, 1).toUpperCase()}
-                </span>
-              ))}
-              {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
-            </span>
-          )}
-          <button
-            className={"tool-btn" + (blameOn ? " active" : "")}
-            title="Show who wrote each part"
-            onClick={() => setBlameOn((b) => !b)}
-          >
-            Authors
+    <div className="doc-shell">
+      {editor && (
+        <BubbleMenu
+          editor={editor}
+          tippyOptions={{ placement: "top" }}
+          shouldShow={({ state }) => !state.selection.empty}
+        >
+          <button className="bubble-btn" onClick={startComment}>
+            <Icon name="comment" size={13} />
+            Comment
           </button>
-          {!canEdit && <span className="save-state">Read only</span>}
-          <span className={`save-state status-${status.tone}`}>
-            <span className="status-dot" /> {status.label}
+        </BubbleMenu>
+      )}
+      <div className={"editor" + (wide ? " wide" : "")}>
+      <div className="editor-tools">
+        {peers.length > 0 && (
+          <span className="presence" title={peers.map((p) => p.name).join(", ")}>
+            {peers.slice(0, 4).map((p) => (
+              <span
+                key={p.clientId}
+                className="presence-dot"
+                style={{ background: p.color }}
+              >
+                {p.name.slice(0, 1).toUpperCase()}
+              </span>
+            ))}
+            {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
           </span>
-        </div>
+        )}
+        <button
+          className={"tool-btn" + (panelOpen ? " active" : "")}
+          title="Show comments"
+          onClick={() => setPanelOpen((o) => !o)}
+        >
+          Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
+        </button>
+        <button
+          className={"tool-btn" + (wide ? " active" : "")}
+          title="Toggle full-width layout"
+          onClick={() => setWide((w) => !w)}
+        >
+          Full width
+        </button>
+        <button
+          className={"tool-btn" + (blameOn ? " active" : "")}
+          title="Show who wrote each part"
+          onClick={() => setBlameOn((b) => !b)}
+        >
+          <Icon name="pen" size={13} />
+          Authors
+        </button>
+        {!canEdit && <span className="save-state">Read only</span>}
+        <span className={`save-state status-${status.tone}`}>
+          <span className="status-dot" /> {status.label}
+        </span>
       </div>
+      <input
+        className="title-input"
+        value={title}
+        placeholder="Untitled"
+        readOnly={!canEdit}
+        onChange={(e) => {
+          if (!canEdit) return;
+          setTitle(e.target.value);
+          saveTitle(e.target.value);
+        }}
+      />
       {blameOn && legend.length > 0 && (
         <div className="blame-legend">
           {legend.map((a) => (
@@ -351,7 +480,7 @@ export function Editor({
           ))}
         </div>
       )}
-      <div onMouseOver={onMouseOver} onMouseLeave={() => setHover(null)}>
+      <div onMouseOver={onMouseOver} onMouseLeave={() => setHover(null)} onClick={onProseClick}>
         <EditorContent className="prose" editor={editor} />
       </div>
       {hover && (
@@ -361,6 +490,36 @@ export function Editor({
             {hover.at > 0 ? new Date(hover.at).toLocaleString() : "before history"}
           </span>
         </div>
+      )}
+      </div>
+      {panelOpen && (
+        <CommentsPanel
+          comments={commentItems}
+          pending={pending}
+          meId={user?.id ?? null}
+          canEdit={canEdit}
+          activeId={activeCommentId}
+          onSubmit={(body) => {
+            const anchors = pending;
+            setPending(null);
+            void createComment.mutateAsync({
+              documentId: docId,
+              body,
+              ...(anchors ? { anchor: anchors.anchor, head: anchors.head } : {}),
+            });
+          }}
+          onCancelPending={() => setPending(null)}
+          onReply={(parentId, body) =>
+            void createComment.mutateAsync({ documentId: docId, body, parentId })
+          }
+          onResolve={(id, resolved) => void resolveComment.mutateAsync({ id, resolved })}
+          onDelete={(id) => void deleteComment.mutateAsync({ id })}
+          onJumpTo={jumpToComment}
+          onClose={() => {
+            setPanelOpen(false);
+            setPending(null);
+          }}
+        />
       )}
     </div>
   );

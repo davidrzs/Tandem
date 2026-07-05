@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "../trpc.js";
-import { Modal, RowMenu } from "./Modal.js";
+import { Icon } from "./Icon.js";
+import { ConfirmDialog, Modal, RowMenu } from "./Modal.js";
 
 /** Workspace people: member list, invites (role + expiry), and groups. */
 export function PeopleModal({
@@ -64,7 +65,7 @@ export function PeopleModal({
           <option value="">Never expires</option>
         </select>
         <button
-          className="tool-btn"
+          className="btn"
           disabled={createInvite.isPending}
           onClick={() =>
             void run(async () => {
@@ -101,7 +102,7 @@ export function PeopleModal({
           onChange={(e) => setNewGroup(e.target.value)}
         />
         <button
-          className="tool-btn"
+          className="btn"
           disabled={!newGroup.trim() || createGroup.isPending}
           onClick={() =>
             void run(async () => {
@@ -133,6 +134,7 @@ function GroupRow({
 }) {
   const utils = trpc.useUtils();
   const [expanded, setExpanded] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const members = trpc.workspaces.members.useQuery({ workspaceId });
   const groupMembers = trpc.groups.members.useQuery({ groupId }, { enabled: expanded });
   const addMember = trpc.groups.addMember.useMutation();
@@ -161,21 +163,28 @@ function GroupRow({
     <div className="group-row">
       <div className="group-head">
         <button className="group-name" onClick={() => setExpanded((e) => !e)}>
-          {expanded ? "▾" : "▸"} {name}
+          <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
+          {name}
         </button>
         <RowMenu
           items={[
             {
               label: "Delete group",
+              icon: "trash",
               danger: true,
-              onClick: () => {
-                if (window.confirm(`Delete group "${name}"? Its access grants disappear with it.`)) {
-                  void run(() => deleteGroup.mutateAsync({ groupId }));
-                }
-              },
+              onClick: () => setConfirmingDelete(true),
             },
           ]}
         />
+        {confirmingDelete && (
+          <ConfirmDialog
+            title="Delete group"
+            body={`"${name}" will be deleted; collections shared with it lose that access.`}
+            confirmLabel="Delete group"
+            onClose={() => setConfirmingDelete(false)}
+            onConfirm={() => void run(() => deleteGroup.mutateAsync({ groupId }))}
+          />
+        )}
       </div>
       {expanded && (
         <div className="group-body">
@@ -187,7 +196,7 @@ function GroupRow({
                 title="Remove from group"
                 onClick={() => void run(() => removeMember.mutateAsync({ groupId, userId }))}
               >
-                ×
+                <Icon name="close" size={14} />
               </button>
             </div>
           ))}

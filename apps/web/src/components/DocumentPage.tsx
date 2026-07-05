@@ -26,7 +26,7 @@ export function DocumentPage() {
       <div className="error-panel">
         <h2>Couldn't load this document</h2>
         <p className="error-detail">{meta.error.message}</p>
-        <button className="tool-btn" onClick={() => void meta.refetch()}>
+        <button className="btn" onClick={() => void meta.refetch()}>
           Retry
         </button>
       </div>
@@ -36,7 +36,7 @@ export function DocumentPage() {
     return (
       <div className="empty">
         Document not found, or you don't have access to it.{" "}
-        <button className="tool-btn" onClick={() => navigate("/")}>
+        <button className="btn" onClick={() => navigate("/")}>
           Go home
         </button>
       </div>
@@ -54,7 +54,7 @@ export function DocumentPage() {
           This document is archived — it's hidden from the sidebar and search.
           {collection?.writable && (
             <button
-              className="tool-btn"
+              className="btn"
               disabled={restore.isPending}
               onClick={() => restore.mutate({ id: docId })}
             >
