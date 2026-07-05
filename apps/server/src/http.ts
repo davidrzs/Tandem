@@ -137,13 +137,21 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
         const author = session
           ? { userId: session.user.id, name: session.user.name, ai: false }
           : undefined;
+        const services = createServices(db, actor, author);
+        // A restore writes through the live doc as the human — build the writer
+        // here where Hocuspocus is in scope, wired to snapshots for pre-restore.
+        const collabWriter =
+          session && author
+            ? createCollabWriter(hocuspocus, services.documents, author, services.snapshots)
+            : undefined;
         return {
-          services: createServices(db, actor, author),
+          services,
+          collabWriter,
           user: session?.user ?? null,
           // Data-free ping over the doc's live channel; only connections that
           // already passed onAuthenticate for this doc receive it, and they
           // refetch through their own RLS-scoped queries.
-          notifyDocument: (documentId: string, topic: "comments") => {
+          notifyDocument: (documentId: string, topic: "comments" | "snapshots") => {
             hocuspocus.documents
               .get(documentId)
               ?.broadcastStateless(JSON.stringify({ topic }));

@@ -2,6 +2,7 @@ import { Hocuspocus, isTransactionOrigin } from "@hocuspocus/server";
 import type { Database } from "@tandem/db";
 import {
   COLLAB_FIELD,
+  getAuthors,
   jsonToMarkdown,
   markdownToJSON,
   sanitizeClientAuthorsWrites,
@@ -50,6 +51,17 @@ export function createHocuspocus(
 
       if (doc.ydocState) {
         Y.applyUpdate(document, doc.ydocState);
+        // Snapshot the end-state of the previous editing session (fire-and-
+        // forget; never block the load). The service dedupes if unchanged.
+        const state = doc.ydocState;
+        void servicesFor(context.userId)
+          .snapshots.captureBoundary({
+            documentId: documentName,
+            workspaceId: doc.workspaceId,
+            ydocState: state,
+            sessions: [...getAuthors(document).values()],
+          })
+          .catch((e) => console.error("snapshot boundary capture failed", e));
       } else if (doc.contentMd) {
         // Legacy doc from before Yjs persistence: its original authors are
         // unknowable, so the seed is explicitly attributed as such (and can
@@ -102,14 +114,24 @@ export function createHocuspocus(
       const json = yXmlFragmentToProsemirrorJSON(
         document.getXmlFragment(COLLAB_FIELD),
       );
-      await servicesFor(lastContext.userId).documents.saveCollabSnapshot(
-        documentName,
-        {
-          ydocState: Y.encodeStateAsUpdate(document),
-          contentJson: json,
-          contentMd: jsonToMarkdown(json),
-        },
-      );
+      const state = Y.encodeStateAsUpdate(document);
+      const services = servicesFor(lastContext.userId);
+      const saved = await services.documents.saveCollabSnapshot(documentName, {
+        ydocState: state,
+        contentJson: json,
+        contentMd: jsonToMarkdown(json),
+      });
+      // Long-session version capture (fire-and-forget; deduped + rate-limited).
+      if (saved) {
+        void services.snapshots
+          .captureInterval({
+            documentId: documentName,
+            workspaceId: saved.workspaceId,
+            ydocState: state,
+            sessions: [...getAuthors(document).values()],
+          })
+          .catch((e) => console.error("snapshot interval capture failed", e));
+      }
     },
   });
 }

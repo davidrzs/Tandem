@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createDatabase, migrateDatabase, SYSTEM, type Actor } from "@tandem/db";
+import {
+  createDatabase,
+  documentSnapshots,
+  migrateDatabase,
+  runAsActor,
+  SYSTEM,
+  type Actor,
+} from "@tandem/db";
+import { eq, sql } from "drizzle-orm";
 import { CollectionService } from "./services/collections.js";
 import { DocumentService, normalizeTags } from "./services/documents.js";
 import { GroupService } from "./services/groups.js";
+import { SnapshotService } from "./services/snapshots.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -503,5 +512,60 @@ test("settings: MCP kill switch and workspace audit trail", async () => {
   await assert.rejects(
     () => new SettingsService(db, user("outsider")).auditTrail(ws!.id),
     /not a member/,
+  );
+});
+
+test("snapshots: byte-dedupe, interval gating, RLS reads, and no client writes", async () => {
+  const collections = new CollectionService(db, user("u1"));
+  const documents = new DocumentService(db, user("u1"));
+  const snapshots = new SnapshotService(db, user("u1"));
+  const col = await collections.create({ name: "Versioned", slug: "versioned" });
+  const doc = await documents.create({ collectionId: col.id, title: "V" });
+
+  const cap = (bytes: number[]) =>
+    snapshots.captureBoundary({
+      documentId: doc.id,
+      workspaceId: doc.workspaceId,
+      ydocState: new Uint8Array(bytes),
+      sessions: [{ userId: "u1", name: "User One", ai: false, at: Date.now() }],
+    });
+
+  await cap([1, 2, 3]);
+  await cap([1, 2, 3]); // identical bytes → deduped
+  assert.equal((await snapshots.list(doc.id)).length, 1, "identical state is not re-snapshotted");
+  await cap([4, 5, 6]); // changed bytes → new version
+  assert.equal((await snapshots.list(doc.id)).length, 2);
+
+  // Interval gating: a fresh interval capture is skipped until old enough.
+  await snapshots.captureInterval(
+    { documentId: doc.id, workspaceId: doc.workspaceId, ydocState: new Uint8Array([7, 8, 9]), sessions: [] },
+  );
+  assert.equal((await snapshots.list(doc.id)).length, 2, "interval capture rate-limited");
+  // Backdate the latest snapshot, then an interval capture goes through.
+  await runAsActor(db, SYSTEM, (tx) =>
+    tx.update(documentSnapshots).set({ createdAt: sql`now() - interval '20 minutes'` }).where(eq(documentSnapshots.documentId, doc.id)),
+  );
+  await snapshots.captureInterval(
+    { documentId: doc.id, workspaceId: doc.workspaceId, ydocState: new Uint8Array([7, 8, 9]), sessions: [] },
+  );
+  assert.equal((await snapshots.list(doc.id)).length, 3, "interval capture proceeds once old enough");
+
+  // Author labels are recorded for the list.
+  const list = await snapshots.list(doc.id);
+  assert.ok(list.some((s) => s.authors.some((a) => a.userId === "u1")), "sessions labelled");
+
+  // RLS: a non-member sees none of it (u2 joined u1's workspace earlier).
+  assert.equal((await new SnapshotService(db, user("outsider")).list(doc.id)).length, 0);
+  // No client INSERT grant — a user-role write is refused outright.
+  await assert.rejects(
+    () =>
+      runAsActor(db, user("u1"), (tx) =>
+        tx.insert(documentSnapshots).values({
+          workspaceId: doc.workspaceId,
+          documentId: doc.id,
+          ydocState: new Uint8Array([0]),
+        }),
+      ),
+    /permission denied/i,
   );
 });

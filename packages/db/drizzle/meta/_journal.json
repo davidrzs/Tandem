@@ -78,6 +78,13 @@
       "when": 1783272504308,
       "tag": "0010_reflective_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783275523628,
+      "tag": "0011_handy_polaris",
+      "breakpoints": true
     }
   ]
 }

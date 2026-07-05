@@ -264,6 +264,32 @@ export const auditLog = pgTable(
   (t) => [index("audit_log_workspace_idx").on(t.workspaceId, t.createdAt)],
 );
 
+/** Point-in-time copies of a document's Yjs state, for version history and
+ * restore. Full state (not a Yjs snapshot) so no gc:false is required. Written
+ * system-side only (capture at session boundaries / intervals / pre-restore);
+ * members read their readable documents' versions. No retention policy yet. */
+export const documentSnapshots = pgTable(
+  "document_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // Full Y.encodeStateAsUpdate copy of the document at this point.
+    ydocState: bytea("ydoc_state").notNull(),
+    // Small label data: the sessions active since the previous snapshot,
+    // as [{ userId, name, ai }]. Cosmetic — for the history list.
+    authors: jsonb("authors").notNull().default([]),
+    // 'auto' (boundary/interval) or 'pre-restore'.
+    kind: text("kind").notNull().default("auto"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("document_snapshots_doc_idx").on(t.documentId, t.createdAt)],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Image = typeof images.$inferSelect;
@@ -274,4 +300,5 @@ export type NewCollection = typeof collections.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type AuditEntry = typeof auditLog.$inferSelect;
+export type DocumentSnapshot = typeof documentSnapshots.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;

@@ -302,8 +302,8 @@ export class DocumentService {
   async saveCollabSnapshot(
     id: string,
     snapshot: { ydocState: Uint8Array; contentMd: string; contentJson: unknown },
-  ): Promise<void> {
-    await this.exec(async (db) => {
+  ): Promise<{ workspaceId: string } | null> {
+    return this.exec(async (db) => {
       const rows = await db
         .update(documents)
         .set({
@@ -314,7 +314,7 @@ export class DocumentService {
         })
         // Don't let a debounced store resurrect a soft-deleted document.
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
-        .returning({ id: documents.id });
+        .returning({ id: documents.id, workspaceId: documents.workspaceId });
       if (rows.length === 0) {
         // Deleted docs are intentionally skipped. Anything else means RLS
         // filtered the write (read-only actor) — fail loud, don't drop data.
@@ -323,7 +323,9 @@ export class DocumentService {
           .from(documents)
           .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
         if (existing) throw new DocumentWriteDeniedError();
+        return null;
       }
+      return { workspaceId: rows[0]!.workspaceId };
     });
   }
 

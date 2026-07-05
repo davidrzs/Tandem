@@ -94,6 +94,16 @@ export function seedAttributedDoc(json: unknown, author: AuthorInfo): Y.Doc {
   return doc;
 }
 
+/** ProseMirror JSON of a persisted Yjs state — for rendering a version preview
+ * and for restore (which diffs this JSON into the live doc). An empty document
+ * normalizes to the schema's empty JSON so it's always a valid node. */
+export function stateToJSON(state: Uint8Array): unknown {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, state);
+  const fragment = doc.getXmlFragment(COLLAB_FIELD);
+  return fragment.length === 0 ? markdownToJSON("") : yXmlFragmentToProsemirrorJSON(fragment);
+}
+
 /** Attribution for content whose author predates blame tracking (legacy docs
  * seeded from markdown at load time). */
 export const UNKNOWN_AUTHOR: AuthorInfo = { userId: "", name: "Unknown", ai: false, at: 0 };

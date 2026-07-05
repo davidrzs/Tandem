@@ -29,6 +29,7 @@ import {
 } from "./comments.js";
 import { CommentsPanel, type CommentItem, type PendingComment } from "./CommentsPanel.js";
 import { HistoryPanel, type HistorySession } from "./HistoryPanel.js";
+import { SnapshotPreview } from "./SnapshotPreview.js";
 import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
 import { Icon } from "./Icon.js";
@@ -163,6 +164,8 @@ export function Editor({
             const message = JSON.parse(payload) as { topic?: string };
             if (message.topic === "comments") {
               void utilsRef.current.comments.list.invalidate({ documentId: docId });
+            } else if (message.topic === "snapshots") {
+              void utilsRef.current.documents.listSnapshots.invalidate({ documentId: docId });
             }
           } catch {
             // Unknown payloads are ignored.
@@ -395,6 +398,27 @@ export function Editor({
     };
   }, [editor, blameOn, onlySession, ydoc, refreshSessions]);
 
+  // --- version snapshots + preview ---
+  const versions = trpc.documents.listSnapshots.useQuery(
+    { documentId: docId },
+    { enabled: rail === "history" },
+  );
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const preview = trpc.documents.getSnapshot.useQuery(
+    { id: previewId! },
+    { enabled: !!previewId },
+  );
+  const restore = trpc.documents.restoreSnapshot.useMutation({
+    onSuccess: () => {
+      setPreviewId(null);
+      void utils.documents.listSnapshots.invalidate({ documentId: docId });
+    },
+  });
+  // Leaving the history rail exits any preview.
+  useEffect(() => {
+    if (rail !== "history") setPreviewId(null);
+  }, [rail]);
+
   // Blame hover card (delegated — decorations carry data attributes).
   const [hover, setHover] = useState<{
     x: number;
@@ -465,7 +489,9 @@ export function Editor({
           editor={editor}
           pluginKey="commentMenu"
           tippyOptions={{ placement: "top" }}
-          shouldShow={({ editor, state }) => !state.selection.empty && !editor.isActive("table")}
+          shouldShow={({ editor, state }) =>
+            previewId === null && !state.selection.empty && !editor.isActive("table")
+          }
         >
           <button className="bubble-btn" onClick={startComment}>
             <Icon name="comment" size={13} />
@@ -478,7 +504,7 @@ export function Editor({
           editor={editor}
           pluginKey="tableMenu"
           tippyOptions={{ placement: "top" }}
-          shouldShow={({ editor }) => editor.isActive("table")}
+          shouldShow={({ editor }) => previewId === null && editor.isActive("table")}
         >
           <div className="bubble-group">
             <button className="bubble-btn" title="Insert row below" onClick={() => editor.chain().focus().addRowAfter().run()}>+ Row</button>
@@ -559,9 +585,44 @@ export function Editor({
         onChange={(tags) => update.mutate({ id: docId, tags })}
         onTagClick={(tag) => openSearch(`#${tag} `)}
       />
-      <div onMouseOver={onMouseOver} onMouseLeave={() => setHover(null)} onClick={onProseClick}>
+      {previewId !== null && (
+        <div className="preview-banner">
+          <span>
+            Viewing the version from{" "}
+            {preview.data ? new Date(preview.data.createdAt).toLocaleString() : "…"}
+          </span>
+          <span className="preview-actions">
+            {canEdit && (
+              <button
+                className="btn primary"
+                disabled={restore.isPending || !preview.data}
+                onClick={() => restore.mutate({ id: previewId })}
+              >
+                {restore.isPending ? "Restoring…" : "Restore this version"}
+              </button>
+            )}
+            <button className="btn" onClick={() => setPreviewId(null)}>
+              Back to now
+            </button>
+          </span>
+        </div>
+      )}
+      {/* Keep the live editor mounted (its collaboration binding survives) but
+          hidden while previewing a version. */}
+      <div
+        className={previewId !== null ? "hidden-editor" : ""}
+        onMouseOver={onMouseOver}
+        onMouseLeave={() => setHover(null)}
+        onClick={onProseClick}
+      >
         <EditorContent className="prose" editor={editor} />
       </div>
+      {previewId !== null &&
+        (preview.data ? (
+          <SnapshotPreview key={previewId} contentJson={preview.data.contentJson} />
+        ) : (
+          <div className="empty">Loading version…</div>
+        ))}
       {(backlinks.data?.length ?? 0) > 0 && (
         <div className="backlinks">
           <h3>Linked from</h3>
@@ -587,6 +648,9 @@ export function Editor({
           sessions={sessions}
           only={onlySession}
           onSelect={setOnlySession}
+          versions={versions.data ?? []}
+          previewingId={previewId}
+          onPreview={(id) => setPreviewId((cur) => (cur === id ? null : id))}
           onClose={() => setRail(null)}
         />
       )}

@@ -1,6 +1,9 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { DocumentWriteDeniedError } from "@tandem/core";
+import { stateToJSON } from "@tandem/editor";
 import type { Services } from "./services.js";
+import type { CollabWriter } from "./collab-writer.js";
 
 export interface AuthUser {
   id: string;
@@ -11,10 +14,12 @@ export interface AuthUser {
 export interface Context {
   services: Services;
   user: AuthUser | null;
+  /** Writes through the live doc as the human (restore). Absent without Hocuspocus. */
+  collabWriter?: CollabWriter;
   /** Push a "something about this document changed" ping to its live
    * collaboration channel (no data — clients refetch through their own,
    * RLS-scoped queries). Absent in tests that run without Hocuspocus. */
-  notifyDocument?: (documentId: string, topic: "comments") => void;
+  notifyDocument?: (documentId: string, topic: "comments" | "snapshots") => void;
 }
 
 const isProd = process.env.NODE_ENV === "production";
@@ -252,6 +257,41 @@ export const appRouter = t.router({
     myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documents.listMyTodos()),
 
     listTags: protectedProcedure.query(({ ctx }) => ctx.services.documents.listTags()),
+
+    listSnapshots: protectedProcedure
+      .input(z.object({ documentId: uuid }))
+      .query(({ ctx, input }) => ctx.services.snapshots.list(input.documentId)),
+
+    getSnapshot: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(async ({ ctx, input }) => {
+        const snap = await ctx.services.snapshots.get(input.id);
+        if (!snap) throw new TRPCError({ code: "NOT_FOUND", message: "That version is unavailable." });
+        // Ship ProseMirror JSON, never the raw Yjs bytes.
+        return { createdAt: snap.createdAt, kind: snap.kind, contentJson: stateToJSON(snap.ydocState) };
+      }),
+
+    restoreSnapshot: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.collabWriter) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Restore isn't available here." });
+        }
+        // RLS-scoped: a visible snapshot implies a readable doc; the writer
+        // additionally enforces WRITE access before touching the live doc.
+        const snap = await ctx.services.snapshots.get(input.id);
+        if (!snap) throw new TRPCError({ code: "NOT_FOUND", message: "That version is unavailable." });
+        try {
+          const result = await ctx.collabWriter.restoreTo(snap.documentId, snap);
+          if (result.changed) ctx.notifyDocument?.(snap.documentId, "snapshots");
+          return result;
+        } catch (err) {
+          if (err instanceof DocumentWriteDeniedError) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "You can't restore this document." });
+          }
+          throw err;
+        }
+      }),
 
     backlinks: protectedProcedure
       .input(z.object({ id: uuid }))

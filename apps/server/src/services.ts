@@ -8,6 +8,7 @@ import {
   GroupService,
   ImageService,
   SettingsService,
+  SnapshotService,
   WorkspaceService,
 } from "@tandem/core";
 
@@ -21,6 +22,7 @@ export interface Services {
   groups: GroupService;
   images: ImageService;
   settings: SettingsService;
+  snapshots: SnapshotService;
 }
 
 /** Fallback attribution for the local stdio MCP when no TANDEM_USER is set:
@@ -76,6 +78,7 @@ export function createServices(
     groups: new GroupService(db, actor),
     images: new ImageService(db, actor),
     settings: new SettingsService(db, actor),
+    snapshots: new SnapshotService(db, actor),
   };
 }
 
