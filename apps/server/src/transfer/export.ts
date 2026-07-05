@@ -11,13 +11,14 @@ import {
   type ExportDoc,
 } from "./markdown-zip.js";
 
+// Raster only — SVG is never stored (rejected on upload, skipped on import),
+// so it must never end up in an export either.
 const EXT: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/gif": "gif",
   "image/webp": "webp",
   "image/avif": "avif",
-  "image/svg+xml": "svg",
 };
 
 const IMAGE_ID = /\/api\/images\/([0-9a-f-]{36})/gi;

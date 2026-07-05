@@ -15,6 +15,8 @@ import {
 
 const MAX_ENTRIES = 5000;
 const MAX_UNCOMPRESSED = 500 * 1024 * 1024;
+// Per-attachment cap, matching the interactive image upload route.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 const MIME_BY_EXT: Record<string, string> = {
   png: "image/png",
@@ -162,6 +164,10 @@ export async function importZip(
     const mime = MIME_BY_EXT[ext];
     if (!mime) {
       warnings.push(`Skipped unsupported attachment ${path.posix.basename(zipPath)}`);
+      return null;
+    }
+    if (bytes.length > MAX_ATTACHMENT_BYTES) {
+      warnings.push(`Skipped ${path.posix.basename(zipPath)} — larger than 25MB`);
       return null;
     }
     const id = await saveImageBytes(services, {
