@@ -1,8 +1,8 @@
 // Drop an image into the editor -> uploads to the private store -> renders an
 // <img src="/api/images/..."> with a resize handle that changes the width.
 import { chromium } from "playwright";
+import { signUp, createCollection, newDocument } from "./_helpers.mjs";
 
-const BASE = "http://localhost:5173";
 const stamp = Date.now();
 const PNG_1x1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -10,22 +10,12 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
-const sectionAdd = (n) => page.locator(".section", { hasText: n }).locator(".add");
 
 try {
-  await page.goto(BASE);
-  await page.getByText("Need an account? Sign up").click();
-  await page.fill('input[placeholder="Name"]', "Img");
-  await page.fill('input[type="email"]', `img-${stamp}@example.com`);
-  await page.fill('input[type="password"]', "supersecret123");
-  await page.click('button[type="submit"]');
-  await page.waitForSelector(".sidebar");
-
-  page.once("dialog", (d) => d.accept(`Imgs ${stamp}`));
-  await sectionAdd("Collections").click();
-  await page.getByText(`Imgs ${stamp}`, { exact: true }).click();
-  await sectionAdd("Documents").click();
-  await page.waitForSelector(".ProseMirror");
+  await signUp(page, "Img");
+  const collectionName = `Imgs ${stamp}`;
+  await createCollection(page, collectionName);
+  await newDocument(page, collectionName);
   await page.click(".ProseMirror");
 
   // Simulate dropping an image file onto the editor (canonical Playwright

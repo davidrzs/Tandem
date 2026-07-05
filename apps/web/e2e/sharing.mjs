@@ -1,52 +1,52 @@
 // Per-collection access: Alice sets a collection to "Members can view", invites
 // Bob; Bob can read the doc but the editor is read-only. Assumes web+api up.
 import { chromium } from "playwright";
+import { signUp as signUpPage, createCollection, newDocument } from "./_helpers.mjs";
 
-const BASE = "http://localhost:5173";
 const stamp = Date.now();
 const collectionName = `ReadOnly ${stamp}`;
 const title = `Doc ${stamp}`;
 const browser = await chromium.launch();
 const errors = [];
 
-async function signUp(ctx, label, name, email) {
+async function signUp(ctx, label, name) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(`${label}: ${e}`));
-  await page.goto(BASE);
-  await page.getByText("Need an account? Sign up").click();
-  await page.fill('input[placeholder="Name"]', name);
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', "supersecret123");
-  await page.click('button[type="submit"]');
-  await page.waitForSelector(".sidebar");
+  await signUpPage(page, name);
   return page;
 }
-const sectionAdd = (page, name) =>
-  page.locator(".section", { hasText: name }).locator(".add");
 
 try {
-  // Alice creates a collection, marks it view-only, adds a doc with content.
-  const a = await signUp(await browser.newContext(), "Alice", "Alice", `ro-alice-${stamp}@example.com`);
-  a.once("dialog", (d) => d.accept(collectionName));
-  await sectionAdd(a, "Collections").click();
-  await a.getByText(collectionName, { exact: true }).click();
-  await a.selectOption(".access-select", "read");
-  await sectionAdd(a, "Documents").click();
-  await a.waitForSelector(".title-input");
+  // Alice creates a collection + doc, then marks the collection view-only.
+  const a = await signUp(await browser.newContext(), "Alice", "Alice");
+  await createCollection(a, collectionName);
+  await newDocument(a, collectionName);
   await a.fill(".title-input", title);
   await a.click(".ProseMirror");
   await a.type(".ProseMirror", "Read me, do not edit.");
-  await a.getByText(title, { exact: true }).first().waitFor({ timeout: 10000 });
   await a.waitForTimeout(800);
-  await a.getByText("Invite someone").click();
+
+  // Share & access → default role "Can view".
+  const row = a.locator(".collection-row", { hasText: collectionName });
+  await row.hover();
+  await row.locator('.row-action[title="More actions"]').click();
+  await a.getByRole("menuitem", { name: "Share & access" }).click();
+  await a.locator(".modal select").first().selectOption("read");
+  await a.waitForTimeout(400);
+  await a.keyboard.press("Escape");
+
+  // Invite Bob.
+  await a.getByRole("button", { name: /People/ }).click();
+  await a.getByRole("button", { name: "Create invite link" }).click();
   await a.waitForSelector(".invite-link");
   const inviteUrl = await a.inputValue(".invite-link");
 
-  // Bob joins and opens the doc — should be read-only.
-  const b = await signUp(await browser.newContext(), "Bob", "Bob", `ro-bob-${stamp}@example.com`);
+  // Bob joins, switches to Alice's workspace, opens the doc.
+  const b = await signUp(await browser.newContext(), "Bob", "Bob");
   await b.goto(inviteUrl);
   await b.waitForSelector(".sidebar");
-  await b.selectOption(".ws-select", { label: "Alice workspace" });
+  await b.locator(".ws-button").click();
+  await b.getByRole("menuitem", { name: "Alice workspace" }).click();
   await b.getByText(collectionName, { exact: true }).click();
   await b.getByText(title, { exact: true }).click();
   await b.waitForSelector(".ProseMirror");

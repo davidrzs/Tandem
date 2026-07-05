@@ -1,28 +1,18 @@
 // Verifies the slash (/) command menu: typing "/" opens it, filtering +
 // Enter applies the block. Assumes web (5173) + api (3001) running (run.sh).
 import { chromium } from "playwright";
+import { signUp, createCollection, newDocument } from "./_helpers.mjs";
 
-const BASE = "http://localhost:5173";
 const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
 try {
-  await page.goto(BASE);
-  await page.getByText("Need an account? Sign up").click();
-  await page.fill('input[placeholder="Name"]', "Slash User");
-  await page.fill('input[type="email"]', `slash${Date.now()}@example.com`);
-  await page.fill('input[type="password"]', "supersecret123");
-  await page.click('button[type="submit"]');
-
+  await signUp(page, "Slash User");
   const collectionName = `Slash ${Date.now()}`;
-  await page.waitForSelector(".sidebar");
-  page.once("dialog", (d) => d.accept(collectionName));
-  await page.locator(".section", { hasText: "Collections" }).locator(".add").click();
-  await page.getByText(collectionName, { exact: true }).click();
-  await page.locator(".section", { hasText: "Documents" }).locator(".add").click();
-  await page.waitForSelector(".ProseMirror");
+  await createCollection(page, collectionName);
+  await newDocument(page, collectionName);
 
   // Open the slash menu and filter to a heading.
   await page.click(".ProseMirror");
