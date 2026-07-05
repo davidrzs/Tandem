@@ -3,6 +3,7 @@ import { Outlet, useMatch, useOutletContext } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { PeopleModal } from "./components/PeopleModal.js";
 import { SearchModal } from "./components/SearchModal.js";
+import { SettingsModal } from "./components/SettingsModal.js";
 import { ShareModal } from "./components/ShareModal.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { trpc } from "./trpc.js";
@@ -59,6 +60,7 @@ export function App() {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareCollectionId, setShareCollectionId] = useState<string | null>(null);
 
   // Cmd/Ctrl+K opens search from anywhere.
@@ -108,6 +110,7 @@ export function App() {
         onSelectWorkspace={setWorkspaceId}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenPeople={() => setPeopleOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onShareCollection={setShareCollectionId}
       />
       <main className="main">
@@ -116,6 +119,9 @@ export function App() {
         </ErrorBoundary>
       </main>
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
+      )}
       {peopleOpen && workspaceId && (
         <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
       )}

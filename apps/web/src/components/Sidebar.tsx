@@ -35,6 +35,7 @@ interface Props {
   onSelectWorkspace: (id: string) => void;
   onOpenSearch: () => void;
   onOpenPeople: () => void;
+  onOpenSettings: () => void;
   onShareCollection: (id: string) => void;
 }
 
@@ -56,6 +57,7 @@ export function Sidebar({
   onSelectWorkspace,
   onOpenSearch,
   onOpenPeople,
+  onOpenSettings,
   onShareCollection,
 }: Props) {
   const utils = trpc.useUtils();
@@ -159,6 +161,10 @@ export function Sidebar({
             People &amp; groups
           </button>
         )}
+        <button className="nav-row" onClick={onOpenSettings}>
+          <Icon name="settings" />
+          Settings
+        </button>
       </nav>
 
       <div className="section">

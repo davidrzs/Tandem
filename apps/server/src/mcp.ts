@@ -49,9 +49,32 @@ const READ_ONLY_MESSAGE =
  * the spans an agent actually changes are attributed to it — a full rewrite
  * would re-attribute the entire document and destroy human authorship (blame).
  */
-export function createMcpServer(services: Services, writer?: CollabWriter): McpServer {
+export type AuditHook = (
+  action: string,
+  detail: string,
+  workspaceId: string | null,
+) => void;
+
+export function createMcpServer(
+  services: Services,
+  writer?: CollabWriter,
+  audit?: AuditHook,
+): McpServer {
   const { documents, collections } = services;
   const server = new McpServer({ name: "tandem", version: "0.1.0" });
+
+  /** Record a successful write for the workspace's audit trail. */
+  const logAudit = (
+    action: string,
+    target?: { workspaceId: string | null; title?: string | null } | null,
+    detail?: string,
+  ) => {
+    audit?.(
+      action,
+      detail ?? (target?.title ? `"${target.title}"` : ""),
+      target?.workspaceId ?? null,
+    );
+  };
 
   /**
    * Apply a markdown transform to a document body through the single write
@@ -59,7 +82,11 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
    * persisted Yjs state (stdio). Maps permission/target failures to clean
    * tool errors instead of fake success.
    */
-  async function editBody(id: string, transform: (md: string) => string) {
+  async function editBody(
+    action: string,
+    id: string,
+    transform: (md: string) => string,
+  ) {
     if (!(await documents.get(id))) return notFound("document");
     try {
       if (writer) await writer.transform(id, transform);
@@ -70,7 +97,9 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
       throw err;
     }
     const doc = await documents.get(id);
-    return doc ? json(publicDoc(doc)) : notFound("document");
+    if (!doc) return notFound("document");
+    logAudit(action, doc);
+    return json(publicDoc(doc));
   }
 
   /** A null row from an RLS-scoped write on an existing doc = access denied. */
@@ -103,7 +132,11 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         workspaceId: z.string().uuid().optional(),
       },
     },
-    async (args) => json(await collections.create(args)),
+    async (args) => {
+      const collection = await collections.create(args);
+      logAudit("create_collection", { workspaceId: collection.workspaceId, title: collection.name });
+      return json(collection);
+    },
   );
 
   server.registerTool(
@@ -162,7 +195,11 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         parentDocumentId: z.string().uuid().optional(),
       },
     },
-    async (args) => json(publicDoc(await documents.create(args))),
+    async (args) => {
+      const doc = await documents.create(args);
+      logAudit("create_document", doc);
+      return json(publicDoc(doc));
+    },
   );
 
   server.registerTool(
@@ -178,7 +215,11 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         title: z.string(),
       },
     },
-    async ({ id, title }) => writeResult(id, await documents.update(id, { title })),
+    async ({ id, title }) => {
+      const doc = await documents.update(id, { title });
+      if (doc) logAudit("rename_document", doc);
+      return writeResult(id, doc);
+    },
   );
 
   server.registerTool(
@@ -199,7 +240,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
       },
     },
     async ({ id, old_string, new_string, replace_all }) =>
-      editBody(id, (md) => replaceText(md, old_string, new_string, replace_all)),
+      editBody("edit_document", id, (md) => replaceText(md, old_string, new_string, replace_all)),
   );
 
   server.registerTool(
@@ -217,7 +258,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
       },
     },
     async ({ id, heading, markdown }) =>
-      editBody(id, (md) => insertAfterHeading(md, heading, markdown)),
+      editBody("insert_after_heading", id, (md) => insertAfterHeading(md, heading, markdown)),
   );
 
   server.registerTool(
@@ -235,7 +276,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
       },
     },
     async ({ id, heading, markdown }) =>
-      editBody(id, (md) => replaceSection(md, heading, markdown)),
+      editBody("replace_section", id, (md) => replaceSection(md, heading, markdown)),
   );
 
   server.registerTool(
@@ -247,7 +288,7 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         "cleanly with concurrent human edits via the live collaborative document.",
       inputSchema: { id: z.string().uuid(), markdown: z.string().min(1) },
     },
-    async ({ id, markdown }) => editBody(id, (md) => appendMarkdown(md, markdown)),
+    async ({ id, markdown }) => editBody("append_section", id, (md) => appendMarkdown(md, markdown)),
   );
 
   server.registerTool(
@@ -262,8 +303,11 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
         position: z.number().optional(),
       },
     },
-    async ({ id, parentDocumentId, position }) =>
-      writeResult(id, await documents.move(id, { parentDocumentId, position })),
+    async ({ id, parentDocumentId, position }) => {
+      const doc = await documents.move(id, { parentDocumentId, position });
+      if (doc) logAudit("move_document", doc);
+      return writeResult(id, doc);
+    },
   );
 
   server.registerTool(
@@ -273,7 +317,11 @@ export function createMcpServer(services: Services, writer?: CollabWriter): McpS
       description: "Archive a document (hidden from active listings, recoverable).",
       inputSchema: { id: z.string().uuid() },
     },
-    async ({ id }) => writeResult(id, await documents.archive(id)),
+    async ({ id }) => {
+      const doc = await documents.archive(id);
+      if (doc) logAudit("archive_document", doc);
+      return writeResult(id, doc);
+    },
   );
 
   return server;

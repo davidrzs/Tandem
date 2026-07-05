@@ -5,6 +5,7 @@ import { suggestionRender } from "./suggestion-menu.js";
 
 export interface MentionCandidate {
   kind: "user";
+  userId: string;
   /** What gets inserted after the @: the user's email local part. */
   handle: string;
   name: string;

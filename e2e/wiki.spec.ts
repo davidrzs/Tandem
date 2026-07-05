@@ -53,6 +53,8 @@ test.describe.serial("wiki journey", () => {
     await expect(page.locator(".ProseMirror")).toContainText("review the handbook");
     // Task list markdown became a real checkbox item.
     await expect(page.locator('.ProseMirror ul[data-type="taskList"] li')).toHaveCount(1);
+    // The @mention resolves to a member and gets its identity tint.
+    await expect(page.locator(".mention")).toContainText("@alice");
 
     // Let the debounced store persist (server debounce is 2s).
     await page.waitForTimeout(2600);
@@ -63,12 +65,15 @@ test.describe.serial("wiki journey", () => {
     await expect(page.locator(".ProseMirror")).toContainText("Welcome to the team wiki.");
     await expect(page.locator(".title-input")).toHaveValue("Onboarding");
 
-    // --- blame: my typing is attributed to me, calmly hidden by default ---
+    // --- history: my typing is attributed to me, calmly hidden by default ---
     await expect(page.locator(".blame-span")).toHaveCount(0);
-    await page.getByRole("button", { name: "Authors" }).click();
-    await expect(page.locator(".blame-legend")).toContainText("Alice Wonder");
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await expect(page.locator(".history-item")).toContainText([/All sessions/, /Alice Wonder/]);
     await expect(page.locator(".blame-span").first()).toBeVisible();
-    await page.getByRole("button", { name: "Authors" }).click();
+    // Selecting one session narrows the highlights to it.
+    await page.locator(".history-item", { hasText: "Alice Wonder" }).first().click();
+    await expect(page.locator(".blame-span").first()).toBeVisible();
+    await page.getByRole("button", { name: "History", exact: true }).click();
     await expect(page.locator(".blame-span")).toHaveCount(0);
 
     // --- the assigned task shows up on my start page ---
@@ -122,6 +127,21 @@ test.describe.serial("wiki journey", () => {
     await page.getByRole("button", { name: /Search/ }).click();
     await page.getByPlaceholder("Search documents…").fill("team wiki");
     await expect(page.getByText(/No documents match/)).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // Settings: the MCP switch, connect info, and (empty) audit trail.
+    await page.getByRole("button", { name: "Settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    await expect(dialog.getByText("Allow AI agents to act as me")).toBeVisible();
+    await expect(dialog.locator("code.copyable")).toContainText("/mcp");
+    await expect(dialog.getByText("No agent actions recorded yet.")).toBeVisible();
+    const toggle = dialog.locator(".switch-row input");
+    await toggle.uncheck();
+    await expect(toggle).not.toBeChecked();
+    // The choice persists across a reload.
+    await page.reload();
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" }).locator(".switch-row input")).not.toBeChecked();
   });
 });
 
@@ -164,10 +184,10 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await dave.keyboard.type("Dave added the method section.");
   await expect(carol.locator(".ProseMirror")).toContainText("Dave added the method section.");
 
-  // Blame on Carol's screen attributes each part to its author.
-  await carol.getByRole("button", { name: "Authors" }).click();
-  await expect(carol.locator(".blame-legend")).toContainText("Carol Chen");
-  await expect(carol.locator(".blame-legend")).toContainText("Dave Diaz");
+  // History on Carol's screen attributes each part to its author.
+  await carol.getByRole("button", { name: "History", exact: true }).click();
+  await expect(carol.locator(".comments-panel")).toContainText("Carol Chen");
+  await expect(carol.locator(".comments-panel")).toContainText("Dave Diaz");
   const daveSpan = carol.locator(".blame-span", { hasText: "method section" }).first();
   const carolSpan = carol.locator(".blame-span", { hasText: "abstract" }).first();
   // Human labels are plain names — "Dave Diaz's AI" would mark agent edits.

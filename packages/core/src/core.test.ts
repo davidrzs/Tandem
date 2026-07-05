@@ -434,3 +434,32 @@ test("backlinks: pages referencing a doc, RLS-scoped, archived sources excluded"
   await d1.archive(source.id);
   assert.equal((await d1.backlinks(target.id)).length, 0);
 });
+
+test("settings: MCP kill switch and workspace audit trail", async () => {
+  const { SettingsService } = await import("./services/settings.js");
+  const s1 = new SettingsService(db, user("u1"));
+  assert.equal(await s1.mcpEnabled(), true, "enabled by default");
+  await s1.setMcpEnabled(false);
+  assert.equal(await s1.mcpEnabled(), false);
+  await s1.setMcpEnabled(true);
+
+  const [ws] = await new WorkspaceService(db, user("u1")).listMine();
+  await s1.recordAudit({
+    workspaceId: ws!.id,
+    userId: "u1",
+    action: "edit_document",
+    detail: '"Paper"',
+  });
+  const trail = await s1.auditTrail(ws!.id);
+  assert.ok(
+    trail.some((e) => e.action === "edit_document" && e.userName === "Alice"),
+    "entry visible with the human's name",
+  );
+
+  // Fellow members see the trail; outsiders are rejected.
+  assert.ok((await new SettingsService(db, user("u2")).auditTrail(ws!.id)).length >= 1);
+  await assert.rejects(
+    () => new SettingsService(db, user("outsider")).auditTrail(ws!.id),
+    /not a member/,
+  );
+});

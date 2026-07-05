@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   customType,
   doublePrecision,
   index,
@@ -231,6 +232,35 @@ export const comments = pgTable(
   (t) => [index("comments_document_idx").on(t.documentId)],
 );
 
+/** Per-user application settings (product prefs, not auth data).
+ * System-managed: app_user has no grant. */
+export const userSettings = pgTable("user_settings", {
+  userId: text("user_id").primaryKey(),
+  // Kill switch: when false, MCP tokens for this user are refused.
+  mcpEnabled: boolean("mcp_enabled").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Append-only record of AI-agent (MCP) actions, for workspace transparency.
+ * Written system-side only; members read their workspaces' entries. */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id").references(() => workspaces.id, {
+      onDelete: "cascade",
+    }),
+    /** The human whose credentials the agent acted with. */
+    userId: text("user_id").notNull(),
+    /** Tool/action name, e.g. "edit_document". */
+    action: text("action").notNull(),
+    /** Human-readable target, e.g. the document title. */
+    detail: text("detail").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("audit_log_workspace_idx").on(t.workspaceId, t.createdAt)],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Image = typeof images.$inferSelect;
@@ -240,4 +270,5 @@ export type Collection = typeof collections.$inferSelect;
 export type NewCollection = typeof collections.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
+export type AuditEntry = typeof auditLog.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;

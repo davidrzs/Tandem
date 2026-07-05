@@ -261,6 +261,18 @@ export const appRouter = t.router({
       }),
   }),
 
+  settings: t.router({
+    get: protectedProcedure.query(async ({ ctx }) => ({
+      mcpEnabled: await ctx.services.settings.mcpEnabled(),
+    })),
+    setMcpEnabled: protectedProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => ctx.services.settings.setMcpEnabled(input.enabled)),
+    audit: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.settings.auditTrail(input.workspaceId)),
+  }),
+
   comments: t.router({
     list: protectedProcedure
       .input(z.object({ documentId: uuid }))

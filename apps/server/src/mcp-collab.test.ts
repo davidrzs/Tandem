@@ -24,6 +24,7 @@ const client = new Client({ name: "test", version: "0.0.0" });
 
 let collectionId = "";
 let docId = "";
+const auditEntries: Array<{ action: string; detail: string; workspaceId: string | null }> = [];
 
 async function liveMarkdown(id: string): Promise<string> {
   const conn = await hocuspocus.openDirectConnection(id, { userId: "u1" });
@@ -74,7 +75,9 @@ before(async () => {
   ).id;
 
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(services, writer).connect(serverT);
+  await createMcpServer(services, writer, (action, detail, workspaceId) =>
+    auditEntries.push({ action, detail, workspaceId }),
+  ).connect(serverT);
   await client.connect(clientT);
 });
 
@@ -146,6 +149,21 @@ test("replace_section touches only the addressed section", async () => {
   assert.ok(!live.includes("edited."), "old section body gone");
 });
 
+test("agent writes leave a workspace-scoped audit trail; denied writes leave none", async () => {
+  const actions = auditEntries.map((e) => e.action);
+  for (const expected of ["append_section", "edit_document", "insert_after_heading", "replace_section"]) {
+    assert.ok(actions.includes(expected), `audited: ${expected}`);
+  }
+  assert.ok(
+    auditEntries.every((e) => e.workspaceId),
+    "every entry is tied to a workspace",
+  );
+  assert.ok(
+    auditEntries.some((e) => e.detail.includes("Doc")),
+    "detail names the document",
+  );
+});
+
 test("a write to a read-only document is a permission error, not silent success", async () => {
   // u2 is a plain member; the collection only grants members read access.
   await db.insert(workspaceMembers).values({
@@ -193,7 +211,8 @@ test("a write to a read-only document is a permission error, not silent success"
       assert.match(res.content[0].text, /permission denied/i, `${call.name} says why`);
     }
 
-    // The live document was never touched by the denied writes.
+    // The live document was never touched by the denied writes, and none of
+    // them produced audit entries (u2's server has no successful writes).
     assert.equal(await liveMarkdown(docId), before);
     const meta = await services.documents.getMeta(docId);
     assert.equal(meta!.title, "Doc", "title unchanged");

@@ -22,11 +22,14 @@ import {
   type CommentAnchor,
 } from "./comments.js";
 import { CommentsPanel, type CommentItem, type PendingComment } from "./CommentsPanel.js";
+import { HistoryPanel, type HistorySession } from "./HistoryPanel.js";
 import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
 import { Icon } from "./Icon.js";
 import { createMentionExtension, type MentionCandidate } from "./mention.js";
+import { createMentionHighlight, mentionHighlightKey } from "./mention-highlight.js";
 import { ClientPageRef } from "./page-ref.js";
+import { timeAgo } from "./time.js";
 import { SlashCommand } from "./slash-command.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
@@ -74,12 +77,6 @@ interface PresencePeer {
   color: string;
 }
 
-/** A distinct author session that contributed content, for the blame legend. */
-interface LegendAuthor {
-  key: string;
-  label: string;
-}
-
 export function Editor({
   docId,
   canEdit,
@@ -114,6 +111,7 @@ export function Editor({
   useEffect(() => {
     membersRef.current = (members.data ?? []).map((m) => ({
       kind: "user" as const,
+      userId: m.userId,
       handle: m.email.split("@")[0]!,
       name: m.name,
       email: m.email,
@@ -207,7 +205,7 @@ export function Editor({
   const deleteComment = trpc.comments.delete.useMutation({
     onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
   });
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [rail, setRail] = useState<null | "comments" | "history">(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   // The decoration plugin reads anchors/active through refs (created once).
@@ -235,6 +233,7 @@ export function Editor({
         CollaborationCursor.configure({ provider, user: me }),
         SlashCommand,
         createMentionExtension(() => membersRef.current, searchDocs),
+        createMentionHighlight(() => membersRef.current),
         createBlameExtension(ydoc),
         createCommentsExtension(ydoc, () => anchorsRef.current, () => activeCommentRef.current),
       ],
@@ -288,6 +287,12 @@ export function Editor({
     return () => awareness.off("change", refresh);
   }, [provider]);
 
+  // Members load after the editor mounts; redraw mention tints when they do.
+  useEffect(() => {
+    if (!editor || !members.data) return;
+    editor.view.dispatch(editor.state.tr.setMeta(mentionHighlightKey, true));
+  }, [editor, members.data]);
+
   // Redraw comment highlights when threads or the focused thread change.
   useEffect(() => {
     if (!editor) return;
@@ -301,7 +306,7 @@ export function Editor({
     const { from, to } = editor.state.selection;
     const quote = editor.state.doc.textBetween(from, to, " ").slice(0, 160);
     setPending({ ...anchors, quote });
-    setPanelOpen(true);
+    setRail("comments");
   }, [editor]);
 
   const jumpToComment = useCallback(
@@ -323,31 +328,37 @@ export function Editor({
     localStorage.setItem("tandem.wide", wide ? "1" : "0");
   }, [wide]);
 
-  // --- blame view ---
-  const [blameOn, setBlameOn] = useState(false);
-  const [legend, setLegend] = useState<LegendAuthor[]>([]);
-  const refreshLegend = useCallback(() => {
-    const seen = new Map<string, LegendAuthor>();
-    for (const info of getAuthors(ydoc).values()) {
-      const key = authorKey(info.userId, info.ai);
-      if (!seen.has(key)) seen.set(key, { key, label: authorLabel(info) });
-    }
-    setLegend([...seen.values()]);
+  // --- history / blame view ---
+  const blameOn = rail === "history";
+  const [onlySession, setOnlySession] = useState<number | null>(null);
+  const [sessions, setSessions] = useState<HistorySession[]>([]);
+  const refreshSessions = useCallback(() => {
+    const list: HistorySession[] = [...getAuthors(ydoc).entries()].map(
+      ([clientId, info]) => ({
+        clientId,
+        key: authorKey(info.userId, info.ai),
+        label: authorLabel(info),
+        ai: info.ai,
+        at: info.at,
+      }),
+    );
+    list.sort((a, b) => b.at - a.at);
+    setSessions(list.slice(0, 50));
   }, [ydoc]);
 
   useEffect(() => {
     if (!editor) return;
     editor.view.dispatch(
-      editor.state.tr.setMeta(blamePluginKey, { enabled: blameOn }),
+      editor.state.tr.setMeta(blamePluginKey, { enabled: blameOn, only: onlySession }),
     );
     if (!blameOn) return;
-    refreshLegend();
+    refreshSessions();
     // Recompute (debounced) whenever the Yjs doc changes — remote or local.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onUpdate = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        refreshLegend();
+        refreshSessions();
         editor.view.dispatch(
           editor.state.tr.setMeta(blamePluginKey, { recompute: true }),
         );
@@ -358,7 +369,7 @@ export function Editor({
       clearTimeout(timer);
       ydoc.off("update", onUpdate);
     };
-  }, [editor, blameOn, ydoc, refreshLegend]);
+  }, [editor, blameOn, onlySession, ydoc, refreshSessions]);
 
   // Blame hover card (delegated — decorations carry data attributes).
   const [hover, setHover] = useState<{
@@ -454,9 +465,9 @@ export function Editor({
           </span>
         )}
         <button
-          className={"tool-btn" + (panelOpen ? " active" : "")}
+          className={"tool-btn" + (rail === "comments" ? " active" : "")}
           title="Show comments"
-          onClick={() => setPanelOpen((o) => !o)}
+          onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
         >
           Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
         </button>
@@ -469,11 +480,14 @@ export function Editor({
         </button>
         <button
           className={"tool-btn" + (blameOn ? " active" : "")}
-          title="Show who wrote each part"
-          onClick={() => setBlameOn((b) => !b)}
+          title="Edit history: who wrote each part, and when"
+          onClick={() => {
+            setOnlySession(null);
+            setRail((r) => (r === "history" ? null : "history"));
+          }}
         >
-          <Icon name="pen" size={13} />
-          Authors
+          <Icon name="restore" size={13} />
+          History
         </button>
         {!canEdit && <span className="save-state">Read only</span>}
         <span className={`save-state status-${status.tone}`}>
@@ -491,16 +505,12 @@ export function Editor({
           saveTitle(e.target.value);
         }}
       />
-      {blameOn && legend.length > 0 && (
-        <div className="blame-legend">
-          {legend.map((a) => (
-            <span key={a.key} className="blame-legend-item">
-              <span className="legend-dot" style={{ background: authorColor(a.key) }} />
-              {a.label}
-            </span>
-          ))}
-        </div>
-      )}
+      <div
+        className="doc-meta"
+        title={`Created ${new Date(doc.data.createdAt).toLocaleString()}`}
+      >
+        Updated {timeAgo(doc.data.updatedAt)}
+      </div>
       <div onMouseOver={onMouseOver} onMouseLeave={() => setHover(null)} onClick={onProseClick}>
         <EditorContent className="prose" editor={editor} />
       </div>
@@ -524,7 +534,15 @@ export function Editor({
         </div>
       )}
       </div>
-      {panelOpen && (
+      {rail === "history" && (
+        <HistoryPanel
+          sessions={sessions}
+          only={onlySession}
+          onSelect={setOnlySession}
+          onClose={() => setRail(null)}
+        />
+      )}
+      {rail === "comments" && (
         <CommentsPanel
           comments={commentItems}
           pending={pending}
@@ -548,7 +566,7 @@ export function Editor({
           onDelete={(id) => void deleteComment.mutateAsync({ id })}
           onJumpTo={jumpToComment}
           onClose={() => {
-            setPanelOpen(false);
+            setRail(null);
             setPending(null);
           }}
         />

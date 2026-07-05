@@ -16,6 +16,8 @@ export const blamePluginKey = new PluginKey<BlamePluginState>("tandemBlame");
 
 interface BlamePluginState {
   enabled: boolean;
+  /** When set, only this session's spans are highlighted. */
+  only: number | null;
   decorations: DecorationSet;
 }
 
@@ -27,13 +29,18 @@ export function authorLabel(info: { name: string; ai: boolean; userId: string })
   return `${info.name}'s AI`;
 }
 
-function computeDecorations(ydoc: Y.Doc, state: EditorState): DecorationSet {
+function computeDecorations(
+  ydoc: Y.Doc,
+  state: EditorState,
+  only: number | null,
+): DecorationSet {
   try {
     const authors = getAuthors(ydoc);
     const size = state.doc.content.size;
     const decorations: Decoration[] = [];
     for (const span of blameSpans(ydoc.getXmlFragment(COLLAB_FIELD))) {
       if (span.from >= span.to || span.to > size) continue;
+      if (only !== null && span.clientId !== only) continue;
       const info = authors.get(span.clientId);
       const key = info ? authorKey(info.userId, info.ai) : "unknown";
       decorations.push(
@@ -55,6 +62,8 @@ function computeDecorations(ydoc: Y.Doc, state: EditorState): DecorationSet {
 export interface BlameMeta {
   enabled?: boolean;
   recompute?: boolean;
+  /** Highlight a single session's spans (null = all sessions). */
+  only?: number | null;
 }
 
 export function createBlameExtension(ydoc: Y.Doc) {
@@ -65,23 +74,21 @@ export function createBlameExtension(ydoc: Y.Doc) {
         new Plugin<BlamePluginState>({
           key: blamePluginKey,
           state: {
-            init: () => ({ enabled: false, decorations: DecorationSet.empty }),
+            init: () => ({ enabled: false, only: null, decorations: DecorationSet.empty }),
             apply(tr, prev, _old, next) {
               const meta = tr.getMeta(blamePluginKey) as BlameMeta | undefined;
+              const only = meta?.only !== undefined ? meta.only : prev.only;
               if (meta?.enabled !== undefined) {
                 return meta.enabled
-                  ? { enabled: true, decorations: computeDecorations(ydoc, next) }
-                  : { enabled: false, decorations: DecorationSet.empty };
+                  ? { enabled: true, only, decorations: computeDecorations(ydoc, next, only) }
+                  : { enabled: false, only: null, decorations: DecorationSet.empty };
               }
               if (!prev.enabled) return prev;
-              if (meta?.recompute) {
-                return { enabled: true, decorations: computeDecorations(ydoc, next) };
+              if (meta?.recompute || meta?.only !== undefined) {
+                return { enabled: true, only, decorations: computeDecorations(ydoc, next, only) };
               }
               // Map through edits until the next debounced recompute lands.
-              return {
-                enabled: true,
-                decorations: prev.decorations.map(tr.mapping, tr.doc),
-              };
+              return { ...prev, decorations: prev.decorations.map(tr.mapping, tr.doc) };
             },
           },
           props: {

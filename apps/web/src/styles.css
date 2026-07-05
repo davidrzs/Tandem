@@ -604,7 +604,7 @@ button {
 .editor {
   max-width: 720px;
   margin: 0 auto;
-  padding: 28px 40px 96px;
+  padding: 20px 40px 96px;
 }
 
 .editor.wide {
@@ -683,7 +683,7 @@ button {
   width: 100%;
   border: none;
   outline: none;
-  margin-top: 26px;
+  margin-top: 14px;
   font-family: var(--font-prose);
   font-size: 38px;
   font-weight: 650;
@@ -697,8 +697,15 @@ button {
   color: var(--ink-3);
 }
 
+.doc-meta {
+  margin-top: 4px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
 .prose {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .ProseMirror {
@@ -1627,21 +1634,21 @@ button {
 }
 
 .comments-panel {
-  flex: 0 0 300px;
+  flex: 0 0 320px;
   position: sticky;
   top: 0;
-  max-height: 100vh;
+  height: 100vh;
   overflow-y: auto;
-  padding: 24px 20px 96px 4px;
+  padding: 24px 20px 60px;
   border-left: 1px solid var(--line);
-  margin-left: 8px;
+  background: var(--paper);
 }
 
 .comments-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin: 2px 0 14px;
 }
 
 .comments-head h2 {
@@ -1860,4 +1867,154 @@ button {
 
 .backlink:hover {
   color: var(--accent-ink);
+}
+
+/* @mentions of real members: a soft tint in the person's identity hue
+   (background set inline per member). */
+.mention {
+  border-radius: 4px;
+  padding: 0.5px 4px;
+  font-weight: 500;
+  box-decoration-break: clone;
+}
+
+/* ---------- history rail & settings ---------- */
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 7px 8px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: rgba(31, 39, 50, 0.05);
+}
+
+.history-item.active {
+  background: var(--accent-wash);
+}
+
+.history-who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.history-when {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.legend-dot.all {
+  background: conic-gradient(
+    hsl(0 60% 55%),
+    hsl(90 60% 45%),
+    hsl(200 60% 45%),
+    hsl(300 60% 50%),
+    hsl(0 60% 55%)
+  );
+}
+
+.history-note {
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+.switch-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.switch-row input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+.switch-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.connect-steps {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.9;
+}
+
+.connect-steps code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--ink);
+}
+
+.connect-steps code.copyable {
+  cursor: copy;
+}
+
+.audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.audit-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.audit-list li:last-child {
+  border-bottom: none;
+}
+
+.audit-list svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.audit-what {
+  flex: 1;
+  min-width: 0;
+}
+
+.audit-what strong {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.audit-when {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--ink-3);
 }

@@ -170,6 +170,18 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
           id: null,
         });
     }
+    // Per-user kill switch: agents may be turned off in Settings.
+    const services0 = createServices(db, { kind: "user", userId: token.userId });
+    if (!(await services0.settings.mcpEnabled(token.userId))) {
+      return reply.code(403).send({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "MCP access is turned off for this account (Settings > AI access)",
+        },
+        id: null,
+      });
+    }
     reply.hijack();
     // The agent acts as the token's user: services + collab writes are scoped
     // to that user's workspaces (RLS + the live Y.Doc write path), and every
@@ -192,6 +204,14 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
     const server = createMcpServer(
       services,
       createCollabWriter(hocuspocus, services.documents, author),
+      // Audit trail: every successful agent write, attributed to the human
+      // whose token acted. Fire-and-forget; an audit hiccup must not fail
+      // the tool call.
+      (action, detail, workspaceId) => {
+        void services.settings
+          .recordAudit({ workspaceId, userId: token.userId, action, detail })
+          .catch((err) => app.log.error({ err }, "audit write failed"));
+      },
     );
     reply.raw.on("close", () => {
       transport.close();
