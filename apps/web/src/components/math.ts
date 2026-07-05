@@ -4,6 +4,7 @@ import type { EditorState, Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import katex from "katex";
+import "katex/dist/katex.min.css";
 
 /**
  * Inline math via decorations, not a node: `$…$` stays plain text in the

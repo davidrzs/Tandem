@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Outlet, useMatch, useOutletContext } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { PeopleModal } from "./components/PeopleModal.js";
@@ -119,7 +119,11 @@ export function App() {
       />
       <main className="main">
         <ErrorBoundary>
-          <Outlet context={context} />
+          {/* The document route is lazy-loaded; the sidebar stays put while its
+              chunk arrives. */}
+          <Suspense fallback={<div className="empty">Loading…</div>}>
+            <Outlet context={context} />
+          </Suspense>
         </ErrorBoundary>
       </main>
       {searchQuery !== null && (

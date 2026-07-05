@@ -27,6 +27,39 @@ export default defineConfig({
       "@tiptap/extension-table-cell",
     ],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split the big libraries into cacheable chunks that load in parallel;
+        // the editor vendors sit behind the lazy document route.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("katex")) return "katex";
+          if (id.includes("lowlight") || id.includes("highlight.js")) return "highlight";
+          if (
+            id.includes("prosemirror") ||
+            id.includes("@tiptap") ||
+            id.includes("y-prosemirror") ||
+            id.includes("yjs") ||
+            id.includes("@hocuspocus")
+          ) {
+            return "editor-vendor";
+          }
+          if (
+            id.includes("react-router") ||
+            id.includes("react-dom") ||
+            id.includes("/react/") ||
+            id.includes("@tanstack") ||
+            id.includes("@trpc") ||
+            id.includes("@radix-ui")
+          ) {
+            return "react-vendor";
+          }
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

@@ -1,20 +1,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
-import React, { useState } from "react";
+import React, { lazy, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App.js";
 import { AuthGate } from "./components/AuthGate.js";
 import { ConsentScreen } from "./components/ConsentScreen.js";
-import { DocumentPage } from "./components/DocumentPage.js";
 import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/source-serif-4";
-import "katex/dist/katex.min.css";
 import "./styles.css";
+
+// The editor (Tiptap + ProseMirror + Yjs + KaTeX + lowlight) is by far the
+// heaviest code; loading it only when a document is opened keeps first paint of
+// the shell + start page fast. KaTeX's CSS rides along in the editor chunk.
+const DocumentPage = lazy(() =>
+  import("./components/DocumentPage.js").then((m) => ({ default: m.DocumentPage })),
+);
 
 // Auth-flow pages (OAuth consent, resume, invites) render outside the app
 // shell; everything else is the wiki behind the router. AuthGate guarantees a
