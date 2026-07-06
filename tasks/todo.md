@@ -305,3 +305,55 @@ polish); (b) editor measure kept at 720px, NOT the handoff's 1080px — 1080 is
 too wide for readable prose; easy to widen if wanted. Author/blame colours kept
 (colors.ts) — the footer avatar / cursor / blame tints stay per-user, so the
 authorship layer remains the loud thing against the greener neutrals.
+
+## RLS for the four remaining tables (remove the manual-authz special case)
+
+Goal: make `groups`, `group_members`, `collection_permissions`,
+`workspace_invites` database-enforced (RLS), so a forgotten app-layer check is
+backstopped by Postgres. Keep app-layer role checks as defense-in-depth + clear
+error messages. One capability path (`accept_invite`) stays explicit as a
+SECURITY DEFINER function (the invitee isn't a member yet, so membership RLS
+can't authorize the redemption — the secret token is the capability).
+
+- [ ] Baseline: run existing suite green (prove starting state).
+- [ ] Migration `0012`: grants + RLS policies for the 4 tables + helper fns
+      (`app_admin_workspaces`, `app_member_group_ids`, `app_admin_group_ids`,
+      `app_admin_collection_ids`) + `app_accept_invite(text)` SECURITY DEFINER.
+      Journal entry for 0012.
+- [ ] Services: switch the 4-table writes from `system()` to actor-scoped
+      `exec()` so RLS enforces (GroupService all; CollectionService grant/revoke/
+      listPermissions; WorkspaceService createInvite). Keep manual checks.
+      `acceptInvite` -> calls `app_accept_invite()`.
+- [ ] New `authz.test.ts`: assert the RLS backstop (raw actor-scoped writes by
+      non-admins/outsiders are refused by the DB, independent of app checks) +
+      the positive paths (owner/admin succeed, invite redemption works).
+- [x] Run full suite green + typecheck.
+
+Review (DONE): The four sharing tables are now RLS-enforced.
+- Migration 0012: grants + policies for groups/group_members/
+  collection_permissions/workspace_invites; helper fns app_admin_workspaces,
+  app_member_group_ids, app_admin_group_ids, app_admin_collection_ids; and
+  app_accept_invite(text) SECURITY DEFINER for token redemption (the invitee
+  isn't a member yet, so RLS can't authorize the join — the token is the
+  capability; the fn acts only for current_setting('app.user_id'), so you can
+  only accept as yourself).
+- Services switched from system() bypass to actor-scoped exec() so RLS is the
+  enforcing authority: GroupService (all), CollectionService grant/revoke/
+  listPermissions, WorkspaceService createInvite; acceptInvite now calls the
+  function. setDefaultRole/softDelete stay on the collections table's own RLS +
+  app admin-gate (unchanged). App-layer role checks kept for clear errors +
+  defense-in-depth.
+- acceptInvite dropped its redundant userId param (derived from the actor);
+  updated the tRPC caller + two test call sites.
+- New authz.test.ts (7 cases) proves the DB backstop with RAW actor-scoped
+  writes (no service call): non-admin/outsider cannot create groups, add group
+  members, self-grant collection access, or forge invites; members can still
+  read their groups; invite redemption joins as self, is single-use, rejects
+  bogus tokens. This is the regression lock — it fails if a future method
+  forgets its check.
+- Verified: core 27 (incl. 7 new), server 29, editor 41, typecheck 5/5; and the
+  two-user invite/sharing e2e passes end-to-end through the real HTTP server on
+  a freshly-migrated DB (migration 0012 applies clean on PGlite).
+- Prod note: acceptInvite normalizes execute()'s row shape across drivers
+  (array for postgres-js, {rows} for PGlite); the PGlite branch is exercised by
+  tests, the postgres-js branch is the standard drizzle idiom.

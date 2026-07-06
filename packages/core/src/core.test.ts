@@ -152,7 +152,7 @@ test("invite: a user who accepts an invite gains access to that workspace", asyn
 
   // u1 (owner) invites; u2 accepts.
   const invite = await w1.createInvite({ workspaceId: ws!.id });
-  await w2.acceptInvite(invite.token, "u2");
+  await w2.acceptInvite(invite.token);
 
   // Now u2 is a member and sees the workspace's collection.
   assert.ok((await w2.listMine()).some((w) => w.id === ws!.id), "u2 joined the workspace");
@@ -198,7 +198,7 @@ test("invite role can't exceed the inviter's: an admin cannot grant owner", asyn
 
   // u1 (owner) invites u3 as admin; u3 accepts.
   const adminInvite = await w1.createInvite({ workspaceId: ws!.id, role: "admin" });
-  await new WorkspaceService(db, user("u3")).acceptInvite(adminInvite.token, "u3");
+  await new WorkspaceService(db, user("u3")).acceptInvite(adminInvite.token);
   const w3 = new WorkspaceService(db, user("u3"));
 
   // The admin can invite members/admins...

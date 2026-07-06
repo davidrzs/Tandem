@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   runAsActor,
   SYSTEM,
@@ -108,7 +108,9 @@ export class WorkspaceService {
     const expiresAt = input.expiresInDays
       ? new Date(Date.now() + input.expiresInDays * 86_400_000)
       : null;
-    return this.system(async (db) => {
+    // Actor-scoped: the RLS insert policy independently enforces that the
+    // creator is an owner/admin and pins created_by to them.
+    return this.exec(async (db) => {
       const [row] = await db
         .insert(workspaceInvites)
         .values({
@@ -124,35 +126,23 @@ export class WorkspaceService {
     });
   }
 
-  /** Accept an invite as the given user — joins the workspace (system + token gated). */
-  async acceptInvite(token: string, userId: string): Promise<Workspace> {
-    return this.system(async (db) => {
-      const [invite] = await db
-        .select()
-        .from(workspaceInvites)
-        .where(
-          and(
-            eq(workspaceInvites.token, token),
-            isNull(workspaceInvites.acceptedAt),
-          ),
-        );
-      if (!invite) throw new Error("invalid or already-used invite");
-      if (invite.expiresAt && invite.expiresAt.getTime() < Date.now()) {
-        throw new Error("invite expired");
-      }
-      // Idempotent membership (unique on workspace_id+user_id).
-      await db
-        .insert(workspaceMembers)
-        .values({ workspaceId: invite.workspaceId, userId, role: invite.role })
-        .onConflictDoNothing();
-      await db
-        .update(workspaceInvites)
-        .set({ acceptedAt: new Date() })
-        .where(eq(workspaceInvites.id, invite.id));
-      const [ws] = await db
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.id, invite.workspaceId));
+  /** Accept an invite by its secret token — joins the acting user to the
+   * workspace. Redemption runs through the SECURITY DEFINER app_accept_invite():
+   * the invitee isn't a member yet, so no RLS membership policy could authorize
+   * the read/join — the unguessable token is the capability. The function acts
+   * only for app.user_id, so a user can only ever accept an invite as themselves. */
+  async acceptInvite(token: string): Promise<Workspace> {
+    return this.exec(async (db) => {
+      // Raises on an invalid / expired / already-used token; joins on success.
+      const result = await db.execute(
+        sql`SELECT app_accept_invite(${token}) AS workspace_id`,
+      );
+      // execute()'s row shape differs by driver: an array for postgres-js, a
+      // { rows } object for PGlite. Normalize before reading the returned id.
+      const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
+      const wsId = (rows[0] as { workspace_id?: string } | undefined)?.workspace_id;
+      if (!wsId) throw new Error("invalid or already-used invite");
+      const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, wsId));
       return ws!;
     });
   }

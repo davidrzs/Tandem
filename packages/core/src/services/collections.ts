@@ -151,7 +151,7 @@ export class CollectionService {
     role: "read" | "read_write",
   ): Promise<void> {
     await this.assertCanManage(id);
-    await this.system(async (db) => {
+    await this.exec(async (db) => {
       // The principal must belong to this collection's workspace — a foreign
       // principal would be inert under RLS today, but don't store it.
       const [col] = await db
@@ -201,7 +201,7 @@ export class CollectionService {
     principalId: string,
   ): Promise<void> {
     await this.assertCanManage(id);
-    await this.system(async (db) => {
+    await this.exec(async (db) => {
       await db
         .delete(collectionPermissions)
         .where(
@@ -216,7 +216,7 @@ export class CollectionService {
 
   async listPermissions(id: string): Promise<CollectionPermission[]> {
     await this.assertCanManage(id);
-    return this.system((db) =>
+    return this.exec((db) =>
       db
         .select()
         .from(collectionPermissions)

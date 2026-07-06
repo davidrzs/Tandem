@@ -79,7 +79,7 @@ export const appRouter = t.router({
     acceptInvite: protectedProcedure
       .input(z.object({ token: z.string().min(1) }))
       .mutation(({ ctx, input }) =>
-        ctx.services.workspaces.acceptInvite(input.token, ctx.user.id),
+        ctx.services.workspaces.acceptInvite(input.token),
       ),
   }),
 

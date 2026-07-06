@@ -16,8 +16,11 @@ export class GroupService {
     private readonly actor: Actor = SYSTEM,
   ) {}
 
-  private system<T>(fn: (db: Database) => Promise<T>): Promise<T> {
-    return runAsActor(this.db, SYSTEM, fn);
+  // Actor-scoped: user actors run under RLS (the sharing tables enforce
+  // owner/admin in the database); a SYSTEM actor (local stdio) bypasses it. The
+  // owner/admin checks below stay for clear errors and as defense-in-depth.
+  private exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+    return runAsActor(this.db, this.actor, fn);
   }
   private userId(): string {
     if (this.actor.kind !== "user") throw new Error("requires a user actor");
@@ -39,14 +42,14 @@ export class GroupService {
 
   /** Groups in a workspace — visible to any member. */
   async list(workspaceId: string): Promise<Group[]> {
-    return this.system(async (db) => {
+    return this.exec(async (db) => {
       if (!(await this.roleIn(db, workspaceId))) throw new Error("not a member");
       return db.select().from(groups).where(eq(groups.workspaceId, workspaceId));
     });
   }
 
   async create(workspaceId: string, name: string): Promise<Group> {
-    return this.system(async (db) => {
+    return this.exec(async (db) => {
       const role = await this.roleIn(db, workspaceId);
       if (role !== "owner" && role !== "admin") {
         throw new Error("only an owner or admin can create groups");
@@ -69,7 +72,7 @@ export class GroupService {
   }
 
   async addMember(groupId: string, userId: string): Promise<void> {
-    await this.system(async (db) => {
+    await this.exec(async (db) => {
       await this.assertCanManageGroup(db, groupId);
       // Only workspace members can be grouped (a foreign id would be inert
       // under RLS, but don't store it).
@@ -89,7 +92,7 @@ export class GroupService {
   }
 
   async removeMember(groupId: string, userId: string): Promise<void> {
-    await this.system(async (db) => {
+    await this.exec(async (db) => {
       await this.assertCanManageGroup(db, groupId);
       await db
         .delete(groupMembers)
@@ -99,7 +102,7 @@ export class GroupService {
 
   /** User ids in a group — visible to any member of its workspace. */
   async members(groupId: string): Promise<string[]> {
-    return this.system(async (db) => {
+    return this.exec(async (db) => {
       const [g] = await db
         .select({ ws: groups.workspaceId })
         .from(groups)
@@ -116,7 +119,7 @@ export class GroupService {
 
   /** Delete a group (its collection grants cascade away with it). */
   async delete(groupId: string): Promise<void> {
-    await this.system(async (db) => {
+    await this.exec(async (db) => {
       await this.assertCanManageGroup(db, groupId);
       await db.delete(groups).where(eq(groups.id, groupId));
     });
