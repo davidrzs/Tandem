@@ -22,9 +22,10 @@ you should always be able to see, calmly and truthfully, **who wrote what**.
 - **Inline comments.** Select any text and start a thread, Outline-style —
   anchors ride the CRDT, so discussions follow the text through edits. Reply,
   resolve, reopen; commenting needs only read access.
-- **Rich content.** GitHub-flavored tables, syntax-highlighted code blocks, and
-  inline math (`$E=mc^2$`, rendered with KaTeX) alongside the usual headings,
-  lists, quotes, and images.
+- **Rich content.** GitHub-flavored tables, syntax-highlighted code blocks,
+  inline math (`$E=mc^2$`, rendered with KaTeX), callouts and collapsible
+  toggles, alongside the usual headings, lists, quotes, and images. Long
+  documents get an Outline-style contents rail that tracks where you're reading.
 - **Tags and version history.** Label documents and filter by them (`#tag` in
   search); every document keeps point-in-time versions you can preview and
   restore, with the restore itself attributed like any other edit.
@@ -100,6 +101,19 @@ or user id) so its edits appear in blame as your AI.
   so it round-trips through markdown, carries blame, and stays editable by
   agents. Table column-alignment and merged cells aren't modeled yet (a table
   serializes to plain GitHub pipes).
+- **Callouts and toggles.** Insert a **callout** (`/callout`) for a coloured
+  note/tip/warning/important/caution box, or a **toggle** (`/toggle`) for a
+  collapsible section. Both round-trip through markdown in their standard forms —
+  callouts as GitHub/Obsidian alert blockquotes (`> [!note] …`, `> [!warning]-`
+  for a folded one), toggles as `<details><summary>…</summary></details>` — so
+  they carry blame and stay agent-editable, and an Obsidian vault's callouts
+  import as-is. Folding a section is a local view only; it never edits the
+  document, so reading one leaves no trace in blame or history.
+- **Contents rail.** A document with two or more headings shows an Outline-style
+  table of contents in the left margin that highlights the section you're reading
+  and jumps to a heading on click. It's a live view of the headings — nothing is
+  stored in the document. (It steps aside when the comments/history rail is open
+  or on a narrow screen.)
 - **Tags.** Add tags under a document's title; filter with `#tag` in search
   (a `#tag` on its own browses everything carrying it). Tags are per-document
   labels — not a folder system.

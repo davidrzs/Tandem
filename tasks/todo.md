@@ -134,7 +134,7 @@ commit each, suites green per step.
   5/5, web build, e2e (tasks, tagging, richtext, transfer, versions + refreshed
   smoke) — all green. Final fresh-context security review of the new surfaces.
 
-## Structural blocks: callouts, toggles + Outline-style TOC rail (PLAN v2 — awaiting approval)
+## Structural blocks: callouts, toggles + Outline-style TOC rail (DONE)
 
 Change from v1 per feedback: the TOC is an Outline-style LEFT-SIDE RAIL (a live view
 of the doc's headings that tracks scroll), NOT an inline block — so no TOC node, no
@@ -206,6 +206,20 @@ via `Shared.extend({ addNodeView })` (ClientPageRef/ClientImage); slash = flat I
 Risks: two token-remap plugins (callout marker surgery; details html_block pairing)
 are the fiddly parts — covered by round-trip tests. markdown-ops/MCP unaffected
 (blocks are markdown lines). TOC rail's only real decision is when to hide it.
+
+Review (all shipped, two commits): callouts+toggles (ee08a53) — shared schema
+nodes + two markdown-it token-remap plugins + serializer/parser entries (5 editor
+round-trip tests), web node views (local fold = no CRDT mutation, no phantom
+blame), slash items (toggle insert lands the caret in the summary), per-type
+palette from tokens; e2e blocks.mjs (render, persist across reload, fold). TOC
+rail — pure view (TocRail.tsx): heading list recomputed on update, scroll-spy
+active section, click-to-scroll (scroll-margin clears the sticky toolbar), left
+gutter column in .doc-shell, hidden when a right rail/preview/full-width is on or
+<1220px; e2e toc.mjs. Verify: 90 unit + 19/19 e2e, typecheck, web build all green.
+Deviation: toggles default OPEN on load (no persisted per-toggle open state in the
+markdown yet — `<details open>` round-trip is a possible follow-up). Callouts have
+no separate title field (GitHub model — the type is the header); an imported
+`[!note] Title` keeps the title text as the first body line.
 
 ## Restyle: "Outline / pine" design handoff (DONE)
 

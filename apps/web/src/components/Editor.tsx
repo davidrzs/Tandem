@@ -30,6 +30,7 @@ import {
 import { CommentsPanel, type CommentItem, type PendingComment } from "./CommentsPanel.js";
 import { HistoryPanel, type HistorySession } from "./HistoryPanel.js";
 import { SnapshotPreview } from "./SnapshotPreview.js";
+import { TocRail } from "./TocRail.js";
 import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
 import { ClientCallout } from "./callout-node.js";
@@ -523,6 +524,7 @@ export function Editor({
           </div>
         </BubbleMenu>
       )}
+      <TocRail editor={editor} hidden={rail !== null || previewId !== null || wide} />
       <div className={"editor" + (wide ? " wide" : "")}>
       <div className="editor-tools">
         {!canEdit && <span className="save-state">Read only</span>}

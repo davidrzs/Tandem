@@ -990,6 +990,73 @@ button {
   display: none;
 }
 
+/* ---------- table-of-contents rail (Outline-style, left gutter) ---------- */
+
+.toc-rail {
+  flex: 0 0 200px;
+  align-self: flex-start;
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 8px 14px 40px 8px;
+  font-family: var(--font-ui);
+}
+
+.toc-title {
+  padding: 0 8px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-3);
+}
+
+.toc-entry {
+  display: block;
+  width: 100%;
+  border: none;
+  border-left: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 4px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.toc-entry:hover {
+  color: var(--ink);
+}
+
+.toc-entry.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 550;
+}
+
+.toc-l2 {
+  padding-left: 20px;
+}
+.toc-l3 {
+  padding-left: 32px;
+}
+
+/* Anchor-scroll clears the sticky toolbar. */
+.ProseMirror :is(h1, h2, h3, h4) {
+  scroll-margin-top: 84px;
+}
+
+@media (max-width: 1220px) {
+  .toc-rail {
+    display: none;
+  }
+}
+
 .search-tags {
   display: flex;
   flex-wrap: wrap;
