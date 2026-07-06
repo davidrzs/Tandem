@@ -13,7 +13,7 @@ import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { createLowlight, common } from "lowlight";
-import { getAuthors } from "@tandem/editor";
+import { getAuthors, ToggleSummary, ToggleContent } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import * as Y from "yjs";
@@ -32,6 +32,8 @@ import { HistoryPanel, type HistorySession } from "./HistoryPanel.js";
 import { SnapshotPreview } from "./SnapshotPreview.js";
 import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
+import { ClientCallout } from "./callout-node.js";
+import { ClientToggle } from "./toggle-node.js";
 import { Icon } from "./Icon.js";
 import { createMentionExtension, type MentionCandidate } from "./mention.js";
 import { createMentionHighlight, mentionHighlightKey } from "./mention-highlight.js";
@@ -252,6 +254,10 @@ export function Editor({
         TaskItem.configure({ nested: true }),
         TaskListInputRule,
         ClientPageRef,
+        ClientCallout,
+        ClientToggle,
+        ToggleSummary,
+        ToggleContent,
         Table.configure({ resizable: false }),
         TableRow,
         TableHeader,

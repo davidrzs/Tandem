@@ -134,6 +134,79 @@ commit each, suites green per step.
   5/5, web build, e2e (tasks, tagging, richtext, transfer, versions + refreshed
   smoke) — all green. Final fresh-context security review of the new surfaces.
 
+## Structural blocks: callouts, toggles + Outline-style TOC rail (PLAN v2 — awaiting approval)
+
+Change from v1 per feedback: the TOC is an Outline-style LEFT-SIDE RAIL (a live view
+of the doc's headings that tracks scroll), NOT an inline block — so no TOC node, no
+markdown round-trip, no blame for it. Callouts + toggles use the most-standard
+markdown for each. Additive, no DB migration, no RLS surface.
+
+Insertion points confirmed: shared nodes = `Node.create()` specs in
+packages/editor/src/schema.ts (Image/PageRef precedent, no React — server parses);
+markdown round-trip via core-ruler token-remap plugins + serializer/parser specs in
+markdown.ts (taskList/table precedent; markdown-it already `html:true`); web NodeView
+via `Shared.extend({ addNodeView })` (ClientPageRef/ClientImage); slash = flat ITEMS.
+
+### Decisions (finalized — "most standard + makes sense")
+- Callouts -> GitHub/Obsidian blockquote alerts `> [!TYPE] title` (note/tip/warning/
+  important/caution; unknown type -> neutral callout so Obsidian's extras still
+  import). Static coloured box. Most standard, matches our import/export compat.
+- Toggles -> standard `<details><summary>` HTML (stays collapsible on GitHub,
+  portable). Editor model toggle > toggleSummary + toggleContent (inline-editable
+  title + block content). Parse = token-range remap: markdown-it (html:true) emits
+  `<details…>`/`</details>` as html_block tokens and auto-parses the inner markdown
+  between them (rule-6 closes on blank lines), so we remap the two ends + wrap the
+  middle — comparable to the table remap.
+- TOC -> left sticky rail, pure view (no node/markdown/blame). Auto from h1-h3;
+  IntersectionObserver scroll-spy highlights the active section; click scrolls to it.
+  Hidden when <2 headings, when a right rail (History/Comments) is open, or on narrow
+  viewports (avoids app-sidebar + TOC + doc + right-rail cramming). [The one UX
+  tradeoff — flag if you'd rather it stay pinned and push the doc instead.]
+
+### Step 1 — callouts + toggles: shared schema + markdown round-trip (packages/editor)
+- schema.ts: `Callout` (block, content "block+", attrs {type,collapsible,collapsed},
+  parseHTML div[data-callout]); `Toggle`+`ToggleSummary`+`ToggleContent`
+  (details/summary/content, parseHTML details/summary). Add to baseExtensions.
+- markdown.ts: calloutPlugin (core.ruler; blockquote whose 1st paragraph inline
+  starts `[!type]([+-]?)` -> remap ends to callout_open/close +attrs, strip marker,
+  drop emptied 1st paragraph); detailsPlugin (html_block `<details>` +inline
+  `<summary>` … nesting-aware `</details>` -> toggle_open/toggleSummary_*/
+  toggleContent_* around the inner tokens). Serializer: callout (`> [!type]`+fold+
+  title, `> `-wrapped content) + toggle (`<details>\n<summary>`+title+`</summary>\n\n`
+  +content+`\n</details>`). Parser spec + `.use(calloutPlugin).use(detailsPlugin)`.
+- Tests: callout note/warning/unknown/nested + fold `-`/`+`; toggle round-trip incl.
+  summary + block content + nesting; idempotence; a blockquote NOT starting with `[!`
+  stays a blockquote; a tight `<details>` still parses.
+
+### Step 2 — web: callout + toggle node views (apps/web)
+- callout-node.tsx / toggle-node.tsx: Client extensions with React NodeViews +
+  commands (setCallout(type), setToggle). Callout = coloured box (icon+title+content).
+  Toggle = triangle + inline summary + collapsible content; open/close is LOCAL state,
+  never mutates the CRDT (no phantom blame — PageRef discipline).
+- Editor.tsx: register both. slash-command.tsx: "Callout", "Toggle". styles.css:
+  callout per-type palette from tokens (note=accent-wash, tip=ok, warning=warn,
+  important=accent, caution=danger) + toggle triangle/indent. Icon.tsx: info if needed.
+
+### Step 3 — web: Outline-style TOC rail (apps/web)
+- TocRail.tsx: reads editor headings (recompute on update) -> nested nav; click ->
+  scroll the matching `.ProseMirror` heading into view; IntersectionObserver sets the
+  active entry. No doc mutation.
+- Editor.tsx + styles.css: add a left sticky column to `.doc-shell` (sits in the left
+  gutter, doc stays centred); show only when >=2 headings AND no right rail open AND
+  viewport wide enough. Reconcile with the right rail, full-width toggle, preview mode.
+
+### Step 4 — docs + verify
+- README "Rich content": callouts (`> [!note]`), toggles (`<details>`), auto TOC rail;
+  honest limits. No MCP change (agents see `> ` lines / `<details>`).
+- e2e: slash-insert callout + toggle (local collapse/expand, persist+reload); a doc
+  with several headings shows the TOC rail and clicking an entry scrolls.
+- Verify: pnpm -r test, typecheck, web build, full e2e, screenshots (callout/toggle,
+  TOC rail with active-section highlight).
+
+Risks: two token-remap plugins (callout marker surgery; details html_block pairing)
+are the fiddly parts — covered by round-trip tests. markdown-ops/MCP unaffected
+(blocks are markdown lines). TOC rail's only real decision is when to hide it.
+
 ## Restyle: "Outline / pine" design handoff (DONE)
 
 Source: `design_handoff_outline_app/` (Claude Design). It repaints ONE screen

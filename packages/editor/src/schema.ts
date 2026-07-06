@@ -82,6 +82,98 @@ export const PageRef = Node.create({
 });
 
 /**
+ * A callout / admonition box (GitHub & Obsidian "alert" blockquotes:
+ * `> [!note] …`). `type` picks the flavour (note/tip/warning/important/caution,
+ * or any label — unknown types render neutral so foreign vaults import cleanly).
+ * `collapsible`/`collapsed` carry Obsidian's fold markers (`-`/`+`); the actual
+ * open/closed state a reader sees is local NodeView state, never written back to
+ * the document.
+ */
+export const Callout = Node.create({
+  name: "callout",
+  group: "block",
+  content: "block+",
+  defining: true,
+  addAttributes() {
+    return {
+      type: { default: "note" },
+      collapsible: { default: false },
+      collapsed: { default: false },
+    };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "div[data-callout]",
+        getAttrs: (el) => {
+          const node = el as unknown as { getAttribute(name: string): string | null };
+          return {
+            type: node.getAttribute("data-callout") || "note",
+            collapsible: node.getAttribute("data-collapsible") === "true",
+            collapsed: node.getAttribute("data-collapsed") === "true",
+          };
+        },
+      },
+    ];
+  },
+  renderHTML({ node }) {
+    return [
+      "div",
+      {
+        "data-callout": String(node.attrs.type),
+        "data-collapsible": String(node.attrs.collapsible),
+        "data-collapsed": String(node.attrs.collapsed),
+        class: `callout callout-${node.attrs.type}`,
+      },
+      0,
+    ];
+  },
+});
+
+/**
+ * A collapsible section, serialized as standard `<details><summary>` HTML so it
+ * stays foldable on GitHub and portable everywhere. The summary is real inline
+ * content (CRDT-merged, blame-tracked); the content is arbitrary blocks. A
+ * reader's open/closed toggle is local NodeView state — it never mutates the doc.
+ */
+export const Toggle = Node.create({
+  name: "toggle",
+  group: "block",
+  content: "toggleSummary toggleContent",
+  defining: true,
+  parseHTML() {
+    return [{ tag: "details" }];
+  },
+  renderHTML() {
+    return ["details", { class: "toggle", open: "open" }, 0];
+  },
+});
+
+export const ToggleSummary = Node.create({
+  name: "toggleSummary",
+  content: "inline*",
+  defining: true,
+  parseHTML() {
+    return [{ tag: "summary" }];
+  },
+  renderHTML() {
+    return ["summary", { class: "toggle-summary" }, 0];
+  },
+});
+
+export const ToggleContent = Node.create({
+  name: "toggleContent",
+  content: "block+",
+  defining: true,
+  parseHTML() {
+    return [{ tag: "div[data-toggle-content]" }];
+  },
+  renderHTML() {
+    return ["div", { "data-toggle-content": "", class: "toggle-content" }, 0];
+  },
+});
+
+/**
  * The single source of truth for the document model. Both the client editor
  * and the server (Hocuspocus persistence, MCP writes) build their ProseMirror
  * schema from THIS extension list, so Y.Doc <-> JSON <-> markdown all align.
@@ -99,6 +191,10 @@ export const baseExtensions: Extensions = [
   TaskList,
   TaskItem.configure({ nested: true }),
   PageRef,
+  Callout,
+  Toggle,
+  ToggleSummary,
+  ToggleContent,
   // Column resize stores a per-cell colwidth that the markdown read model can't
   // carry, so it's off — GFM tables round-trip cleanly, widths don't.
   Table.configure({ resizable: false }),

@@ -160,6 +160,68 @@ test("an empty table cell round-trips as an empty column", () => {
   assert.equal(normalizeMarkdown(out), out, "idempotent");
 });
 
+test("callout blockquotes (`> [!type]`) round-trip and carry type/fold attrs", () => {
+  const note = "> [!note]\n> Body line.";
+  assert.equal(normalizeMarkdown(note), note, "canonical GitHub-alert callout round-trips exactly");
+
+  const json = markdownToJSON(note) as { content: Array<{ type: string; attrs: Record<string, unknown> }> };
+  assert.equal(json.content[0]!.type, "callout");
+  assert.equal(json.content[0]!.attrs.type, "note");
+  assert.equal(json.content[0]!.attrs.collapsible, false);
+
+  // Obsidian fold marker `-` => collapsible + collapsed.
+  const folded = markdownToJSON("> [!warning]- careful\n> danger") as {
+    content: Array<{ attrs: Record<string, unknown> }>;
+  };
+  assert.equal(folded.content[0]!.attrs.type, "warning");
+  assert.equal(folded.content[0]!.attrs.collapsible, true);
+  assert.equal(folded.content[0]!.attrs.collapsed, true);
+  assert.match(normalizeMarkdown("> [!warning]- careful\n> danger"), /^> \[!warning\]-$/m);
+});
+
+test("an unknown callout type is preserved; a plain blockquote stays a blockquote", () => {
+  // Foreign vault types survive verbatim (rendered neutral).
+  const bug = markdownToJSON("> [!bug]\n> oops") as { content: Array<{ type: string; attrs: { type: string } }> };
+  assert.equal(bug.content[0]!.type, "callout");
+  assert.equal(bug.content[0]!.attrs.type, "bug");
+  // No marker => ordinary blockquote, not a callout.
+  const quote = markdownToJSON("> just a quote") as { content: Array<{ type: string }> };
+  assert.equal(quote.content[0]!.type, "blockquote");
+});
+
+test("a callout wraps block content and stays idempotent", () => {
+  const md = "> [!tip]\n> * one\n> * two";
+  assert.equal(normalizeMarkdown(md), md);
+  const json = markdownToJSON(md) as {
+    content: Array<{ type: string; content: Array<{ type: string }> }>;
+  };
+  assert.equal(json.content[0]!.type, "callout");
+  assert.equal(json.content[0]!.content[0]!.type, "bulletList");
+});
+
+test("toggles round-trip as <details> with an editable summary + block content", () => {
+  const md = "<details>\n<summary>More detail</summary>\n\nHidden body.\n\n</details>";
+  assert.equal(normalizeMarkdown(md), md, "canonical <details> round-trips exactly");
+
+  const json = markdownToJSON(md) as {
+    content: Array<{ type: string; content: Array<{ type: string; content: Array<{ type: string; text?: string }> }> }>;
+  };
+  const toggle = json.content[0]!;
+  assert.equal(toggle.type, "toggle");
+  assert.equal(toggle.content[0]!.type, "toggleSummary");
+  assert.equal(toggle.content[0]!.content[0]!.text, "More detail");
+  assert.equal(toggle.content[1]!.type, "toggleContent");
+  assert.equal(toggle.content[1]!.content[0]!.type, "paragraph");
+});
+
+test("nested toggles round-trip and stay idempotent", () => {
+  const md =
+    "<details>\n<summary>Outer</summary>\n\n<details>\n<summary>Inner</summary>\n\ndeep\n\n</details>\n\n</details>";
+  const once = normalizeMarkdown(md);
+  assert.equal(once, md, "nested details round-trip exactly");
+  assert.equal(normalizeMarkdown(once), once, "idempotent");
+});
+
 test("page references round-trip as [title](/d/<id>) links", () => {
   const id = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9";
   const md = `See [Reading the river](/d/${id}) for context.`;

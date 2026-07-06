@@ -10,10 +10,14 @@ import { schema } from "./schema.js";
 const d = defaultMarkdownSerializer.nodes;
 const m = defaultMarkdownSerializer.marks;
 
+type Token = InstanceType<typeof import("markdown-it/lib/token.mjs").default>;
+
 const attr = (html: string, name: string): string | null =>
   new RegExp(`${name}="([^"]*)"`, "i").exec(html)?.[1] ?? null;
 const escAttr = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+const escHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
  * markdown-it rule: recognize GitHub task lists (`- [ ] …` / `- [x] …`).
@@ -229,6 +233,140 @@ function tableTokensPlugin(md: MarkdownIt) {
   });
 }
 
+const CALLOUT_MARKER = /^\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*/;
+
+/**
+ * markdown-it rule: GitHub/Obsidian callout blockquotes (`> [!note] …`,
+ * `> [!warning]- …`). A blockquote whose first paragraph opens with a `[!type]`
+ * marker becomes a `callout`: the type + optional fold marker (`-` collapsed /
+ * `+` open) are lifted into attrs and stripped from the text. Unknown types are
+ * kept verbatim (rendered neutral) so foreign vaults import. Runs before inline
+ * tokenization, editing `inline.content` (re-tokenized afterwards), like tasks.
+ */
+function calloutPlugin(md: MarkdownIt) {
+  md.core.ruler.after("block", "callouts", (state) => {
+    const tokens = state.tokens;
+    const dropParagraphAt = new Set<number>();
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i]!.type !== "blockquote_open") continue;
+      const inline = tokens[i + 2];
+      if (tokens[i + 1]?.type !== "paragraph_open" || inline?.type !== "inline") continue;
+      const match = CALLOUT_MARKER.exec(inline.content);
+      if (!match) continue;
+      const level = tokens[i]!.level;
+      let close = -1;
+      for (let j = i + 1; j < tokens.length; j++) {
+        if (tokens[j]!.type === "blockquote_close" && tokens[j]!.level === level) {
+          close = j;
+          break;
+        }
+      }
+      if (close === -1) continue;
+      const open = tokens[i]!;
+      open.type = "callout_open";
+      open.attrSet("type", match[1]!.toLowerCase());
+      open.attrSet("collapsible", String(match[2] !== ""));
+      open.attrSet("collapsed", String(match[2] === "-"));
+      tokens[close]!.type = "callout_close";
+      // Strip the marker; drop a leading newline so a marker-only first line
+      // doesn't open the callout with a blank line.
+      inline.content = inline.content.replace(CALLOUT_MARKER, "").replace(/^\n/, "");
+      // If that emptied the first paragraph AND the callout has other content,
+      // drop the paragraph. Keep it (empty) when it's the callout's only block
+      // (content is `block+`).
+      if (inline.content === "" && close > i + 4) dropParagraphAt.add(i + 1);
+    }
+    if (dropParagraphAt.size === 0) return;
+    // Remove each emptied first paragraph (open, inline, close at p, p+1, p+2).
+    state.tokens = tokens.filter(
+      (_t, idx) =>
+        !(dropParagraphAt.has(idx) || dropParagraphAt.has(idx - 1) || dropParagraphAt.has(idx - 2)),
+    );
+  });
+}
+
+const SUMMARY_RE = /<summary>([\s\S]*?)<\/summary>/i;
+const DETAILS_OPEN = /^\s*<details[\s>]/i;
+const DETAILS_CLOSE = /^\s*<\/details>\s*$/i;
+
+/** Recursively remap a run of tokens, converting `<details>…</details>` pairs
+ * into toggle nodes. Nesting-aware via the recursion on the inner slice. */
+function convertDetails(
+  toks: Token[],
+  state: { Token: typeof import("markdown-it/lib/token.mjs").default },
+): Token[] {
+  const isOpen = (t: Token) => t.type === "html_block" && DETAILS_OPEN.test(t.content);
+  const isClose = (t: Token) => t.type === "html_block" && DETAILS_CLOSE.test(t.content);
+  const out: Token[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const tok = toks[i]!;
+    if (!isOpen(tok)) {
+      out.push(tok);
+      continue;
+    }
+    let depth = 1;
+    let close = -1;
+    for (let j = i + 1; j < toks.length; j++) {
+      if (isOpen(toks[j]!)) depth++;
+      else if (isClose(toks[j]!) && --depth === 0) {
+        close = j;
+        break;
+      }
+    }
+    if (close === -1) {
+      out.push(tok);
+      continue;
+    }
+    let inner = toks.slice(i + 1, close);
+    let summary = (SUMMARY_RE.exec(tok.content)?.[1] ?? "").trim();
+    // Tolerate a `<summary>` emitted as its own html_block (some exporters).
+    if (!summary && inner[0]?.type === "html_block" && SUMMARY_RE.test(inner[0].content)) {
+      summary = (SUMMARY_RE.exec(inner[0].content)?.[1] ?? "").trim();
+      inner = inner.slice(1);
+    }
+    inner = convertDetails(inner, state);
+    // toggleContent is `block+`: guarantee at least one block.
+    if (!inner.some((t) => t.nesting === 1)) {
+      inner = [
+        new state.Token("paragraph_open", "p", 1),
+        Object.assign(new state.Token("inline", "", 0), { content: "", children: [] }),
+        new state.Token("paragraph_close", "p", -1),
+      ];
+    }
+    const sInline = new state.Token("inline", "", 0);
+    sInline.content = summary;
+    sInline.children = summary
+      ? [Object.assign(new state.Token("text", "", 0), { content: summary })]
+      : [];
+    out.push(
+      new state.Token("toggle_open", "details", 1),
+      new state.Token("toggleSummary_open", "summary", 1),
+      sInline,
+      new state.Token("toggleSummary_close", "summary", -1),
+      new state.Token("toggleContent_open", "div", 1),
+      ...inner,
+      new state.Token("toggleContent_close", "div", -1),
+      new state.Token("toggle_close", "details", -1),
+    );
+    i = close;
+  }
+  return out;
+}
+
+/**
+ * markdown-it rule: `<details><summary>…</summary> … </details>` HTML becomes a
+ * `toggle` node. With `html:true`, markdown-it emits the opening `<details>`
+ * (with the inline `<summary>`) and the closing `</details>` as separate
+ * html_block tokens and parses the markdown between them normally, so we only
+ * remap the two ends and wrap the summary + inner blocks.
+ */
+function detailsPlugin(md: MarkdownIt) {
+  md.core.ruler.push("tandem_details", (state) => {
+    if (!state.tokens.some((t) => t.type === "html_block" && DETAILS_OPEN.test(t.content))) return;
+    state.tokens = convertDetails(state.tokens, state);
+  });
+}
+
 /** Serialize a table cell's blocks to a single inline string (marks kept),
  * safe to drop into a `| … |` row. Reuses the full serializer at call time. */
 function cellToInline(cell: Node): string {
@@ -312,6 +450,27 @@ const serializer = new MarkdownSerializer(
       state.write(lines.join("\n"));
       state.closeBlock(node);
     },
+    // GitHub/Obsidian callout: `> [!type]` (+ fold marker) then blockquoted body.
+    callout(state, node) {
+      const type = String(node.attrs.type ?? "note");
+      const fold = node.attrs.collapsible ? (node.attrs.collapsed ? "-" : "+") : "";
+      state.wrapBlock("> ", null, node, () => {
+        state.write(`[!${type}]${fold}`);
+        state.ensureNewLine();
+        state.renderContent(node);
+      });
+    },
+    // Collapsible section as standard <details> HTML (portable, foldable on
+    // GitHub). Blank lines around the body let markdown-it parse it as markdown.
+    toggle(state, node) {
+      const summary = node.child(0).textContent;
+      state.write("<details>\n");
+      state.write(`<summary>${escHtml(summary)}</summary>\n\n`);
+      state.renderContent(node.child(1));
+      state.ensureNewLine();
+      state.write("</details>");
+      state.closeBlock(node);
+    },
     image(state, node) {
       const { src, alt, title, width } = node.attrs as {
         src: string;
@@ -356,9 +515,22 @@ const parser = new MarkdownParser(
     .use(imgHtmlPlugin)
     .use(taskListPlugin)
     .use(tableTokensPlugin)
-    .use(pageRefPlugin),
+    .use(pageRefPlugin)
+    .use(calloutPlugin)
+    .use(detailsPlugin),
   {
   blockquote: { block: "blockquote" },
+  callout: {
+    block: "callout",
+    getAttrs: (tok) => ({
+      type: tok.attrGet("type") ?? "note",
+      collapsible: tok.attrGet("collapsible") === "true",
+      collapsed: tok.attrGet("collapsed") === "true",
+    }),
+  },
+  toggle: { block: "toggle" },
+  toggleSummary: { block: "toggleSummary" },
+  toggleContent: { block: "toggleContent" },
   paragraph: { block: "paragraph" },
   list_item: { block: "listItem" },
   bullet_list: { block: "bulletList" },

@@ -865,6 +865,131 @@ button {
   outline: none;
 }
 
+/* ---------- callouts ---------- */
+
+.callout {
+  margin: 16px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-m);
+  background: var(--accent-wash);
+}
+
+.callout-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  user-select: none;
+}
+
+.callout-label {
+  flex: 1;
+}
+
+.callout-fold {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  display: inline-flex;
+}
+
+.callout-body > :first-child {
+  margin-top: 0;
+}
+.callout-body > :last-child {
+  margin-bottom: 0;
+}
+
+.callout-tip {
+  border-left-color: var(--ok);
+  background: rgba(47, 125, 70, 0.07);
+}
+.callout-tip .callout-head {
+  color: var(--ok);
+}
+.callout-warning {
+  border-left-color: var(--warn);
+  background: rgba(138, 109, 31, 0.08);
+}
+.callout-warning .callout-head {
+  color: var(--warn);
+}
+.callout-caution {
+  border-left-color: var(--danger);
+  background: var(--danger-wash);
+}
+.callout-caution .callout-head {
+  color: var(--danger);
+}
+.callout-neutral {
+  border-left-color: var(--ink-3);
+  background: var(--sunken);
+}
+.callout-neutral .callout-head {
+  color: var(--ink-2);
+}
+
+/* ---------- toggles (collapsible <details>) ---------- */
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 12px 0;
+}
+
+.toggle-caret {
+  flex: none;
+  margin-top: 0.12em;
+  border: none;
+  background: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--ink-3);
+  display: inline-flex;
+  border-radius: var(--radius-s);
+}
+
+.toggle-caret:hover {
+  background: var(--hover);
+  color: var(--ink-2);
+}
+
+.toggle-inner {
+  flex: 1;
+  min-width: 0;
+}
+
+.toggle-summary {
+  display: block;
+  font-weight: 600;
+  cursor: text;
+  list-style: none;
+}
+.toggle-summary::-webkit-details-marker,
+.toggle-summary::marker {
+  display: none;
+}
+
+.toggle-content > :first-child {
+  margin-top: 0.25em;
+}
+.toggle-content > :last-child {
+  margin-bottom: 0;
+}
+
+.toggle.collapsed .toggle-content {
+  display: none;
+}
+
 .search-tags {
   display: flex;
   flex-wrap: wrap;
