@@ -244,3 +244,31 @@ test("get_document on missing id returns an error result", async () => {
   });
   assert.equal(res.isError, true);
 });
+
+test("create_collection on a duplicate slug returns a clean error, not the raw DB message", async () => {
+  await client.callTool({
+    name: "create_collection",
+    arguments: { name: "Dup", slug: "dup-slug" },
+  });
+  const res: any = await client.callTool({
+    name: "create_collection",
+    arguments: { name: "Dup Again", slug: "dup-slug" },
+  });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /already exists/);
+  assert.doesNotMatch(res.content[0].text, /constraint|duplicate key/i);
+});
+
+// Must run last: every earlier test relies on u1 having exactly one workspace.
+test("create_collection without workspaceId is ambiguous once the actor has two workspaces", async () => {
+  await new WorkspaceService(db, SYSTEM).provisionForUser("u1", {
+    name: "U1 Second",
+    slug: "u1-second",
+  });
+  const res: any = await client.callTool({
+    name: "create_collection",
+    arguments: { name: "Ambiguous", slug: "ambiguous" },
+  });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /more than one workspace/);
+});

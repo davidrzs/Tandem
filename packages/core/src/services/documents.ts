@@ -353,6 +353,22 @@ export class DocumentService {
         if (!parent || parent.collectionId !== doc.collectionId) {
           throw new Error("parent must be a document in the same collection");
         }
+
+        // Reject moving id into one of its own descendants (would create a cycle).
+        const result = await db.execute(sql`
+          WITH RECURSIVE subtree AS (
+            SELECT id FROM documents WHERE id = ${id}
+            UNION ALL
+            SELECT d.id FROM documents d JOIN subtree s ON d.parent_document_id = s.id
+          )
+          SELECT 1 FROM subtree WHERE id = ${target.parentDocumentId} LIMIT 1
+        `);
+        // execute()'s row shape differs by driver: an array for postgres-js, a
+        // { rows } object for PGlite — same normalization workspaces.ts uses.
+        const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
+        if (rows.length > 0) {
+          throw new Error("cannot move a document into one of its own descendants");
+        }
       }
 
       const position =

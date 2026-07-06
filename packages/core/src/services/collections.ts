@@ -72,23 +72,31 @@ export class CollectionService {
     return this.exec(async (db) => {
       let workspaceId = input.workspaceId;
       if (!workspaceId) {
-        // For a user actor the list is RLS-scoped to their own workspaces, so
-        // the first is a safe default. For SYSTEM (e.g. the local stdio MCP)
-        // there is no tenant scope, so refuse to guess when more than one
-        // workspace exists — otherwise we'd write into an arbitrary tenant.
+        // The list is RLS-scoped to the actor's own workspaces. A single
+        // result is a safe default; more than one is ambiguous — refuse to
+        // guess, or we'd write into an arbitrary tenant.
         const rows = await db.select({ id: workspaces.id }).from(workspaces).limit(2);
         if (rows.length === 0) throw new Error("no workspace available for collection");
-        if (this.actor.kind === "system" && rows.length > 1) {
-          throw new Error("workspaceId is required (actor is not scoped to a workspace)");
+        if (rows.length > 1) {
+          throw new Error("workspaceId is required: you belong to more than one workspace");
         }
         workspaceId = rows[0]!.id;
       }
       const { workspaceId: _omit, ...rest } = input;
-      const [row] = await db
-        .insert(collections)
-        .values({ ...rest, workspaceId })
-        .returning();
-      return row!;
+      try {
+        const [row] = await db
+          .insert(collections)
+          .values({ ...rest, workspaceId })
+          .returning();
+        return row!;
+      } catch (err) {
+        const code = (err as { code?: string })?.code;
+        if (code !== "23505") throw err;
+        throw Object.assign(
+          new Error(`a collection with slug "${input.slug}" already exists in this workspace`),
+          { code: "23505" },
+        );
+      }
     });
   }
 

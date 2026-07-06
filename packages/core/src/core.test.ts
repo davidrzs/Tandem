@@ -190,6 +190,14 @@ test("move rejects a cross-collection or self parent", async () => {
   // Same-collection move is allowed.
   const moved = await d1.move(a1.id, { parentDocumentId: a2.id });
   assert.equal(moved!.parentDocumentId, a2.id);
+
+  // Moving a document into its own descendant would create a cycle.
+  const a3 = await d1.create({ collectionId: colA.id, parentDocumentId: a1.id, title: "a3" });
+  await assert.rejects(
+    () => d1.move(a1.id, { parentDocumentId: a3.id }),
+    /own descendant/,
+    "indirect cycle rejected",
+  );
 });
 
 test("invite role can't exceed the inviter's: an admin cannot grant owner", async () => {
