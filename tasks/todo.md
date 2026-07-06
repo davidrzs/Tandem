@@ -133,3 +133,88 @@ commit each, suites green per step.
 - Suites: 84 unit/integration tests (editor 35, core 20, server 29), typecheck
   5/5, web build, e2e (tasks, tagging, richtext, transfer, versions + refreshed
   smoke) — all green. Final fresh-context security review of the new surfaces.
+
+## Restyle: "Outline / pine" design handoff (DONE)
+
+Source: `design_handoff_outline_app/` (Claude Design). It repaints ONE screen
+(editor + sidebar). Decisions taken: adopt fully = single Hanken Grotesk (retire
+the serif); plan-then-build. This is a restyle, not features — every component it
+shows already exists and is wired.
+
+Approach: drive it from the token table. ~50 refs already route through
+`var(--accent*)` + tokens, so re-authoring `:root` retints all ~20 surfaces in one
+move; then pixel-match the two designed surfaces on top, then sweep stragglers.
+
+- [x] Step 1 — Typography (single Hanken). Add `@fontsource-variable/hanken-grotesk`;
+  drop inter + source-serif-4 (imports in main.tsx + package.json). `--font-ui` and
+  `--font-prose` both -> Hanken (keep `--font-prose` as alias; 5 rules reference it).
+  `--font-mono` stays system mono (code must be monospaced — justified exception;
+  handoff has no code). Math keeps KaTeX fonts. Self-host only — no Google `<link>`
+  (preserves `font-src 'self'` CSP). Apply the handoff's FULL type scale (designed
+  FOR Hanken's metrics, which differ from Inter): title 40/700/-0.02em, body 16/1.75,
+  ws label 14/600, nav 13.5/450, collection parent 13.5/600, leaf 13/450, toolbar
+  btn 13/500, section label 11/600/0.09em, meta 13, presence 11-12.5/600. Hanken's
+  x-height/width differ from both Inter and the serif -> line-heights and the article
+  measure need a visual rhythm pass, not just a token swap (expected rework, not a
+  surprise — that's what the screenshot-diff in Step 5 is for).
+- [x] Step 2 — Color tokens (pine + green-tinted neutrals). Re-author `:root`:
+  surface #ffffff; paper #fbfbfa->#ffffff; sunken(sidebar) #f4f4f1->#f6f8f6;
+  ink #1f2732->#132019; +ink-body #33443a; ink-2 #67707e->#5a6f63;
+  ink-3 #9aa1ad->#9aab9f; line #e8e7e2->#eef2ee; line-strong #d8d7d1->#e2e9e3;
+  +border-side #e6ece7; accent #17656d->#1f6b4f; accent-ink #114e54->#1a5a42;
+  accent-wash ->rgba(31,107,79,.08); +hover #eaf0ea; +hover-strong #eef2ee;
+  +tag-bg #f0f4f1 / +tag-hover #e6ede8; ::selection ->#cfe3d8. Sweep the 14
+  `rgba(31,39,50,…)` (hovers -> tokens; shadows -> green-black `rgba(19,32,25,…)`).
+  Doc-mention: #1f6b4f / underline rgba(31,107,79,.3) / hover bg #f0f7f2.
+  Presence: dot #2f9e63 + glow rgba(47,158,99,.18); avatar green #3fa06a.
+  Code-highlight palette left as-is this pass (works on white; retint = later polish).
+- [x] Step 3 — Pixel-match the two designed surfaces (exact numbers from README):
+  sidebar (14/12 pad, 26px mark r7, nav 7/9 gap11, tree branch #e2e9e3, active leaf
+  #1f6b4f/600 bg #eaf0ea, footer 28px avatar); toolbar (right-aligned, .85 white +
+  blur6, ghost Comments/History, 20px divider, presence stack -8px overlap, "N
+  editing" #2f9e63); article (max 1080, pad 26/56/120, h1 40/700/-0.02em);
+  inline collab cursors — restyle only (already wired via CollaborationCursor):
+  caret -> 2px bar in the writer's color; name flag radius 4px 4px 4px 0, sits
+  atop the caret, white 11px/600. Colors come from the per-user awareness palette
+  (shared with blame via colors.ts) — verify it still reads against the greener
+  neutrals (Step 4 check). Also in Step 3: ⌘K kbd chip (11px #93a49a, bg #eaf0ea,
+  radius 5px — current uses a bordered chip); section label letter-spacing
+  0.06->0.09em + margin-top 22px; collection tree caret rotation (exists as
+  `.twist.open`, restyle); sidebar/main divider on the sidebar right edge
+  (#e6ece7, new --border-side); page-ref/doc-mention (page-ref.tsx `.page-ref`):
+  file icon + text, underline rgba(31,107,79,.3), hover bg #f0f7f2; TagBar existing
+  chips take the same tag-bg/tag-hover language as the Add-tag chip.
+
+- [x] Step 3b — TOOLBAR RECONCILIATION (the handoff omits real controls — decision
+  needed, do NOT silently drop). Handoff toolbar = right-aligned Comments + History +
+  presence only. The real `.editor-tools` also has: presence on the LEFT (small dots,
+  not avatars), a **Full width** toggle, a **save-state** pill ("Saving/Saved" +
+  dot), and a **Read only** badge. Reconciliation: (a) presence -> move right, and
+  it's a MARKUP change not just CSS — enlarge dots to 28px avatars (2px white border,
+  -8px overlap) and ADD the "N editing" green dot+count element (doesn't exist today);
+  (b) KEEP save-state (essential UX) + Read-only, styled quietly into the right-aligned
+  bar; (c) Full-width toggle — keep (restyled) or cut? PROPOSED: keep. Note: History
+  IS the blame/Authors view (blameOn = rail==="history"), so "Authors" isn't missing.
+  App is LIGHT-ONLY (no dark theme) -> retint is single-mode, no dark variants.
+- [x] Step 4 — Extend language to undesigned surfaces (mostly inherit via tokens;
+  manual pass for hardcoded cool-gray): Home, SearchModal, People/Settings/Share +
+  base Modal, Comments/History rails, SnapshotPreview, TagBar, AuthGate/Consent/
+  InviteAccept, ErrorBoundary, slash/bubble/suggestion menus. Check blame/authors
+  generator (colors.ts) still reads against greener neutrals — the authorship layer
+  stays the loud thing.
+- [x] Step 5 — Docs + verify. Rewrite styles.css header comment + README identity
+  para (drop "prose in a serif"; new single-Hanken/pine language). typecheck, web
+  build, full e2e (assert on classes/behavior not colors — should stay green),
+  screenshot-diff the designed screen vs the mockup.
+
+Review: single-file token foundation retinted all ~20 surfaces at once; only
+apps/web touched (styles.css, main.tsx, Editor.tsx, Sidebar.tsx, TagBar.tsx,
+package.json). Verified: typecheck clean, web build (Hanken woff2 bundled, old
+fonts dropped), e2e 17/17 (dnd assertion updated to the new indent math; tag
+button text updated in crash/tagging specs), screenshots of editor / History
+rail / Search modal all coherent. README had no visual-identity copy to change.
+Deviations flagged: (a) code blocks keep their dark theme this pass (deferred
+polish); (b) editor measure kept at 720px, NOT the handoff's 1080px — 1080 is
+too wide for readable prose; easy to widen if wanted. Author/blame colours kept
+(colors.ts) — the footer avatar / cursor / blame tints stay per-user, so the
+authorship layer remains the loud thing against the greener neutrals.

@@ -17,8 +17,8 @@ try {
   await page.fill(".title-input", "Quantum notes");
   await page.waitForTimeout(800); // let the title-save debounce (500ms) flush
 
-  // Add a tag via the inline "+ tag" affordance.
-  await page.getByRole("button", { name: "+ tag" }).click();
+  // Add a tag via the inline "Add tag" affordance.
+  await page.getByRole("button", { name: "Add tag" }).click();
   await page.locator(".tag-input").fill("physics");
   await page.keyboard.press("Enter");
 

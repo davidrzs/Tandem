@@ -37,13 +37,14 @@ try {
   await page.waitForTimeout(60); // React needs a frame between dragover and drop
   await parent.dispatchEvent("drop", at);
 
-  // Child is now indented under Parent (depth 0 padding is 26px; a child is 40px).
+  // Child is now indented under Parent: each depth adds 14px, so a nested child's
+  // inline paddingLeft is strictly greater than the top-level sibling's it started at.
   await page.waitForFunction(
     (before) => {
       const row = [...document.querySelectorAll(".doc-row")].find((r) =>
         r.textContent?.includes("Child Doc"),
       );
-      return !!row && row.style.paddingLeft !== before && parseInt(row.style.paddingLeft) > 26;
+      return !!row && parseInt(row.style.paddingLeft) > parseInt(before);
     },
     childPadBefore,
     { timeout: 8000 },

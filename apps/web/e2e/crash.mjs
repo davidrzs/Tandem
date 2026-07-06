@@ -40,7 +40,7 @@ try {
   await page.waitForSelector(".slash-menu");
   await page.keyboard.press("Enter");
   await page.waitForSelector(".ProseMirror table");
-  await page.getByRole("button", { name: "+ tag" }).click();
+  await page.getByRole("button", { name: "Add tag" }).click();
   await page.locator(".tag-input").fill("check");
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "check", exact: true }).waitFor();

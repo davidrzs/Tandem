@@ -10,8 +10,7 @@ import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
-import "@fontsource-variable/inter";
-import "@fontsource-variable/source-serif-4";
+import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 
 // The editor (Tiptap + ProseMirror + Yjs + KaTeX + lowlight) is by far the

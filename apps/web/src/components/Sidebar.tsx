@@ -427,17 +427,19 @@ function CollectionSection({
           {!tree.isLoading && !tree.error && (tree.data?.length ?? 0) === 0 && (
             <div className="side-note">No documents yet.</div>
           )}
-          <DocTree
-            nodes={tree.data ?? []}
-            parentId={null}
-            collectionId={collection.id}
-            writable={collection.writable}
-            activeDocId={activeDocId}
-            depth={0}
-            onNewChild={(id) => void newDoc(id)}
-            run={run}
-            setDialog={setDialog}
-          />
+          <div className="doc-branch">
+            <DocTree
+              nodes={tree.data ?? []}
+              parentId={null}
+              collectionId={collection.id}
+              writable={collection.writable}
+              activeDocId={activeDocId}
+              depth={0}
+              onNewChild={(id) => void newDoc(id)}
+              run={run}
+              setDialog={setDialog}
+            />
+          </div>
           {(archived.data?.length ?? 0) > 0 && (
             <>
               <button
@@ -582,7 +584,7 @@ function DocRow({
           (node.id === activeDocId ? " active" : "") +
           (dropMode ? ` drop-${dropMode}` : "")
         }
-        style={{ paddingLeft: 26 + depth * 14 }}
+        style={{ paddingLeft: 9 + depth * 14 }}
         onDragStart={(e) => {
           e.dataTransfer.setData(
             "application/x-tandem-doc",

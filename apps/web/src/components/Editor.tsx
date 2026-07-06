@@ -519,25 +519,16 @@ export function Editor({
       )}
       <div className={"editor" + (wide ? " wide" : "")}>
       <div className="editor-tools">
-        {peers.length > 0 && (
-          <span className="presence" title={peers.map((p) => p.name).join(", ")}>
-            {peers.slice(0, 4).map((p) => (
-              <span
-                key={p.clientId}
-                className="presence-dot"
-                style={{ background: p.color }}
-              >
-                {p.name.slice(0, 1).toUpperCase()}
-              </span>
-            ))}
-            {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
-          </span>
-        )}
+        {!canEdit && <span className="save-state">Read only</span>}
+        <span className={`save-state status-${status.tone}`}>
+          <span className="status-dot" /> {status.label}
+        </span>
         <button
           className={"tool-btn" + (rail === "comments" ? " active" : "")}
           title="Show comments"
           onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
         >
+          <Icon name="comment" size={15} />
           Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
         </button>
         <button
@@ -555,13 +546,32 @@ export function Editor({
             setRail((r) => (r === "history" ? null : "history"));
           }}
         >
-          <Icon name="restore" size={13} />
+          <Icon name="restore" size={15} />
           History
         </button>
-        {!canEdit && <span className="save-state">Read only</span>}
-        <span className={`save-state status-${status.tone}`}>
-          <span className="status-dot" /> {status.label}
-        </span>
+        {peers.length > 0 && (
+          <>
+            <span className="tool-divider" />
+            <span className="presence" title={peers.map((p) => p.name).join(", ")}>
+              <span className="presence-stack">
+                {peers.slice(0, 4).map((p) => (
+                  <span
+                    key={p.clientId}
+                    className="presence-avatar"
+                    style={{ background: p.color }}
+                  >
+                    {p.name.slice(0, 1).toUpperCase()}
+                  </span>
+                ))}
+                {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
+              </span>
+              <span className="presence-count">
+                <span className="live-dot" />
+                {peers.length} editing
+              </span>
+            </span>
+          </>
+        )}
       </div>
       <input
         className="title-input"

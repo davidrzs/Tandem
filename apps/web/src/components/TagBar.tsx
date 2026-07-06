@@ -80,7 +80,8 @@ export function TagBar({
           </>
         ) : (
           <button className="tag-add" onClick={() => setAdding(true)}>
-            + tag
+            <Icon name="plus" size={14} />
+            Add tag
           </button>
         ))}
     </div>
