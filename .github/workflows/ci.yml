@@ -49,6 +49,12 @@ jobs:
       - name: End-to-end tests
         run: bash apps/web/e2e/run-all.sh
 
+      # The Playwright journey suite boots its own server on :3799 against the
+      # built SPA. Running it here keeps its assertions from rotting against UI
+      # changes (it isn't exercised anywhere else).
+      - name: Playwright journeys
+        run: pnpm e2e
+
       - name: Upload e2e logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
