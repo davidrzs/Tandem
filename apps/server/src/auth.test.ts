@@ -118,6 +118,37 @@ test("invite mode: a valid workspace invite token also lets a new user sign up",
   await db.$dispose();
 });
 
+test("instance invites are single-use: the second signup with the same token is rejected", async () => {
+  const { db, auth } = await fresh();
+  await seedAdmin(auth, db);
+  await setMode(db, "invite");
+  await db.insert(instanceInvites).values({ token: "once-tok", createdBy: "founder" });
+
+  await signup(auth, "first@acme.com", "once-tok");
+  const [row] = await db
+    .select({ acceptedAt: instanceInvites.acceptedAt, acceptedBy: instanceInvites.acceptedBy })
+    .from(instanceInvites)
+    .where(eq(instanceInvites.token, "once-tok"));
+  assert.ok(row?.acceptedAt, "invite consumed on signup");
+  assert.ok(row?.acceptedBy, "consumer recorded");
+
+  await assert.rejects(() => signup(auth, "second@acme.com", "once-tok"), /invite is required/i);
+  await db.$dispose();
+});
+
+test("an admin-role instance invite grants the server-admin role at signup", async () => {
+  const { db, auth } = await fresh();
+  await seedAdmin(auth, db);
+  await setMode(db, "closed");
+  await db
+    .insert(instanceInvites)
+    .values({ token: "admin-tok", role: "admin", createdBy: "founder" });
+
+  await signup(auth, "second-admin@acme.com", "admin-tok");
+  assert.equal(await roleOf(db, "second-admin@acme.com"), "admin");
+  await db.$dispose();
+});
+
 test("invite mode: an email-bound invite rejects a mismatched address", async () => {
   const { db, auth } = await fresh();
   await seedAdmin(auth, db);

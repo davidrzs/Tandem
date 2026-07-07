@@ -3,7 +3,11 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, mcp } from "better-auth/plugins";
 import { SYSTEM, type Database } from "@tandem/db";
 import { InstanceService, WorkspaceService } from "@tandem/core";
-import { INVITE_TOKEN_HEADER, registrationRole } from "./registration.js";
+import {
+  consumeInstanceInvite,
+  INVITE_TOKEN_HEADER,
+  registrationRole,
+} from "./registration.js";
 
 export type Auth = ReturnType<typeof createAuth>;
 
@@ -43,12 +47,16 @@ export function createAuth(db: Database) {
             const { role } = await registrationRole(db, userData.email, token);
             return role ? { data: { role } } : undefined;
           },
-          // Give every new user a personal workspace (system-scoped).
-          after: async (user) => {
+          // Give every new user a personal workspace (system-scoped), and burn
+          // the instance invite that admitted them (single-use). Workspace
+          // invites stay pending here — acceptInvite consumes them on join.
+          after: async (user, ctx) => {
             await new WorkspaceService(db, SYSTEM).provisionForUser(user.id, {
               name: `${user.name || "Personal"} workspace`,
               slug: `ws-${user.id}`,
             });
+            const token = ctx?.headers?.get(INVITE_TOKEN_HEADER);
+            if (token) await consumeInstanceInvite(db, token, user.id);
           },
         },
         delete: {

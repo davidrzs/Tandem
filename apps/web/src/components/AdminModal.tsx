@@ -46,6 +46,7 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
   const [mode, setMode] = useState<Mode>("open");
   const [domains, setDomains] = useState("");
   const [name, setName] = useState("");
+  const [allowWorkspaces, setAllowWorkspaces] = useState(true);
   const [dirty, setDirty] = useState(false);
 
   // Seed the form once the settings load (and after a save re-fetches).
@@ -54,6 +55,7 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
     setMode(settings.data.registrationMode);
     setDomains(settings.data.allowedEmailDomains.join(", "));
     setName(settings.data.instanceName);
+    setAllowWorkspaces(settings.data.allowWorkspaceCreation);
   }, [settings.data, dirty]);
 
   const save = () =>
@@ -63,6 +65,7 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
           registrationMode: mode,
           allowedEmailDomains: domains.split(",").map((d) => d.trim()).filter(Boolean),
           instanceName: name.trim() || "Tandem",
+          allowWorkspaceCreation: allowWorkspaces,
         });
         await utils.admin.getSettings.invalidate();
         setDirty(false);
@@ -96,6 +99,14 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
           onChange={(e) => edit(setDomains)(e.target.value)}
         />
       )}
+      <label className="switch-row">
+        <input
+          type="checkbox"
+          checked={allowWorkspaces}
+          onChange={(e) => edit(setAllowWorkspaces)(e.target.checked)}
+        />
+        Members can create additional workspaces
+      </label>
       <div className="dialog-actions">
         <button className="btn primary" disabled={!dirty || update.isPending} onClick={save}>
           {update.isPending ? "Saving…" : "Save settings"}

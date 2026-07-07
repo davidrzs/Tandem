@@ -39,6 +39,27 @@ test("admin procedures reject anonymous and non-admin callers", async () => {
   }
 });
 
+test("allowWorkspaceCreation=false blocks members but not admins", async () => {
+  const db = await fresh();
+  try {
+    await callerFor(db, admin).admin.updateSettings({ allowWorkspaceCreation: false });
+
+    await assert.rejects(
+      () => callerFor(db, member).workspaces.create({ name: "T", slug: "t-blocked" }),
+      /disabled on this server/i,
+    );
+    const ws = await callerFor(db, admin).workspaces.create({ name: "A", slug: "a-allowed" });
+    assert.equal(ws.name, "A");
+
+    // Turned back on, members can create again.
+    await callerFor(db, admin).admin.updateSettings({ allowWorkspaceCreation: true });
+    const ws2 = await callerFor(db, member).workspaces.create({ name: "M", slug: "m-allowed" });
+    assert.equal(ws2.name, "M");
+  } finally {
+    await db.$dispose();
+  }
+});
+
 test("an admin can read/update settings and manage server invites", async () => {
   const db = await fresh();
   try {

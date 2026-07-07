@@ -77,7 +77,21 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => ctx.services.workspaces.members(input.workspaceId)),
     create: protectedProcedure
       .input(z.object({ name: z.string().min(1), slug: z.string().min(1) }))
-      .mutation(({ ctx, input }) => ctx.services.workspaces.create(input)),
+      .mutation(async ({ ctx, input }) => {
+        // Instance policy: the admin can turn off team-workspace creation for
+        // regular members (signup's personal workspace is unaffected — that's
+        // provisioned by the auth hook, not this procedure).
+        if (ctx.user.role !== "admin") {
+          const settings = await ctx.services.instance.getSettings();
+          if (!settings.allowWorkspaceCreation) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Workspace creation is disabled on this server.",
+            });
+          }
+        }
+        return ctx.services.workspaces.create(input);
+      }),
     createInvite: protectedProcedure
       .input(
         z.object({
