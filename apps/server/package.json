@@ -6,11 +6,7 @@
   "exports": {
     "./trpc": "./src/trpc.ts"
   },
-  "bin": {
-    "tandem-mcp": "./src/mcp-stdio.ts"
-  },
   "scripts": {
-    "mcp": "node --env-file-if-exists=../../.env --import tsx src/mcp-stdio.ts",
     "serve": "node --env-file-if-exists=../../.env --import tsx src/serve.ts",
     "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/serve.ts",
     "test": "node --env-file-if-exists=../../.env --import tsx --test \"src/**/*.test.ts\"",

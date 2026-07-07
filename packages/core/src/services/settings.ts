@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   auditLog,
   runAsActor,
@@ -7,6 +7,7 @@ import {
   userSettings,
   workspaceMembers,
   type Actor,
+  type AuditEntry,
   type Database,
 } from "@tandem/db";
 
@@ -98,6 +99,25 @@ export class SettingsService {
         .orderBy(desc(auditLog.createdAt))
         .limit(100);
     });
+    return this.withNames(rows);
+  }
+
+  /** Recent instance-level administration actions (entries with no workspace).
+   * Authorization is the caller's job — only reachable via adminProcedure. */
+  async instanceAuditTrail(): Promise<AuditView[]> {
+    const rows = await this.system((db) =>
+      db
+        .select()
+        .from(auditLog)
+        .where(isNull(auditLog.workspaceId))
+        .orderBy(desc(auditLog.createdAt))
+        .limit(100),
+    );
+    return this.withNames(rows);
+  }
+
+  /** Resolve actor names onto raw audit rows (deleted users show as Unknown). */
+  private async withNames(rows: AuditEntry[]): Promise<AuditView[]> {
     if (rows.length === 0) return [];
     const ids = [...new Set(rows.map((r) => r.userId))];
     const users = await this.system((db) =>

@@ -64,9 +64,7 @@ the document state.
 - Every MCP edit runs under a fresh client id stamped `ai: true` plus the
   invoking user, so AI content is always tied to the human whose credentials
   invoked it — never an anonymous "AI". Blame renders it possessively:
-  "David's AI", distinct from "David". (The local stdio MCP has no sign-in;
-  set `TANDEM_USER=<your email>` so its edits are your AI too — otherwise
-  they're attributed to a visible "Local agent".)
+  "David's AI", distinct from "David".
 - Edits (human or AI) flow through one structural-diff write path, so
   unchanged text keeps its original author.
 
@@ -88,10 +86,6 @@ its edits are blamed to your AI). Tools: `list_collections`,
 `archive_document`. `search_documents` also filters by an exact tag. There is
 deliberately no full-body-rewrite tool: it would re-attribute the whole document
 to the agent and destroy human blame.
-
-A local stdio variant (`pnpm --filter @tandem/server mcp`) runs system-scoped
-against `DATABASE_URL` for personal/offline use; set `TANDEM_USER` (your email
-or user id) so its edits appear in blame as your AI.
 
 ## Rich content, tags, and versions
 

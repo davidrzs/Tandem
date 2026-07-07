@@ -7,6 +7,15 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  // Better Auth admin() plugin columns. `role` is the server-level role
+  // ('admin' grants the instance-administration surface); the rest back the
+  // plugin's ban feature. Managed by the plugin via its own adapter.
+  role: text("role"),
+  banned: boolean("banned").default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires"),
+  // Better Auth twoFactor() plugin: flipped true once a TOTP setup is verified.
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -29,6 +38,8 @@ export const session = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Better Auth admin() plugin: set while an admin impersonates this user.
+    impersonatedBy: text("impersonated_by"),
   },
   (table) => [index("session_userId_idx").on(table.userId)],
 );
@@ -55,6 +66,25 @@ export const account = pgTable(
       .notNull(),
   },
   (table) => [index("account_userId_idx").on(table.userId)],
+);
+
+/** Better Auth twoFactor() plugin: per-user TOTP secret + hashed backup codes.
+ * Never granted to app_user; only the auth layer reads it. */
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").default(true),
+  },
+  (table) => [
+    index("twoFactor_userId_idx").on(table.userId),
+    index("twoFactor_secret_idx").on(table.secret),
+  ],
 );
 
 export const verification = pgTable(

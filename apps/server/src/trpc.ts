@@ -9,6 +9,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  /** Server-level role from the admin() plugin ('admin' unlocks /admin). */
+  role?: string | null;
 }
 
 export interface Context {
@@ -55,6 +57,16 @@ const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   }
 });
 
+/** Requires a signed-in *server admin*. Defense-in-depth over the admin()
+ * plugin's own checks (which guard the auth.api.* user-management calls); this
+ * gates the instance-config and server-invite procedures below. */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "server admin only" });
+  }
+  return next();
+});
+
 const uuid = z.string().uuid();
 
 export const appRouter = t.router({
@@ -65,7 +77,21 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => ctx.services.workspaces.members(input.workspaceId)),
     create: protectedProcedure
       .input(z.object({ name: z.string().min(1), slug: z.string().min(1) }))
-      .mutation(({ ctx, input }) => ctx.services.workspaces.create(input)),
+      .mutation(async ({ ctx, input }) => {
+        // Instance policy: the admin can turn off team-workspace creation for
+        // regular members (signup's personal workspace is unaffected — that's
+        // provisioned by the auth hook, not this procedure).
+        if (ctx.user.role !== "admin") {
+          const settings = await ctx.services.instance.getSettings();
+          if (!settings.allowWorkspaceCreation) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Workspace creation is disabled on this server.",
+            });
+          }
+        }
+        return ctx.services.workspaces.create(input);
+      }),
     createInvite: protectedProcedure
       .input(
         z.object({
@@ -310,6 +336,67 @@ export const appRouter = t.router({
         const { query, ...opts } = input;
         return ctx.services.documents.search(query, opts);
       }),
+  }),
+
+  // Instance administration (server admins only). User management itself
+  // (list/role/ban/delete) rides on the admin() plugin's authClient.admin.*
+  // APIs, which run their own permission checks — only instance config and the
+  // server-invite lifecycle live here.
+  admin: t.router({
+    getSettings: adminProcedure.query(({ ctx }) => ctx.services.instance.getSettings()),
+    updateSettings: adminProcedure
+      .input(
+        z.object({
+          registrationMode: z.enum(["open", "invite", "domain", "closed"]).optional(),
+          allowedEmailDomains: z.array(z.string()).optional(),
+          instanceName: z.string().min(1).optional(),
+          allowWorkspaceCreation: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const settings = await ctx.services.instance.updateSettings(input);
+        await ctx.services.settings.recordAudit({
+          workspaceId: null,
+          userId: ctx.user.id,
+          action: "admin_update_settings",
+          detail: JSON.stringify(input),
+        });
+        return settings;
+      }),
+    createInvite: adminProcedure
+      .input(
+        z.object({
+          email: z.string().email().optional(),
+          role: z.enum(["user", "admin"]).optional(),
+          expiresInDays: z.number().int().positive().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const invite = await ctx.services.instance.createInvite({
+          ...input,
+          createdBy: ctx.user.id,
+        });
+        await ctx.services.settings.recordAudit({
+          workspaceId: null,
+          userId: ctx.user.id,
+          action: "admin_create_invite",
+          detail: `${input.email ?? "anyone with the link"} role=${input.role ?? "user"}`,
+        });
+        return invite;
+      }),
+    listInvites: adminProcedure.query(({ ctx }) => ctx.services.instance.listInvites()),
+    revokeInvite: adminProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        await ctx.services.instance.revokeInvite(input.id);
+        await ctx.services.settings.recordAudit({
+          workspaceId: null,
+          userId: ctx.user.id,
+          action: "admin_revoke_invite",
+          detail: input.id,
+        });
+      }),
+    audit: adminProcedure.query(({ ctx }) => ctx.services.settings.instanceAuditTrail()),
   }),
 
   settings: t.router({

@@ -37,6 +37,7 @@ interface Props {
   onOpenSearch: () => void;
   onOpenPeople: () => void;
   onOpenSettings: () => void;
+  onOpenAdmin: () => void;
   onShareCollection: (id: string) => void;
 }
 
@@ -59,6 +60,7 @@ export function Sidebar({
   onOpenSearch,
   onOpenPeople,
   onOpenSettings,
+  onOpenAdmin,
   onShareCollection,
 }: Props) {
   const utils = trpc.useUtils();
@@ -166,6 +168,12 @@ export function Sidebar({
           <Icon name="settings" />
           Settings
         </button>
+        {user?.role === "admin" && (
+          <button className="nav-row" onClick={onOpenAdmin}>
+            <Icon name="settings" />
+            Admin
+          </button>
+        )}
       </nav>
 
       <div className="section">
@@ -317,6 +325,9 @@ function CollectionSection({
     Promise.all([
       utils.documents.tree.invalidate({ collectionId: collection.id }),
       utils.documents.listArchived.invalidate({ collectionId: collection.id }),
+      // Archive/restore change a document's archivedAt; a stale getMeta would
+      // render the doc page without its archived banner (or with a stale one).
+      utils.documents.getMeta.invalidate(),
     ]);
 
   const run = async (fn: () => Promise<unknown>) => {

@@ -263,8 +263,9 @@ export class DocumentService {
   }
 
   /**
-   * Body edit for writers WITHOUT a live collaboration session (the stdio MCP
-   * fallback): hydrate the persisted Yjs state, apply the markdown transform
+   * Body edit for writers WITHOUT a live collaboration session (the fallback
+   * when no collab writer is wired): hydrate the persisted Yjs state, apply
+   * the markdown transform
    * as an attributed edit, persist state + derived read model together so
    * ydoc_state never goes stale. Throws DocumentWriteDeniedError on read-only
    * docs and lets transform errors (bad targets) propagate to the caller.

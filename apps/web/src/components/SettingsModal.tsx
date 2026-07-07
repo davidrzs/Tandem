@@ -4,6 +4,7 @@ import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
 import { timeAgo } from "./time.js";
+import { TwoFactorSection } from "./TwoFactorSection.js";
 
 /**
  * Account & AI settings: the per-user MCP kill switch, how to connect an
@@ -101,11 +102,6 @@ export function SettingsModal({
           </code>
         </li>
         <li>Sign in when the browser opens — the agent gets your permissions, nothing more.</li>
-        <li>
-          For a local (stdio) agent, run{" "}
-          <code>pnpm --filter @tandem/server mcp</code> with{" "}
-          <code>TANDEM_USER=your@email</code> so its edits are yours.
-        </li>
       </ol>
 
       <h3>Agent activity in this workspace</h3>
@@ -130,6 +126,8 @@ export function SettingsModal({
           ))}
         </ul>
       )}
+
+      <TwoFactorSection />
 
       <h3>Data</h3>
       {!workspaceId ? (

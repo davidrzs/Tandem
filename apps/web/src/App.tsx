@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useState } from "react";
 import { Outlet, useMatch, useOutletContext } from "react-router-dom";
+import { AdminModal } from "./components/AdminModal.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { friendlyError } from "./errors.js";
 import { PeopleModal } from "./components/PeopleModal.js";
@@ -65,6 +66,7 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   const [shareCollectionId, setShareCollectionId] = useState<string | null>(null);
 
   // Cmd/Ctrl+K opens search from anywhere.
@@ -116,6 +118,7 @@ export function App() {
         onOpenSearch={() => setSearchQuery("")}
         onOpenPeople={() => setPeopleOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenAdmin={() => setAdminOpen(true)}
         onShareCollection={setShareCollectionId}
       />
       <main className="main">
@@ -136,6 +139,7 @@ export function App() {
       {peopleOpen && workspaceId && (
         <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
       )}
+      {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
       {shareCollection && (
         <ShareModal
           collection={shareCollection}

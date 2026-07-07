@@ -1,5 +1,4 @@
-import { eq, or } from "drizzle-orm";
-import { createDatabase, SYSTEM, user, type Actor, type Database } from "@tandem/db";
+import { SYSTEM, type Actor, type Database } from "@tandem/db";
 import type { AuthorIdentity } from "@tandem/editor";
 import {
   CollectionService,
@@ -7,6 +6,7 @@ import {
   DocumentService,
   GroupService,
   ImageService,
+  InstanceService,
   SettingsService,
   SnapshotService,
   WorkspaceService,
@@ -21,40 +21,9 @@ export interface Services {
   comments: CommentService;
   groups: GroupService;
   images: ImageService;
+  instance: InstanceService;
   settings: SettingsService;
   snapshots: SnapshotService;
-}
-
-/** Fallback attribution for the local stdio MCP when no TANDEM_USER is set:
- * an AI agent running with the operator's own database access. */
-export const LOCAL_AGENT: AuthorIdentity = {
-  userId: "system",
-  name: "Local agent",
-  ai: true,
-};
-
-/**
- * Attribution identity for the local stdio MCP. `who` (the TANDEM_USER env
- * var) names the human the agent acts for — their email or user id — so blame
- * shows "<their name>'s AI" instead of an ownerless local agent. An unknown
- * value fails loud: silently falling back would misattribute every edit.
- */
-export async function resolveLocalAuthor(
-  db: Database,
-  who: string | undefined,
-): Promise<AuthorIdentity> {
-  const wanted = who?.trim();
-  if (!wanted) return LOCAL_AGENT;
-  const [u] = await db
-    .select({ id: user.id, name: user.name })
-    .from(user)
-    .where(or(eq(user.email, wanted), eq(user.id, wanted)));
-  if (!u) {
-    throw new Error(
-      `TANDEM_USER "${wanted}" does not match any user's email or id — refusing to run with misattributed authorship`,
-    );
-  }
-  return { userId: u.id, name: u.name, ai: true };
 }
 
 /**
@@ -77,16 +46,8 @@ export function createServices(
     comments: new CommentService(db, actor),
     groups: new GroupService(db, actor),
     images: new ImageService(db, actor),
+    instance: new InstanceService(db, actor),
     settings: new SettingsService(db, actor),
     snapshots: new SnapshotService(db, actor),
   };
-}
-
-/** A system-scoped service layer (bypasses RLS) — for the local stdio MCP.
- * Set TANDEM_USER (email or user id) to attribute the agent's edits to your
- * own AI identity in blame. */
-export async function servicesFromEnv(): Promise<Services> {
-  const db = createDatabase(process.env.DATABASE_URL);
-  const author = await resolveLocalAuthor(db, process.env.TANDEM_USER);
-  return createServices(db, SYSTEM, author);
 }

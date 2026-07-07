@@ -6,6 +6,10 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "noEmit": true,
+    // Leaf app: never emits .d.ts, so skip declaration-portability checks
+    // (they choke on better-auth plugin types via TS2742).
+    "declaration": false,
+    "declarationMap": false,
     "verbatimModuleSyntax": false,
     "allowImportingTsExtensions": true
   },

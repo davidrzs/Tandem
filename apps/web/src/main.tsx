@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
-import React, { lazy, useState } from "react";
+import React, { lazy, useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App.js";
@@ -8,6 +8,7 @@ import { AuthGate } from "./components/AuthGate.js";
 import { ConsentScreen } from "./components/ConsentScreen.js";
 import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
+import { SetupWizard } from "./components/SetupWizard.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
 import "@fontsource-variable/hanken-grotesk";
@@ -24,11 +25,6 @@ const DocumentPage = lazy(() =>
 // shell; everything else is the wiki behind the router. AuthGate guarantees a
 // session before any of it renders.
 function Routed() {
-  if (window.location.pathname === "/invite") {
-    const token = new URLSearchParams(window.location.search).get("token");
-    if (token) return <InviteAccept token={token} />;
-  }
-
   const consent = consentContext();
   if (consent) return <ConsentScreen request={consent} />;
 
@@ -51,6 +47,36 @@ function Routed() {
   );
 }
 
+// On a brand-new install (no users yet) the server needs its first admin, so
+// the setup wizard stands in for the login screen. This check sits ABOVE
+// AuthGate because setup happens without a session. Once an admin exists the
+// status is false forever and this adds a single fast fetch on load.
+function Bootstrap() {
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch("/api/setup/status")
+      .then((r) => r.json())
+      .then((d: { needsSetup?: boolean }) => setNeedsSetup(!!d.needsSetup))
+      .catch(() => setNeedsSetup(false));
+  }, []);
+
+  if (needsSetup === null) return <div className="empty">Loading…</div>;
+  if (needsSetup) return <SetupWizard onComplete={() => setNeedsSetup(false)} />;
+
+  // Invite redemption must work for logged-out invitees (they sign up through
+  // the invite), so it sits ABOVE AuthGate.
+  if (window.location.pathname === "/invite") {
+    const token = new URLSearchParams(window.location.search).get("token");
+    if (token) return <InviteAccept token={token} />;
+  }
+
+  return (
+    <AuthGate>
+      <Routed />
+    </AuthGate>
+  );
+}
+
 function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [trpcClient] = useState(() =>
@@ -59,9 +85,7 @@ function Root() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <AuthGate>
-          <Routed />
-        </AuthGate>
+        <Bootstrap />
       </QueryClientProvider>
     </trpc.Provider>
   );

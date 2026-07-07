@@ -44,7 +44,28 @@ docker compose --env-file .env.deploy --profile release run --rm migrate
 docker compose --env-file .env.deploy up -d --build
 ```
 
+## First run
+The first visit to a fresh instance shows the setup wizard: it creates the
+server administrator and sets the registration policy (invite-only by default
+is a good choice). Everything is changeable later under the sidebar's Admin
+entry — registration mode, allowed email domains, server invites, users.
+
+## Restore drill (do this once before you rely on backups)
+1. In Neon, create a branch (or point-in-time restore) of the database.
+2. Point a scratch `.env.deploy` at the branch and boot a second app container.
+3. Confirm documents open and history/blame render (content lives in
+   `documents.ydoc_state`; if that column restores, everything does).
+4. Copy a few files out of the `uploads` volume (`docker compose cp
+   app:/data/uploads /tmp/check`) and confirm images load on the scratch
+   instance. Uploaded bytes are NOT in Postgres — back up this volume
+   (e.g. nightly `docker run --rm -v tandem_uploads:/u -v /backup:/b alpine
+   tar czf /b/uploads-$(date +%F).tgz -C /u .`).
+
 ## Notes
+- **Rate limits** are in-memory and per-instance: they reset on restart and
+  aren't shared across replicas. Fine for the single-node deploy this compose
+  file describes; add a Redis-backed store if you ever run multiple app
+  instances.
 - **MCP clients** point at `https://<domain>/mcp`; OAuth discovery lives at
   `https://<domain>/.well-known/oauth-authorization-server` (Better Auth).
 - **Scaling past one instance:** add Redis + `@hocuspocus/extension-redis` so

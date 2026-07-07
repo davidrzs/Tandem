@@ -79,9 +79,9 @@ export function createMcpServer(
 
   /**
    * Apply a markdown transform to a document body through the single write
-   * path: the live collab doc when in-process (HTTP server), else the
-   * persisted Yjs state (stdio). Maps permission/target failures to clean
-   * tool errors instead of fake success.
+   * path: the live collab doc when a writer is wired (the HTTP server), else
+   * directly against the persisted Yjs state. Maps permission/target failures
+   * to clean tool errors instead of fake success.
    */
   async function editBody(
     action: string,
@@ -124,8 +124,8 @@ export function createMcpServer(
     {
       title: "Create collection",
       description:
-        "Create a new collection. workspaceId is required when the server isn't " +
-        "scoped to a single user (e.g. the local stdio server with multiple workspaces).",
+        "Create a new collection. workspaceId is required when you belong to " +
+        "more than one workspace.",
       inputSchema: {
         name: z.string().min(1),
         slug: z.string().min(1),
