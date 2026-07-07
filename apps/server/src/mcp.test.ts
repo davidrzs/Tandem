@@ -11,8 +11,8 @@ import { createMcpServer } from "./mcp.js";
 
 // Self-contained: in-memory PGlite, migrated fresh. The MCP server acts as a
 // user (with a provisioned workspace) so RLS-scoped writes work. No writer is
-// wired, so body edits exercise the stdio fallback (core editBody), which must
-// keep ydoc_state and the markdown read model in lockstep.
+// wired, so body edits exercise the persisted-state fallback (core editBody),
+// which must keep ydoc_state and the markdown read model in lockstep.
 const db = createDatabase("memory://");
 const services = createServices(
   db,
@@ -161,7 +161,7 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
   assert.equal(tree[0].children[0].id, child.id);
 });
 
-test("the stdio fallback keeps ydoc_state consistent and attributed", async () => {
+test("the writer-less fallback keeps ydoc_state consistent and attributed", async () => {
   const col = payload(
     await client.callTool({
       name: "create_collection",
@@ -192,7 +192,7 @@ test("the stdio fallback keeps ydoc_state consistent and attributed", async () =
   const authors = [...getAuthors(ydoc).values()];
   assert.ok(authors.length >= 2, "seed + edit sessions recorded");
   assert.ok(authors.every((a) => a.userId === "u1"));
-  assert.ok(authors.every((a) => a.ai === true), "stdio edits are AI-attributed");
+  assert.ok(authors.every((a) => a.ai === true), "fallback edits are AI-attributed");
 });
 
 test("targeted edit failures are clean errors, not fake success", async () => {

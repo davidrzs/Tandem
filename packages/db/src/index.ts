@@ -69,7 +69,7 @@ export function createDatabase(
 
 /**
  * Who is acting. `system` uses the base (superuser) connection and bypasses
- * RLS — for signup provisioning, the local stdio MCP, and tests. `user` runs
+ * RLS — for signup provisioning, instance administration, and tests. `user` runs
  * inside a transaction as the non-privileged `app_user` role with
  * `app.user_id` set, so RLS policies scope every query to that user's
  * workspaces.

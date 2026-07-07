@@ -17,8 +17,8 @@ export class GroupService {
   ) {}
 
   // Actor-scoped: user actors run under RLS (the sharing tables enforce
-  // owner/admin in the database); a SYSTEM actor (local stdio) bypasses it. The
-  // owner/admin checks below stay for clear errors and as defense-in-depth.
+  // owner/admin in the database); a SYSTEM actor bypasses it. The owner/admin
+  // checks below stay for clear errors and as defense-in-depth.
   private exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
     return runAsActor(this.db, this.actor, fn);
   }

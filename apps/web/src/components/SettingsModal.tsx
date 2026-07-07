@@ -101,11 +101,6 @@ export function SettingsModal({
           </code>
         </li>
         <li>Sign in when the browser opens — the agent gets your permissions, nothing more.</li>
-        <li>
-          For a local (stdio) agent, run{" "}
-          <code>pnpm --filter @tandem/server mcp</code> with{" "}
-          <code>TANDEM_USER=your@email</code> so its edits are yours.
-        </li>
       </ol>
 
       <h3>Agent activity in this workspace</h3>
