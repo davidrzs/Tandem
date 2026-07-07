@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { admin, mcp } from "better-auth/plugins";
+import { admin, mcp, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { SYSTEM, user as userTable, type Database } from "@tandem/db";
 import { InstanceService, SettingsService, WorkspaceService } from "@tandem/core";
@@ -45,6 +45,10 @@ export function createAuth(db: Database) {
       }),
       // Server-level administration (user.role, ban, impersonate, list-users).
       admin(),
+      // Optional TOTP second factor (enrolled per-user in Settings). Sign-in
+      // for an enrolled user returns { twoFactorRedirect: true } until the
+      // code (or a backup code) is verified.
+      twoFactor(),
     ],
     hooks: {
       // Instance-level audit: every state-changing admin() endpoint records

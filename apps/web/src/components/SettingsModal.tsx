@@ -4,6 +4,7 @@ import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
 import { timeAgo } from "./time.js";
+import { TwoFactorSection } from "./TwoFactorSection.js";
 
 /**
  * Account & AI settings: the per-user MCP kill switch, how to connect an
@@ -125,6 +126,8 @@ export function SettingsModal({
           ))}
         </ul>
       )}
+
+      <TwoFactorSection />
 
       <h3>Data</h3>
       {!workspaceId ? (

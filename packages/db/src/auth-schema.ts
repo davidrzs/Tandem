@@ -14,6 +14,8 @@ export const user = pgTable("user", {
   banned: boolean("banned").default(false),
   banReason: text("ban_reason"),
   banExpires: timestamp("ban_expires"),
+  // Better Auth twoFactor() plugin: flipped true once a TOTP setup is verified.
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -64,6 +66,25 @@ export const account = pgTable(
       .notNull(),
   },
   (table) => [index("account_userId_idx").on(table.userId)],
+);
+
+/** Better Auth twoFactor() plugin: per-user TOTP secret + hashed backup codes.
+ * Never granted to app_user; only the auth layer reads it. */
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").default(true),
+  },
+  (table) => [
+    index("twoFactor_userId_idx").on(table.userId),
+    index("twoFactor_secret_idx").on(table.secret),
+  ],
 );
 
 export const verification = pgTable(
