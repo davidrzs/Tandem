@@ -235,6 +235,40 @@ export const comments = pgTable(
   (t) => [index("comments_document_idx").on(t.documentId)],
 );
 
+/** Instance-wide server settings for this self-hosted deployment. Exactly one
+ * row (the `id` sentinel). System-managed: app_user has no grant — read via
+ * SYSTEM-scoped service code and the unauthenticated setup/public routes. */
+export const instanceSettings = pgTable("instance_settings", {
+  // Single-row sentinel: id is always true, so a second insert conflicts.
+  id: boolean("id").primaryKey().default(true),
+  // open | invite | domain | closed — who may self-register.
+  registrationMode: text("registration_mode").notNull().default("open"),
+  // Allowlisted email domains when registrationMode = 'domain' (e.g. "acme.com").
+  allowedEmailDomains: text("allowed_email_domains").array().notNull().default([]),
+  instanceName: text("instance_name").notNull().default("Tandem"),
+  // Whether non-admin members may create additional (team) workspaces.
+  allowWorkspaceCreation: boolean("allow_workspace_creation").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Server-level (instance) invites: a capability link to create an account when
+ * self-registration is gated. Distinct from workspace_invites (which grant
+ * membership in one workspace). System-managed: app_user has no grant. */
+export const instanceInvites = pgTable("instance_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Optional binding: if set, only this email may redeem the link.
+  email: text("email"),
+  token: text("token").notNull().unique(),
+  // Server role granted on signup: 'user' | 'admin'.
+  role: text("role").notNull().default("user"),
+  createdBy: text("created_by").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  acceptedBy: text("accepted_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Per-user application settings (product prefs, not auth data).
  * System-managed: app_user has no grant. */
 export const userSettings = pgTable("user_settings", {
@@ -301,4 +335,6 @@ export type Document = typeof documents.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type AuditEntry = typeof auditLog.$inferSelect;
 export type DocumentSnapshot = typeof documentSnapshots.$inferSelect;
+export type InstanceSettings = typeof instanceSettings.$inferSelect;
+export type InstanceInvite = typeof instanceInvites.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;

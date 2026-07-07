@@ -1,8 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { mcp } from "better-auth/plugins";
+import { admin, mcp } from "better-auth/plugins";
 import { SYSTEM, type Database } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
+import { INVITE_TOKEN_HEADER, registrationRole } from "./registration.js";
 
 export type Auth = ReturnType<typeof createAuth>;
 
@@ -24,10 +25,24 @@ export function createAuth(db: Database) {
         loginPage: "/",
         oidcConfig: { loginPage: "/", consentPage: "/oauth/consent" },
       }),
+      // Server-level administration (user.role, ban, impersonate, list-users).
+      admin(),
     ],
     databaseHooks: {
       user: {
         create: {
+          // Enforce the instance registration policy (open/invite/domain/closed)
+          // before the account is created. The very first user is always allowed
+          // and becomes the server admin; a valid invite token (passed as a
+          // request header) allows a signup in any mode. Throws a clean 403
+          // otherwise. Runs after the admin() plugin's own before-hook, so a
+          // returned { role } overrides its default 'user' role.
+          before: async (userData, ctx) => {
+            const token =
+              ctx?.headers?.get(INVITE_TOKEN_HEADER) ?? undefined;
+            const { role } = await registrationRole(db, userData.email, token);
+            return role ? { data: { role } } : undefined;
+          },
           // Give every new user a personal workspace (system-scoped).
           after: async (user) => {
             await new WorkspaceService(db, SYSTEM).provisionForUser(user.id, {
