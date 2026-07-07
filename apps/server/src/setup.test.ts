@@ -268,6 +268,66 @@ test("closed mode: the admin can still create accounts directly", async () => {
   }
 });
 
+test("role changes, bans, and account creation leave audit entries", async () => {
+  const { db, app } = await freshApp();
+  const cookieOf = (r: { headers: Record<string, unknown> }) => {
+    const sc = r.headers["set-cookie"];
+    const arr = Array.isArray(sc) ? sc : [sc];
+    return arr.map((c: string) => c.split(";")[0]).join("; ");
+  };
+  const H = (cookie: string) => ({
+    cookie,
+    "content-type": "application/json",
+    origin: "http://localhost:5173",
+  });
+  try {
+    await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Admin", email: "admin@x.com", password: "password123", registrationMode: "open" },
+    });
+    const signin = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: "admin@x.com", password: "password123" },
+    });
+    const admin = cookieOf(signin);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/auth/admin/create-user",
+      headers: H(admin),
+      payload: { name: "Bob", email: "bob@x.com", password: "password123", role: "user" },
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const bobId = (created.json() as { user: { id: string } }).user.id;
+
+    for (const [url, payload] of [
+      ["/api/auth/admin/set-role", { userId: bobId, role: "admin" }],
+      ["/api/auth/admin/ban-user", { userId: bobId }],
+      ["/api/auth/admin/unban-user", { userId: bobId }],
+    ] as const) {
+      const res = await app.inject({ method: "POST", url, headers: H(admin), payload });
+      assert.equal(res.statusCode, 200, `${url}: ${res.body}`);
+    }
+
+    const entries = await db.select().from(auditLog);
+    const [adminUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, "admin@x.com"));
+    for (const action of ["admin_create_user", "admin_set_role", "admin_ban_user", "admin_unban_user"]) {
+      const entry = entries.find((e) => e.action === action);
+      assert.ok(entry, `audited: ${action}`);
+      assert.equal(entry!.workspaceId, null, `${action} is instance-level`);
+      assert.equal(entry!.userId, adminUser!.id, `${action} attributed to the acting admin`);
+      assert.match(entry!.detail, /bob@x\.com|bob/i, `${action} names the target`);
+    }
+    const roleEntry = entries.find((e) => e.action === "admin_set_role");
+    assert.match(roleEntry!.detail, /role=admin/, "set-role records the granted role");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
 test("deleting the sole owner of a shared workspace is refused", async () => {
   const { db, app } = await freshApp();
   const cookieOf = (r: { headers: Record<string, unknown> }) => {

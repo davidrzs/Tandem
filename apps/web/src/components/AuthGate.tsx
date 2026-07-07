@@ -9,13 +9,18 @@ interface PublicSettings {
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
+  // A 2FA-enrolled sign-in has no session until the second factor verifies.
+  // This lives here, not in AuthForm: the sign-in attempt triggers a session
+  // refetch that briefly remounts AuthForm, which would drop the flag.
+  const [twoFactorPending, setTwoFactorPending] = useState(false);
 
+  if (twoFactorPending && !session) return <TwoFactorChallenge />;
   if (isPending) return <div className="empty">Loading…</div>;
-  if (!session) return <AuthForm />;
+  if (!session) return <AuthForm onTwoFactorRequired={() => setTwoFactorPending(true)} />;
   return <>{children}</>;
 }
 
-function AuthForm() {
+function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -23,7 +28,6 @@ function AuthForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [instance, setInstance] = useState<PublicSettings | null>(null);
-  const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
 
   useEffect(() => {
     fetch("/api/instance/public")
@@ -53,12 +57,10 @@ function AuthForm() {
     }
     // An enrolled account needs its second factor before a session exists.
     if (res.data && "twoFactorRedirect" in res.data && res.data.twoFactorRedirect) {
-      setNeedsTwoFactor(true);
+      onTwoFactorRequired();
     }
     // Otherwise the session updates reactively and the gate re-renders.
   }
-
-  if (needsTwoFactor) return <TwoFactorChallenge />;
 
   return (
     <div className="auth-screen">

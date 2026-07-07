@@ -20,11 +20,14 @@ interface AdminUser {
  * server-invite links. Instance config + invites go through tRPC (admin
  * procedures); user management rides the better-auth admin client. */
 export function AdminModal({ onClose }: { onClose: () => void }) {
+  const utils = trpc.useUtils();
   const [error, setError] = useState<string | null>(null);
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
       await fn();
+      // Every successful admin action lands in the audit trail below.
+      await utils.admin.audit.invalidate();
     } catch (e) {
       setError(friendlyError(e));
     }
@@ -70,7 +73,10 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
           instanceName: name.trim() || "Tandem",
           allowWorkspaceCreation: allowWorkspaces,
         });
-        await utils.admin.getSettings.invalidate();
+        await Promise.all([
+          utils.admin.getSettings.invalidate(),
+          utils.admin.audit.invalidate(),
+        ]);
         setDirty(false);
       } catch (e) {
         onError(friendlyError(e));

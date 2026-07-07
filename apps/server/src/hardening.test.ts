@@ -51,6 +51,33 @@ test("sign-in attempts are rate limited per IP", async () => {
   }
 });
 
+test("sign-up attempts are rate limited per IP", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const app = await buildHttpServer(db);
+  try {
+    await app.ready();
+    let limited = false;
+    for (let i = 0; i < 11; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/auth/sign-up/email",
+        payload: { name: `U${i}`, email: `u${i}@x.com`, password: "password123" },
+      });
+      if (res.statusCode === 429) {
+        limited = true;
+        assert.ok(i >= 9, `not limited too early (attempt ${i + 1})`);
+        break;
+      }
+      assert.ok(res.statusCode < 500, `no server error (got ${res.statusCode})`);
+    }
+    assert.ok(limited, "the 11th sign-up within a minute is refused");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
 test("mcpAccessError: missing, banned, and switched-off accounts are refused", async () => {
   const db = createDatabase("memory://");
   await migrateDatabase(db);
