@@ -7,6 +7,7 @@ import {
   DocumentService,
   GroupService,
   ImageService,
+  InstanceService,
   SettingsService,
   SnapshotService,
   WorkspaceService,
@@ -21,6 +22,7 @@ export interface Services {
   comments: CommentService;
   groups: GroupService;
   images: ImageService;
+  instance: InstanceService;
   settings: SettingsService;
   snapshots: SnapshotService;
 }
@@ -77,6 +79,7 @@ export function createServices(
     comments: new CommentService(db, actor),
     groups: new GroupService(db, actor),
     images: new ImageService(db, actor),
+    instance: new InstanceService(db, actor),
     settings: new SettingsService(db, actor),
     snapshots: new SnapshotService(db, actor),
   };

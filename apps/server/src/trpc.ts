@@ -9,6 +9,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  /** Server-level role from the admin() plugin ('admin' unlocks /admin). */
+  role?: string | null;
 }
 
 export interface Context {
@@ -53,6 +55,16 @@ const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   } catch (err) {
     throw mapError(err);
   }
+});
+
+/** Requires a signed-in *server admin*. Defense-in-depth over the admin()
+ * plugin's own checks (which guard the auth.api.* user-management calls); this
+ * gates the instance-config and server-invite procedures below. */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "server admin only" });
+  }
+  return next();
 });
 
 const uuid = z.string().uuid();
@@ -310,6 +322,39 @@ export const appRouter = t.router({
         const { query, ...opts } = input;
         return ctx.services.documents.search(query, opts);
       }),
+  }),
+
+  // Instance administration (server admins only). User management itself
+  // (list/role/ban/delete) rides on the admin() plugin's authClient.admin.*
+  // APIs, which run their own permission checks — only instance config and the
+  // server-invite lifecycle live here.
+  admin: t.router({
+    getSettings: adminProcedure.query(({ ctx }) => ctx.services.instance.getSettings()),
+    updateSettings: adminProcedure
+      .input(
+        z.object({
+          registrationMode: z.enum(["open", "invite", "domain", "closed"]).optional(),
+          allowedEmailDomains: z.array(z.string()).optional(),
+          instanceName: z.string().min(1).optional(),
+          allowWorkspaceCreation: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.services.instance.updateSettings(input)),
+    createInvite: adminProcedure
+      .input(
+        z.object({
+          email: z.string().email().optional(),
+          role: z.enum(["user", "admin"]).optional(),
+          expiresInDays: z.number().int().positive().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.services.instance.createInvite({ ...input, createdBy: ctx.user.id }),
+      ),
+    listInvites: adminProcedure.query(({ ctx }) => ctx.services.instance.listInvites()),
+    revokeInvite: adminProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.instance.revokeInvite(input.id)),
   }),
 
   settings: t.router({
