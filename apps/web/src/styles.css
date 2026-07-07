@@ -1980,6 +1980,30 @@ button {
   font-size: 13px;
 }
 
+/* ---------- first-run setup wizard ---------- */
+.setup-label {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.auth-card select {
+  font-family: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.setup-hint {
+  margin: -4px 0 2px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
 .consent-scopes {
   margin: 0;
   padding-left: 18px;

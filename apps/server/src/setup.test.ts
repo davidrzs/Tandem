@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { eq } from "drizzle-orm";
+import { createDatabase, migrateDatabase, user } from "@tandem/db";
+import { InstanceService } from "@tandem/core";
+import { buildHttpServer } from "./http.js";
+
+// Phase B: the unauthenticated setup/onboarding surface. Drives the real
+// Fastify app (with an injected in-memory PGlite) via app.inject, so it also
+// proves the routes are registered and the SPA fallback doesn't shadow them.
+
+process.env.BETTER_AUTH_SECRET ??= "test-secret-value-at-least-16-chars-long";
+
+async function freshApp() {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const app = await buildHttpServer(db);
+  await app.ready();
+  return { db, app };
+}
+
+test("setup status flips true -> false after the first admin is created", async () => {
+  const { db, app } = await freshApp();
+  try {
+    const before = await app.inject({ method: "GET", url: "/api/setup/status" });
+    assert.equal(before.json().needsSetup, true);
+
+    const init = await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: {
+        name: "Admin",
+        email: "admin@acme.com",
+        password: "password123",
+        registrationMode: "closed",
+        instanceName: "Acme Wiki",
+      },
+    });
+    assert.equal(init.statusCode, 200, init.body);
+    assert.equal(init.json().ok, true);
+
+    const after = await app.inject({ method: "GET", url: "/api/setup/status" });
+    assert.equal(after.json().needsSetup, false);
+
+    // The created account is the server admin.
+    const [u] = await db.select({ role: user.role }).from(user).where(eq(user.email, "admin@acme.com"));
+    assert.equal(u?.role, "admin");
+
+    // The chosen policy + branding persisted.
+    const pub = await app.inject({ method: "GET", url: "/api/instance/public" });
+    assert.deepEqual(pub.json(), {
+      instanceName: "Acme Wiki",
+      registrationMode: "closed",
+      allowedEmailDomains: [],
+    });
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
+test("setup init is single-use: a second call is refused", async () => {
+  const { db, app } = await freshApp();
+  try {
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Admin", email: "admin@acme.com", password: "password123", registrationMode: "open" },
+    });
+    assert.equal(first.statusCode, 200);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Intruder", email: "intruder@acme.com", password: "password123", registrationMode: "open" },
+    });
+    assert.equal(second.statusCode, 403);
+    const [u] = await db.select({ id: user.id }).from(user).where(eq(user.email, "intruder@acme.com"));
+    assert.equal(u, undefined, "no second account created");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
+test("setup init rejects a too-short password without creating anything", async () => {
+  const { db, app } = await freshApp();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Admin", email: "admin@acme.com", password: "short", registrationMode: "open" },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.equal(await new InstanceService(db).needsSetup(), true, "still needs setup");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
+test("InstanceService: settings upsert, public projection, invite lifecycle", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const svc = new InstanceService(db);
+
+  assert.deepEqual(await svc.getPublicSettings(), {
+    instanceName: "Tandem",
+    registrationMode: "open",
+    allowedEmailDomains: [],
+  });
+
+  await svc.updateSettings({ registrationMode: "domain", allowedEmailDomains: ["@Acme.com", " acme.com ", ""] });
+  const s = await svc.getSettings();
+  assert.equal(s.registrationMode, "domain");
+  assert.deepEqual(s.allowedEmailDomains, ["acme.com"], "domains normalized + deduped");
+
+  const inv = await svc.createInvite({ createdBy: "admin", email: "x@acme.com", role: "admin" });
+  assert.equal(inv.role, "admin");
+  assert.ok(inv.token.length > 0);
+  assert.ok((await svc.listInvites()).some((i) => i.id === inv.id));
+  await svc.revokeInvite(inv.id);
+  assert.equal((await svc.listInvites()).length, 0);
+
+  await db.$dispose();
+});

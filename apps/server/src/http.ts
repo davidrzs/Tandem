@@ -23,6 +23,7 @@ import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
 import { registerImageRoutes } from "./images.js";
+import { registerSetupRoutes } from "./setup-routes.js";
 import { registerTransferRoutes } from "./transfer/routes.js";
 import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
@@ -91,6 +92,7 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   await app.register(websocket);
   await registerImageRoutes(app, db, auth);
   await registerTransferRoutes(app, db, auth);
+  await registerSetupRoutes(app, db, auth);
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
   // ourselves (it dropped the `ws` library for crossws).
