@@ -11,7 +11,7 @@ import {
   workspaces,
 } from "@tandem/db";
 import { createAuth } from "./auth.js";
-import { INVITE_TOKEN_HEADER } from "./registration.js";
+import { INVITE_TOKEN_HEADER, reconcileBootstrapAdmin } from "./registration.js";
 
 // The registration gate (databaseHooks.user.create.before in auth.ts) enforces
 // the instance policy. Each test gets its own in-memory PGlite so the
@@ -160,6 +160,24 @@ test("invite mode: an email-bound invite rejects a mismatched address", async ()
   await assert.rejects(() => signup(auth, "someone-else@acme.com", "bound-tok"), /invite is required/i);
   await signup(auth, "invited@acme.com", "bound-tok");
   assert.notEqual(await roleOf(db, "invited@acme.com"), null, "bound address accepted");
+  await db.$dispose();
+});
+
+test("reconcileBootstrapAdmin: a concurrent double-bootstrap converges to one admin", async () => {
+  const { db } = await fresh();
+  const earlier = new Date(Date.now() - 1000);
+  const later = new Date();
+  await db.insert(user).values([
+    { id: "a", name: "A", email: "a@x.com", role: "admin", createdAt: earlier, updatedAt: earlier },
+    { id: "b", name: "B", email: "b@x.com", role: "admin", createdAt: later, updatedAt: later },
+  ]);
+
+  // Each racer reconciles after its own insert; order doesn't matter.
+  await reconcileBootstrapAdmin(db, "b");
+  await reconcileBootstrapAdmin(db, "a");
+
+  assert.equal(await roleOf(db, "a@x.com"), "admin", "earliest keeps admin");
+  assert.equal(await roleOf(db, "b@x.com"), "user", "later racer demoted itself");
   await db.$dispose();
 });
 

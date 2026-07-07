@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { authClient } from "../auth-client.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
+import { Icon } from "./Icon.js";
 import { ConfirmDialog, Modal, RowMenu } from "./Modal.js";
+import { timeAgo } from "./time.js";
 
 type Mode = "open" | "invite" | "domain" | "closed";
 
@@ -33,6 +35,7 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
       <ServerSettings onError={setError} />
       <Users onError={setError} run={run} />
       <Invites onError={setError} run={run} />
+      <AdminActivity />
       {error && <div className="modal-error">{error}</div>}
     </Modal>
   );
@@ -205,6 +208,90 @@ function Users({
             act(() => authClient.admin.removeUser({ userId: confirming.id }))
           }
         />
+      )}
+
+      <CreateUser onCreated={() => void run(load)} onError={onError} />
+    </>
+  );
+}
+
+/** Direct account creation — the only way in when registration is closed. */
+function CreateUser({
+  onCreated,
+  onError,
+}: {
+  onCreated: () => void;
+  onError: (m: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const res = await authClient.admin.createUser({ name, email, password, role: "user" });
+      if (res.error) throw new Error(res.error.message ?? "Couldn't create the user");
+      setName("");
+      setEmail("");
+      setPassword("");
+      onCreated();
+    } catch (e) {
+      onError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="invite-row">
+      <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+      <input
+        type="email"
+        placeholder="Email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+      />
+      <input
+        type="password"
+        placeholder="Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <button
+        className="btn"
+        disabled={busy || !name.trim() || !email.trim() || password.length < 8}
+        onClick={() => void create()}
+      >
+        Create user
+      </button>
+    </div>
+  );
+}
+
+/** Instance-level audit: who changed settings, roles, bans, invites, accounts. */
+function AdminActivity() {
+  const audit = trpc.admin.audit.useQuery();
+  return (
+    <>
+      <h3>Admin activity</h3>
+      {audit.data && audit.data.length === 0 && (
+        <p className="modal-note">No admin actions recorded yet.</p>
+      )}
+      {(audit.data ?? []).length > 0 && (
+        <ul className="audit-list">
+          {audit.data!.map((entry) => (
+            <li key={entry.id}>
+              <Icon name="pen" size={13} />
+              <span className="audit-what">
+                <strong>{entry.userName}</strong> · {entry.action.replaceAll("_", " ")}
+                {entry.detail ? ` ${entry.detail}` : ""}
+              </span>
+              <span className="audit-when">{timeAgo(entry.createdAt)}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </>
   );

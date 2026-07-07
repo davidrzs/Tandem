@@ -353,7 +353,16 @@ export const appRouter = t.router({
           allowWorkspaceCreation: z.boolean().optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.services.instance.updateSettings(input)),
+      .mutation(async ({ ctx, input }) => {
+        const settings = await ctx.services.instance.updateSettings(input);
+        await ctx.services.settings.recordAudit({
+          workspaceId: null,
+          userId: ctx.user.id,
+          action: "admin_update_settings",
+          detail: JSON.stringify(input),
+        });
+        return settings;
+      }),
     createInvite: adminProcedure
       .input(
         z.object({
@@ -362,13 +371,32 @@ export const appRouter = t.router({
           expiresInDays: z.number().int().positive().optional(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        ctx.services.instance.createInvite({ ...input, createdBy: ctx.user.id }),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        const invite = await ctx.services.instance.createInvite({
+          ...input,
+          createdBy: ctx.user.id,
+        });
+        await ctx.services.settings.recordAudit({
+          workspaceId: null,
+          userId: ctx.user.id,
+          action: "admin_create_invite",
+          detail: `${input.email ?? "anyone with the link"} role=${input.role ?? "user"}`,
+        });
+        return invite;
+      }),
     listInvites: adminProcedure.query(({ ctx }) => ctx.services.instance.listInvites()),
     revokeInvite: adminProcedure
       .input(z.object({ id: uuid }))
-      .mutation(({ ctx, input }) => ctx.services.instance.revokeInvite(input.id)),
+      .mutation(async ({ ctx, input }) => {
+        await ctx.services.instance.revokeInvite(input.id);
+        await ctx.services.settings.recordAudit({
+          workspaceId: null,
+          userId: ctx.user.id,
+          action: "admin_revoke_invite",
+          detail: input.id,
+        });
+      }),
+    audit: adminProcedure.query(({ ctx }) => ctx.services.settings.instanceAuditTrail()),
   }),
 
   settings: t.router({

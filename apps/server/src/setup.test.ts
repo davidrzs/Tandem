@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { eq } from "drizzle-orm";
 import {
+  auditLog,
   createDatabase,
   migrateDatabase,
   user,
@@ -200,6 +201,67 @@ test("deleting a user cleans memberships and drops their personal workspace", as
       .from(workspaces)
       .where(eq(workspaces.id, bobMembership.workspaceId));
     assert.equal(orphanWs, undefined, "personal workspace deleted");
+
+    // The deletion left an instance-level audit entry naming actor and target.
+    const [entry] = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "admin_remove_user"));
+    assert.ok(entry, "admin_remove_user audited");
+    assert.equal(entry!.workspaceId, null, "instance-level entry");
+    assert.match(entry!.detail, /bob/i, "target recorded");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
+test("closed mode: the admin can still create accounts directly", async () => {
+  const { db, app } = await freshApp();
+  const cookieOf = (r: { headers: Record<string, unknown> }) => {
+    const sc = r.headers["set-cookie"];
+    const arr = Array.isArray(sc) ? sc : [sc];
+    return arr.map((c: string) => c.split(";")[0]).join("; ");
+  };
+  try {
+    await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Admin", email: "admin@x.com", password: "password123", registrationMode: "closed" },
+    });
+    const signin = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: "admin@x.com", password: "password123" },
+    });
+    const admin = cookieOf(signin);
+
+    // Self-signup is refused…
+    const cold = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: { name: "Cold", email: "cold@x.com", password: "password123" },
+    });
+    assert.equal(cold.statusCode, 403);
+
+    // …but the admin's create-user endpoint bypasses the registration policy.
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/auth/admin/create-user",
+      headers: { cookie: admin, "content-type": "application/json", origin: "http://localhost:5173" },
+      payload: { name: "Made", email: "made@x.com", password: "password123", role: "user" },
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const [made] = await db.select().from(user).where(eq(user.email, "made@x.com"));
+    assert.ok(made, "account exists");
+    assert.notEqual(made!.role, "admin", "created as a regular user");
+
+    // The new account gets the same personal workspace as a signup would.
+    const [membership] = await db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, made!.id));
+    assert.ok(membership, "personal workspace provisioned");
   } finally {
     await app.close();
     await db.$dispose();

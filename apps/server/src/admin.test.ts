@@ -87,6 +87,15 @@ test("an admin can read/update settings and manage server invites", async () => 
 
     await caller.admin.revokeInvite({ id: invite.id });
     assert.equal((await caller.admin.listInvites()).length, 0);
+
+    // Every admin mutation above left an instance-level audit entry.
+    const audit = await caller.admin.audit();
+    const actions = audit.map((e) => e.action);
+    for (const expected of ["admin_update_settings", "admin_create_invite", "admin_revoke_invite"]) {
+      assert.ok(actions.includes(expected), `audited: ${expected}`);
+    }
+    // Non-admins can't read the instance audit.
+    await assert.rejects(() => callerFor(db, member).admin.audit(), /admin/i);
   } finally {
     await db.$dispose();
   }

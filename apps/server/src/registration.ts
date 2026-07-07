@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { APIError } from "better-auth/api";
 import {
   instanceInvites,
@@ -114,6 +114,26 @@ export async function consumeInstanceInvite(
     .update(instanceInvites)
     .set({ acceptedAt: new Date(), acceptedBy: userId })
     .where(and(eq(instanceInvites.token, token), isNull(instanceInvites.acceptedAt)));
+}
+
+/**
+ * Bootstrap-race safety net. Two truly-concurrent first signups can both pass
+ * the zero-user check and both arrive as 'admin'. Each bootstrap-admin runs
+ * this after its own insert: whoever is not the earliest-created admin demotes
+ * THEMSELVES, so the outcome converges to exactly one bootstrap admin no
+ * matter how the inserts interleave. Callers must only invoke this for the
+ * bootstrap path (plain signup, no invite) — never for invited or
+ * admin-created admins, who are legitimate later admins.
+ */
+export async function reconcileBootstrapAdmin(db: Database, userId: string): Promise<void> {
+  const admins = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.role, "admin"))
+    .orderBy(asc(user.createdAt), asc(user.id));
+  if (admins.length > 1 && admins[0]!.id !== userId) {
+    await db.update(user).set({ role: "user" }).where(eq(user.id, userId));
+  }
 }
 
 /** Header carrying an invite token through signup (see registrationRole). The
