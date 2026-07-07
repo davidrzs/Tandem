@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, mcp } from "better-auth/plugins";
 import { SYSTEM, type Database } from "@tandem/db";
@@ -60,8 +61,23 @@ export function createAuth(db: Database) {
           },
         },
         delete: {
-          // Tidy up rows that reference the user by bare id (no FK cascade):
-          // workspace memberships and per-user settings.
+          // Refuse to delete the sole owner of a workspace other people still
+          // use — the workspace would become unmanageable. Transfer ownership
+          // first. (Personal, sole-member workspaces are deleted with the user.)
+          before: async (user) => {
+            const blockers = await new InstanceService(db, SYSTEM).soleOwnedSharedWorkspaces(
+              user.id,
+            );
+            if (blockers.length > 0) {
+              throw new APIError("BAD_REQUEST", {
+                message:
+                  `This user is the only owner of shared workspace(s): ` +
+                  `${blockers.join(", ")}. Transfer ownership before deleting the account.`,
+              });
+            }
+          },
+          // Tidy up: drop their sole-member workspaces (FK cascade takes the
+          // content), then the bare-id rows (memberships, settings).
           after: async (user) => {
             await new InstanceService(db, SYSTEM).onUserDeleted(user.id);
           },

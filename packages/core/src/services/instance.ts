@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import {
   instanceInvites,
   instanceSettings,
@@ -8,6 +8,7 @@ import {
   user,
   userSettings,
   workspaceMembers,
+  workspaces,
   type Actor,
   type Database,
   type InstanceInvite,
@@ -164,14 +165,62 @@ export class InstanceService {
   }
 
   /**
-   * Clean up the tables that reference a user by bare id (no FK cascade) when
-   * the account is deleted: workspace memberships and per-user settings.
+   * Names of workspaces this user solely owns while other members remain.
+   * Deleting such a user would leave the workspace unmanageable (readable via
+   * RLS, but nobody left who can administer sharing) — callers should refuse
+   * the deletion and ask for an ownership transfer first.
+   */
+  async soleOwnedSharedWorkspaces(userId: string): Promise<string[]> {
+    return this.system(async (db) => {
+      const owned = await db
+        .select({ id: workspaces.id, name: workspaces.name })
+        .from(workspaces)
+        .innerJoin(workspaceMembers, eq(workspaceMembers.workspaceId, workspaces.id))
+        .where(and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.role, "owner")));
+      const blockers: string[] = [];
+      for (const ws of owned) {
+        const others = await db
+          .select({ role: workspaceMembers.role })
+          .from(workspaceMembers)
+          .where(
+            and(eq(workspaceMembers.workspaceId, ws.id), ne(workspaceMembers.userId, userId)),
+          );
+        if (others.length > 0 && !others.some((m) => m.role === "owner")) {
+          blockers.push(ws.name);
+        }
+      }
+      return blockers;
+    });
+  }
+
+  /**
+   * Clean up when an account is deleted: drop workspaces where the user was
+   * the only member (their personal spaces — FK cascade removes collections,
+   * documents, and membership rows), then the tables that reference the user
+   * by bare id with no FK cascade: remaining memberships and settings.
    * Authored content (documents/comments) keeps its id and simply shows as an
    * unknown author — reassigning it is out of scope. Wired to the better-auth
    * user.delete.after hook, so it runs for every deletion path.
    */
   async onUserDeleted(userId: string): Promise<void> {
     await this.system(async (db) => {
+      const mine = await db
+        .select({ workspaceId: workspaceMembers.workspaceId })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.userId, userId));
+      for (const { workspaceId } of mine) {
+        const [other] = await db
+          .select({ id: workspaceMembers.id })
+          .from(workspaceMembers)
+          .where(
+            and(
+              eq(workspaceMembers.workspaceId, workspaceId),
+              ne(workspaceMembers.userId, userId),
+            ),
+          )
+          .limit(1);
+        if (!other) await db.delete(workspaces).where(eq(workspaces.id, workspaceId));
+      }
       await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
       await db.delete(userSettings).where(eq(userSettings.userId, userId));
     });

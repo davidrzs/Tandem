@@ -143,7 +143,7 @@ test("onUserDeleted clears the user's memberships (no FK cascade otherwise)", as
   await db.$dispose();
 });
 
-test("deleting a user via the admin endpoint fires the cleanup hook", async () => {
+test("deleting a user cleans memberships and drops their personal workspace", async () => {
   const { db, app } = await freshApp();
   const cookieOf = (r: { headers: Record<string, unknown> }) => {
     const sc = r.headers["set-cookie"];
@@ -175,11 +175,11 @@ test("deleting a user via the admin endpoint fires the cleanup hook", async () =
     const bob = (list.json().users as Array<{ id: string; email: string }>).find(
       (u) => u.email === "bob@x.com",
     )!;
-    assert.equal(
-      (await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, bob.id))).length,
-      1,
-      "bob has his personal-workspace membership",
-    );
+    const [bobMembership] = await db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, bob.id));
+    assert.ok(bobMembership, "bob has his personal-workspace membership");
 
     // Origin header required: better-auth guards state-changing admin calls.
     const del = await app.inject({
@@ -194,6 +194,72 @@ test("deleting a user via the admin endpoint fires the cleanup hook", async () =
       0,
       "membership cleaned by the user.delete hook",
     );
+    // The sole-member personal workspace goes with the account.
+    const [orphanWs] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, bobMembership.workspaceId));
+    assert.equal(orphanWs, undefined, "personal workspace deleted");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
+test("deleting the sole owner of a shared workspace is refused", async () => {
+  const { db, app } = await freshApp();
+  const cookieOf = (r: { headers: Record<string, unknown> }) => {
+    const sc = r.headers["set-cookie"];
+    const arr = Array.isArray(sc) ? sc : [sc];
+    return arr.map((c: string) => c.split(";")[0]).join("; ");
+  };
+  try {
+    await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Admin", email: "admin@x.com", password: "password123", registrationMode: "open" },
+    });
+    const signin = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: "admin@x.com", password: "password123" },
+    });
+    const admin = cookieOf(signin);
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: { name: "Bob", email: "bob@x.com", password: "password123" },
+    });
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/auth/admin/list-users?limit=50",
+      headers: { cookie: admin },
+    });
+    const users = list.json().users as Array<{ id: string; email: string }>;
+    const bob = users.find((u) => u.email === "bob@x.com")!;
+    const adminUser = users.find((u) => u.email === "admin@x.com")!;
+
+    // Bob's personal workspace gains a second (non-owner) member.
+    const [bobMembership] = await db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, bob.id));
+    await db.insert(workspaceMembers).values({
+      workspaceId: bobMembership!.workspaceId,
+      userId: adminUser.id,
+      role: "member",
+    });
+
+    const del = await app.inject({
+      method: "POST",
+      url: "/api/auth/admin/remove-user",
+      headers: { cookie: admin, "content-type": "application/json", origin: "http://localhost:5173" },
+      payload: { userId: bob.id },
+    });
+    assert.ok(del.statusCode >= 400 && del.statusCode < 500, `refused (got ${del.statusCode})`);
+    assert.match(del.body, /only owner|transfer ownership/i);
+    const [stillThere] = await db.select().from(user).where(eq(user.id, bob.id));
+    assert.ok(stillThere, "bob was not deleted");
   } finally {
     await app.close();
     await db.$dispose();

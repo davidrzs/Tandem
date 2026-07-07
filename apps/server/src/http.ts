@@ -30,11 +30,35 @@ import { createServices } from "./services.js";
 import { appRouter } from "./trpc.js";
 
 /**
+ * Whether this user may act through MCP right now: the account must exist,
+ * not be banned (ban must sever agent access even for already-issued OAuth
+ * tokens), and not have the per-user kill switch off. Returns the refusal
+ * message, or null when access is allowed.
+ */
+export async function mcpAccessError(
+  db: ReturnType<typeof createDatabase>,
+  userId: string,
+): Promise<string | null> {
+  const [u] = await db
+    .select({ banned: userTable.banned })
+    .from(userTable)
+    .where(eq(userTable.id, userId));
+  if (!u) return "MCP access denied: this account no longer exists";
+  if (u.banned) return "MCP access denied: this account is banned";
+  const services = createServices(db, { kind: "user", userId });
+  if (!(await services.settings.mcpEnabled(userId))) {
+    return "MCP access is turned off for this account (Settings > AI access)";
+  }
+  return null;
+}
+
+/**
  * The single Node runtime. Hosts the tRPC API + Better Auth today; Phase 3
  * mounts Hocuspocus (/collab) and the MCP HTTP transport (/mcp) here too.
  * One db instance is shared by services and auth (PGlite = one connection).
  */
 export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatabase>) {
+  const isProd = process.env.NODE_ENV === "production";
   // Fail fast in production rather than fall back to a forgeable default secret.
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 16 || secret.startsWith("replace")) {
@@ -42,12 +66,18 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
       "BETTER_AUTH_SECRET must be set to a strong value (openssl rand -base64 32)",
     );
   }
+  // A prod instance that silently falls back to localhost URLs breaks cookies,
+  // CORS, and OAuth discovery in confusing ways — refuse to boot instead.
+  if (isProd) {
+    for (const key of ["BETTER_AUTH_URL", "WEB_ORIGIN", "DATABASE_URL"] as const) {
+      if (!process.env[key]) throw new Error(`${key} must be set in production`);
+    }
+  }
   const db = injectedDb ?? createDatabase(process.env.DATABASE_URL);
   const auth = createAuth(db);
   // Hocuspocus builds actor-scoped services per connection from the db.
   const hocuspocus = createHocuspocus(db, auth);
   const app = Fastify({ logger: true });
-  const isProd = process.env.NODE_ENV === "production";
 
   await app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
@@ -58,14 +88,21 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   // own stricter sandbox CSP. Everything the app loads is same-origin (bundled
   // assets, fonts, KaTeX), so a tight policy holds; inline styles (author tints,
   // presence dots) need 'unsafe-inline' for style-src, and the collab WebSocket
-  // needs ws:/wss: in connect-src.
+  // needs its ws(s) origin in connect-src. With BETTER_AUTH_URL set (enforced
+  // in prod) that's pinned to our own host; dev falls back to any ws host
+  // (Vite serves the page, so this CSP mostly doesn't apply there anyway).
+  const publicUrl = process.env.BETTER_AUTH_URL;
+  const wsOrigin = publicUrl
+    ? `${new URL(publicUrl).protocol === "https:" ? "wss" : "ws"}://${new URL(publicUrl).host}`
+    : "ws: wss:";
   const csp = [
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self' ws: wss:",
+    `connect-src 'self' ${wsOrigin}`,
+    "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -143,11 +180,26 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
 
   // Better Auth handles all /api/auth/* routes (sign-up, sign-in, session, and
   // the MCP OAuth endpoints: /mcp/authorize, /mcp/token, /mcp/register, …).
+  // The credential endpoints get tight per-IP limits (brute-force protection);
+  // the rest share a generous cap. Static routes win over the wildcard, so the
+  // tight routes shadow the catch-all for their paths only.
+  const authHandler = async (request: FastifyRequest, reply: FastifyReply) =>
+    sendWebResponse(reply, await auth.handler(toWebRequest(request)));
+  app.post(
+    "/api/auth/sign-in/email",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    authHandler,
+  );
+  app.post(
+    "/api/auth/sign-up/email",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    authHandler,
+  );
   app.route({
     method: ["GET", "POST"],
     url: "/api/auth/*",
-    handler: async (request, reply) =>
-      sendWebResponse(reply, await auth.handler(toWebRequest(request))),
+    config: { rateLimit: { max: 300, timeWindow: "1 minute" } },
+    handler: authHandler,
   });
 
   // OAuth discovery — MUST be at the domain root for MCP clients to find it.
@@ -218,15 +270,14 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
           id: null,
         });
     }
-    // Per-user kill switch: agents may be turned off in Settings.
-    const services0 = createServices(db, { kind: "user", userId: token.userId });
-    if (!(await services0.settings.mcpEnabled(token.userId))) {
+    // A valid OAuth token is not enough: the account must still exist, not be
+    // banned, and not have agents turned off. (Bans don't revoke already-issued
+    // MCP access tokens, so this check is what actually severs agent access.)
+    const denial = await mcpAccessError(db, token.userId);
+    if (denial) {
       return reply.code(403).send({
         jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "MCP access is turned off for this account (Settings > AI access)",
-        },
+        error: { code: -32000, message: denial },
         id: null,
       });
     }
