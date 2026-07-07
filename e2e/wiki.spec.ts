@@ -151,7 +151,7 @@ test.describe.serial("wiki journey", () => {
     // Search across the tenant finds nothing of Alice's.
     await page.getByRole("button", { name: /Search/ }).click();
     await page.getByPlaceholder("Search documents…").fill("team wiki");
-    await expect(page.getByText(/No documents match/)).toBeVisible();
+    await expect(page.getByText(/Nothing matches that search/)).toBeVisible();
     await page.keyboard.press("Escape");
 
     // Settings: the MCP switch, connect info, and (empty) audit trail.
@@ -200,8 +200,8 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   const docUrl = carol.url();
   await dave.goto(docUrl);
   await expect(dave.locator(".ProseMirror")).toContainText("Carol wrote the abstract.");
-  await expect(carol.locator(".presence-dot")).toHaveText("D");
-  await expect(dave.locator(".presence-dot")).toHaveText("C");
+  await expect(carol.locator(".presence-avatar")).toHaveText("D");
+  await expect(dave.locator(".presence-avatar")).toHaveText("C");
 
   await dave.locator(".ProseMirror").click();
   await dave.keyboard.press("ControlOrMeta+End");
@@ -330,13 +330,13 @@ test("drag and drop nests a document under another", async ({ page }) => {
     .poll(async () =>
       page.locator(".doc-row", { hasText: "Second" }).evaluate((el) => getComputedStyle(el).paddingLeft),
     )
-    .toBe("40px"); // depth 1 = 26 + 14
+    .toBe("23px"); // depth 1 = 9 + 14
 
   // The nesting survives a reload (persisted through documents.move).
   await page.reload();
   await expect(page.locator(".doc-row", { hasText: "Second" })).toHaveCSS(
     "padding-left",
-    "40px",
+    "23px",
   );
 });
 
@@ -446,7 +446,7 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
       }));
     })()
   `);
-  await expect(beta).toHaveCSS("padding-left", "40px"); // nested now
+  await expect(beta).toHaveCSS("padding-left", "23px"); // nested now (9 + 14)
   await page.locator(".page-ref").click();
   await expect(page).toHaveURL(urlB); // same id, new place — still resolves
 

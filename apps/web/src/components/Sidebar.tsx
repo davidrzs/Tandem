@@ -325,6 +325,9 @@ function CollectionSection({
     Promise.all([
       utils.documents.tree.invalidate({ collectionId: collection.id }),
       utils.documents.listArchived.invalidate({ collectionId: collection.id }),
+      // Archive/restore change a document's archivedAt; a stale getMeta would
+      // render the doc page without its archived banner (or with a stale one).
+      utils.documents.getMeta.invalidate(),
     ]);
 
   const run = async (fn: () => Promise<unknown>) => {
