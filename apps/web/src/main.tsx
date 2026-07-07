@@ -25,11 +25,6 @@ const DocumentPage = lazy(() =>
 // shell; everything else is the wiki behind the router. AuthGate guarantees a
 // session before any of it renders.
 function Routed() {
-  if (window.location.pathname === "/invite") {
-    const token = new URLSearchParams(window.location.search).get("token");
-    if (token) return <InviteAccept token={token} />;
-  }
-
   const consent = consentContext();
   if (consent) return <ConsentScreen request={consent} />;
 
@@ -67,6 +62,14 @@ function Bootstrap() {
 
   if (needsSetup === null) return <div className="empty">Loading…</div>;
   if (needsSetup) return <SetupWizard onComplete={() => setNeedsSetup(false)} />;
+
+  // Invite redemption must work for logged-out invitees (they sign up through
+  // the invite), so it sits ABOVE AuthGate.
+  if (window.location.pathname === "/invite") {
+    const token = new URLSearchParams(window.location.search).get("token");
+    if (token) return <InviteAccept token={token} />;
+  }
+
   return (
     <AuthGate>
       <Routed />

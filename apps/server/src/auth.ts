@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, mcp } from "better-auth/plugins";
 import { SYSTEM, type Database } from "@tandem/db";
-import { WorkspaceService } from "@tandem/core";
+import { InstanceService, WorkspaceService } from "@tandem/core";
 import { INVITE_TOKEN_HEADER, registrationRole } from "./registration.js";
 
 export type Auth = ReturnType<typeof createAuth>;
@@ -49,6 +49,13 @@ export function createAuth(db: Database) {
               name: `${user.name || "Personal"} workspace`,
               slug: `ws-${user.id}`,
             });
+          },
+        },
+        delete: {
+          // Tidy up rows that reference the user by bare id (no FK cascade):
+          // workspace memberships and per-user settings.
+          after: async (user) => {
+            await new InstanceService(db, SYSTEM).onUserDeleted(user.id);
           },
         },
       },

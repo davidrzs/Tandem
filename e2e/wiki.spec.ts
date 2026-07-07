@@ -9,11 +9,26 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function signUp(page: Page, name: string, email: string) {
   await page.goto("/");
-  await page.getByText("Need an account? Sign up").click();
-  await page.getByPlaceholder("Name").fill(name);
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill("password-123");
-  await page.getByRole("button", { name: "Sign up", exact: true }).click();
+  // A brand-new server shows the first-run setup wizard instead of the
+  // sign-in form; the first caller becomes the admin and opens registration so
+  // the rest of the suite can self-register. Everyone after sees the form.
+  const wizardBtn = page.getByRole("button", { name: "Create admin & finish" });
+  const signupToggle = page.getByText("Need an account? Sign up");
+  await expect(wizardBtn.or(signupToggle)).toBeVisible();
+  if (await wizardBtn.isVisible()) {
+    // "Server name" also contains "Name", so match the account field exactly.
+    await page.getByPlaceholder("Name", { exact: true }).fill(name);
+    await page.getByPlaceholder("Email").fill(email);
+    await page.getByPlaceholder(/Password/).fill("password-123");
+    await page.locator("select").selectOption("open");
+    await wizardBtn.click();
+  } else {
+    await signupToggle.click();
+    await page.getByPlaceholder("Name", { exact: true }).fill(name);
+    await page.getByPlaceholder("Email").fill(email);
+    await page.getByPlaceholder("Password").fill("password-123");
+    await page.getByRole("button", { name: "Sign up", exact: true }).click();
+  }
   // Signed in: the sidebar footer shows the account with a sign-out control.
   await expect(page.getByTitle("Sign out")).toBeVisible();
   await expect(page.getByText(email)).toBeVisible();
@@ -31,6 +46,13 @@ test.describe.serial("wiki journey", () => {
   test("sign up, write, blame, tasks, search, archive", async ({ page }) => {
     await signUp(page, "Alice Wonder", "alice@example.com");
     await expect(page.getByRole("heading", { name: "Hi Alice" })).toBeVisible();
+
+    // As the first user Alice is the server admin: the Admin console opens and
+    // shows the server-administration surface.
+    await page.getByRole("button", { name: "Admin", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Server administration" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Server settings" })).toBeVisible();
+    await page.locator(".modal-close").click();
 
     // --- create a collection and a document ---
     await createCollection(page, "Handbook");
@@ -122,6 +144,9 @@ test.describe.serial("wiki journey", () => {
     await signUp(page, "Bob Builder", "bob@example.com");
     await expect(page.getByRole("heading", { name: "Hi Bob" })).toBeVisible();
     await expect(page.getByText("No collections yet — create one.")).toBeVisible();
+
+    // Bob is a regular member: no admin surface.
+    await expect(page.getByRole("button", { name: "Admin", exact: true })).toHaveCount(0);
 
     // Search across the tenant finds nothing of Alice's.
     await page.getByRole("button", { name: /Search/ }).click();

@@ -6,6 +6,8 @@ import {
   runAsActor,
   SYSTEM,
   user,
+  userSettings,
+  workspaceMembers,
   type Actor,
   type Database,
   type InstanceInvite,
@@ -159,6 +161,20 @@ export class InstanceService {
         .delete(instanceInvites)
         .where(and(eq(instanceInvites.id, id), isNull(instanceInvites.acceptedAt))),
     );
+  }
+
+  /**
+   * Clean up the tables that reference a user by bare id (no FK cascade) when
+   * the account is deleted: workspace memberships and per-user settings.
+   * Authored content (documents/comments) keeps its id and simply shows as an
+   * unknown author — reassigning it is out of scope. Wired to the better-auth
+   * user.delete.after hook, so it runs for every deletion path.
+   */
+  async onUserDeleted(userId: string): Promise<void> {
+    await this.system(async (db) => {
+      await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
+      await db.delete(userSettings).where(eq(userSettings.userId, userId));
+    });
   }
 }
 

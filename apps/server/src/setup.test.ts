@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { eq } from "drizzle-orm";
-import { createDatabase, migrateDatabase, user } from "@tandem/db";
+import {
+  createDatabase,
+  migrateDatabase,
+  user,
+  workspaceMembers,
+  workspaces,
+} from "@tandem/db";
 import { InstanceService } from "@tandem/core";
 import { buildHttpServer } from "./http.js";
 
@@ -123,4 +129,73 @@ test("InstanceService: settings upsert, public projection, invite lifecycle", as
   assert.equal((await svc.listInvites()).length, 0);
 
   await db.$dispose();
+});
+
+test("onUserDeleted clears the user's memberships (no FK cascade otherwise)", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const [ws] = await db.insert(workspaces).values({ name: "W", slug: "w" }).returning();
+  await db.insert(workspaceMembers).values({ workspaceId: ws!.id, userId: "gone", role: "owner" });
+
+  await new InstanceService(db).onUserDeleted("gone");
+  const rows = await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, "gone"));
+  assert.equal(rows.length, 0, "membership removed");
+  await db.$dispose();
+});
+
+test("deleting a user via the admin endpoint fires the cleanup hook", async () => {
+  const { db, app } = await freshApp();
+  const cookieOf = (r: { headers: Record<string, unknown> }) => {
+    const sc = r.headers["set-cookie"];
+    const arr = Array.isArray(sc) ? sc : [sc];
+    return arr.map((c: string) => c.split(";")[0]).join("; ");
+  };
+  try {
+    await app.inject({
+      method: "POST",
+      url: "/api/setup/init",
+      payload: { name: "Admin", email: "admin@x.com", password: "password123", registrationMode: "open" },
+    });
+    const signin = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: "admin@x.com", password: "password123" },
+    });
+    const admin = cookieOf(signin);
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: { name: "Bob", email: "bob@x.com", password: "password123" },
+    });
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/auth/admin/list-users?limit=50",
+      headers: { cookie: admin },
+    });
+    const bob = (list.json().users as Array<{ id: string; email: string }>).find(
+      (u) => u.email === "bob@x.com",
+    )!;
+    assert.equal(
+      (await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, bob.id))).length,
+      1,
+      "bob has his personal-workspace membership",
+    );
+
+    // Origin header required: better-auth guards state-changing admin calls.
+    const del = await app.inject({
+      method: "POST",
+      url: "/api/auth/admin/remove-user",
+      headers: { cookie: admin, "content-type": "application/json", origin: "http://localhost:5173" },
+      payload: { userId: bob.id },
+    });
+    assert.equal(del.statusCode, 200, del.body);
+    assert.equal(
+      (await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, bob.id))).length,
+      0,
+      "membership cleaned by the user.delete hook",
+    );
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
 });
