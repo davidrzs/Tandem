@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase, migrateDatabase, SYSTEM } from "@tandem/db";
+import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
 import { getAuthors } from "@tandem/editor";
 import * as Y from "yjs";
@@ -29,6 +29,8 @@ function payload(res: any): any {
 
 before(async () => {
   await migrateDatabase(db);
+  // A real auth user row: members/my_tasks join the user table for name/email.
+  await db.insert(user).values({ id: "u1", name: "User One", email: "alice@acme.com" });
   await new WorkspaceService(db, SYSTEM).provisionForUser("u1", {
     name: "U1",
     slug: "u1",
@@ -47,17 +49,29 @@ test("tools are advertised", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "add_comment",
     "append_section",
     "archive_document",
     "create_collection",
     "create_document",
     "edit_document",
+    "get_authors",
     "get_document",
     "insert_after_heading",
+    "list_archived",
+    "list_backlinks",
     "list_collections",
+    "list_comments",
     "list_documents",
+    "list_members",
+    "list_tags",
+    "list_versions",
     "move_document",
+    "my_tasks",
+    "read_version",
     "replace_section",
+    "resolve_comment",
+    "restore_document",
     "search_documents",
     "update_document",
   ]);
@@ -257,6 +271,126 @@ test("create_collection on a duplicate slug returns a clean error, not the raw D
   assert.equal(res.isError, true);
   assert.match(res.content[0].text, /already exists/);
   assert.doesNotMatch(res.content[0].text, /constraint|duplicate key/i);
+});
+
+test("colleague parity: comments, tasks, members, versions, blame, archive round-trip", async () => {
+  const col = payload(
+    await client.callTool({
+      name: "create_collection",
+      arguments: { name: "Parity", slug: "parity" },
+    }),
+  );
+  const doc = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: {
+        collectionId: col.id,
+        title: "Plan",
+        markdown: "# Plan\n\nShip it.\n\n- [ ] @alice write the intro",
+      },
+    }),
+  );
+
+  // Comments: add -> reply -> list -> resolve.
+  const top = payload(
+    await client.callTool({
+      name: "add_comment",
+      arguments: { documentId: doc.id, body: "Should this section move?" },
+    }),
+  );
+  payload(
+    await client.callTool({
+      name: "add_comment",
+      arguments: { documentId: doc.id, body: "Yes — under Setup.", parentId: top.id },
+    }),
+  );
+  const thread = payload(
+    await client.callTool({ name: "list_comments", arguments: { documentId: doc.id } }),
+  );
+  assert.equal(thread.length, 2, "top-level + reply");
+  assert.equal(thread[1].parentId, top.id);
+  const resolved = payload(
+    await client.callTool({ name: "resolve_comment", arguments: { id: top.id } }),
+  );
+  assert.ok(resolved.resolvedAt, "thread resolved");
+
+  // Tasks: the checkbox mentioning @alice (u1's handle) is visible.
+  const tasks = payload(await client.callTool({ name: "my_tasks", arguments: {} }));
+  assert.ok(
+    tasks.some((t: any) => t.documentId === doc.id && /write the intro/.test(t.text)),
+    "assigned task surfaced",
+  );
+
+  // Members: handle derived from the email local part.
+  const members = payload(
+    await client.callTool({ name: "list_members", arguments: { workspaceId: col.workspaceId } }),
+  );
+  assert.ok(members.some((m: any) => m.userId === "u1" && m.handle === "alice"));
+
+  // Versions: capture one, list it, read its markdown.
+  const row = await services.documents.get(doc.id);
+  await services.snapshots.captureBoundary({
+    documentId: doc.id,
+    workspaceId: col.workspaceId,
+    ydocState: row!.ydocState!,
+    sessions: [{ userId: "u1", name: "User One", ai: true, at: Date.now() }],
+  });
+  const versions = payload(
+    await client.callTool({ name: "list_versions", arguments: { documentId: doc.id } }),
+  );
+  assert.equal(versions.length, 1);
+  const version = payload(
+    await client.callTool({ name: "read_version", arguments: { id: versions[0].id } }),
+  );
+  assert.match(version.markdown, /Ship it\./);
+
+  // Blame: creation content is attributed to the AI session of User One.
+  const blame = payload(await client.callTool({ name: "get_authors", arguments: { id: doc.id } }));
+  assert.ok(
+    blame.contributors.some((c: any) => c.userId === "u1" && c.ai === true),
+    "AI contributor listed",
+  );
+  assert.ok(
+    blame.spans.some((s: any) => /Ship it\./.test(s.text) && s.author === "User One" && s.ai),
+    "text spans attributed",
+  );
+
+  // Tags: set + discover.
+  payload(
+    await client.callTool({
+      name: "update_document",
+      arguments: { id: doc.id, tags: ["roadmap"] },
+    }),
+  );
+  const tags = payload(await client.callTool({ name: "list_tags", arguments: {} }));
+  assert.ok(JSON.stringify(tags).includes("roadmap"));
+
+  // Backlinks: a second doc linking here shows up.
+  const other = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: {
+        collectionId: col.id,
+        title: "Notes",
+        markdown: `See [Plan](/d/${doc.id}).`,
+      },
+    }),
+  );
+  const backlinks = payload(
+    await client.callTool({ name: "list_backlinks", arguments: { id: doc.id } }),
+  );
+  assert.ok(backlinks.some((b: any) => b.id === other.id));
+
+  // Archive -> listed as archived -> restore.
+  payload(await client.callTool({ name: "archive_document", arguments: { id: other.id } }));
+  const archived = payload(
+    await client.callTool({ name: "list_archived", arguments: { collectionId: col.id } }),
+  );
+  assert.ok(archived.some((a: any) => a.id === other.id));
+  const restoredDoc = payload(
+    await client.callTool({ name: "restore_document", arguments: { id: other.id } }),
+  );
+  assert.equal(restoredDoc.archivedAt, null);
 });
 
 // Must run last: every earlier test relies on u1 having exactly one workspace.

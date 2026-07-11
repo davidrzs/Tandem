@@ -79,13 +79,24 @@ co-editor.
 
 Point an MCP client at `https://<your-domain>/mcp` — Tandem is its own OAuth
 2.1 provider (sign in as yourself; the agent acts with your permissions and
-its edits are blamed to your AI). Tools: `list_collections`,
-`create_collection`, `list_documents`, `get_document`, `search_documents`,
-`create_document`, `update_document` (title and/or tags), `edit_document`,
-`insert_after_heading`, `replace_section`, `append_section`, `move_document`,
-`archive_document`. `search_documents` also filters by an exact tag. There is
-deliberately no full-body-rewrite tool: it would re-attribute the whole document
-to the agent and destroy human blame.
+its edits are blamed to your AI). The agent has colleague-level access:
+
+- **Content**: `list_collections`, `create_collection`, `list_documents`,
+  `get_document`, `search_documents` (also filters by an exact tag),
+  `create_document`, `update_document` (title and/or tags), `move_document`,
+  `archive_document`, `restore_document`, `list_archived`, `list_tags`,
+  `list_backlinks`.
+- **Targeted edits**: `edit_document` (exact find/replace),
+  `insert_after_heading`, `replace_section`, `append_section`. There is
+  deliberately no full-body-rewrite tool: it would re-attribute the whole
+  document to the agent and destroy human blame.
+- **Collaboration**: `list_comments`, `add_comment` (reply via `parentId`),
+  `resolve_comment` — comment threads sync live into open editors;
+  `my_tasks` (to-dos assigned to the human the agent acts for);
+  `list_members` (names and `@handles` for assigning and mentioning).
+- **History & blame**: `list_versions`, `read_version` (a past version's
+  markdown), and `get_authors` — the blame view as data: every span of text
+  attributed to the human or AI session that wrote it.
 
 ## Rich content, tags, and versions
 

@@ -379,9 +379,10 @@ One commit per phase, suites green per step.
 - [x] Invites: optional email delivery (workspace + server invites)
 
 ### Phase C — MCP colleague parity
-- [ ] Tools: list_comments, add_comment, resolve_comment, my_tasks, list_members,
-      list_versions, read_version, restore_document, list_tags, list_archived, get_authors (blame read)
-- [ ] Comment writes ping live clients (notify wiring for MCP path)
+- [x] Tools: list_comments, add_comment, resolve_comment, my_tasks, list_members,
+      list_versions, read_version, restore_document, list_tags, list_archived,
+      list_backlinks, get_authors (blame read)
+- [x] Comment writes ping live clients (notify wiring for MCP path; MCP renames ping meta)
 
 ### Phase D — editor UX
 - [ ] Formatting bubble menu (bold/italic/strike/code/link + comment)

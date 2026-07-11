@@ -224,6 +224,13 @@ export async function buildHttpServer(
     sendWebResponse(reply, await protectedResource(toWebRequest(req))),
   );
 
+  // Data-free ping over a doc's live channel; only connections that already
+  // passed onAuthenticate for the doc receive it, and they refetch through
+  // their own RLS-scoped queries. Shared by tRPC mutations and MCP tools.
+  const notifyDocument = (documentId: string, topic: "comments" | "snapshots" | "meta") => {
+    hocuspocus.documents.get(documentId)?.broadcastStateless(JSON.stringify({ topic }));
+  };
+
   await app.register(fastifyTRPCPlugin, {
     prefix: "/trpc",
     trpcOptions: {
@@ -251,14 +258,7 @@ export async function buildHttpServer(
           user: session?.user ?? null,
           mailer,
           appUrl: publicUrl ?? process.env.WEB_ORIGIN ?? "http://localhost:5173",
-          // Data-free ping over the doc's live channel; only connections that
-          // already passed onAuthenticate for this doc receive it, and they
-          // refetch through their own RLS-scoped queries.
-          notifyDocument: (documentId: string, topic: "comments" | "snapshots" | "meta") => {
-            hocuspocus.documents
-              .get(documentId)
-              ?.broadcastStateless(JSON.stringify({ topic }));
-          },
+          notifyDocument,
           // Remaining 2FA backup codes (server-only Better Auth endpoint);
           // null when the user isn't enrolled.
           countBackupCodes: async (userId: string) => {
@@ -335,6 +335,7 @@ export async function buildHttpServer(
           .recordAudit({ workspaceId, userId: token.userId, ai: true, action, detail })
           .catch((err) => app.log.error({ err }, "audit write failed"));
       },
+      notifyDocument,
     );
     reply.raw.on("close", () => {
       transport.close();

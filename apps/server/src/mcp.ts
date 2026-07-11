@@ -1,12 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import * as Y from "yjs";
 import { z } from "zod";
 import { DocumentWriteDeniedError, type DocumentMeta } from "@tandem/core";
 import {
   appendMarkdown,
+  blameSpans,
+  COLLAB_FIELD,
+  getAuthors,
   insertAfterHeading,
+  jsonToMarkdown,
   MarkdownEditError,
   replaceSection,
   replaceText,
+  schema,
+  stateToJSON,
+  UNKNOWN_AUTHOR,
 } from "@tandem/editor";
 import type { CollabWriter } from "./collab-writer.js";
 import type { Services } from "./services.js";
@@ -60,8 +68,9 @@ export function createMcpServer(
   services: Services,
   writer?: CollabWriter,
   audit?: AuditHook,
+  notify?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void,
 ): McpServer {
-  const { documents, collections } = services;
+  const { documents, collections, comments, workspaces, snapshots } = services;
   const server = new McpServer({ name: "tandem", version: "0.1.0" });
 
   /** Record a successful write for the workspace's audit trail. */
@@ -226,7 +235,11 @@ export function createMcpServer(
         return toolError("provide a title and/or tags to update");
       }
       const doc = await documents.update(id, { title, tags });
-      if (doc) logAudit(title !== undefined ? "rename_document" : "tag_document", doc);
+      if (doc) {
+        logAudit(title !== undefined ? "rename_document" : "tag_document", doc);
+        // Titles live outside the CRDT body: ping open editors to refetch.
+        if (title !== undefined) notify?.(id, "meta");
+      }
       return writeResult(id, doc);
     },
   );
@@ -330,6 +343,234 @@ export function createMcpServer(
       const doc = await documents.archive(id);
       if (doc) logAudit("archive_document", doc);
       return writeResult(id, doc);
+    },
+  );
+
+  server.registerTool(
+    "restore_document",
+    {
+      title: "Restore document",
+      description: "Restore an archived document (and its subtree) to active use.",
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      const doc = await documents.restore(id);
+      if (doc) logAudit("restore_document", doc);
+      return writeResult(id, doc);
+    },
+  );
+
+  server.registerTool(
+    "list_archived",
+    {
+      title: "List archived documents",
+      description: "Archived subtree roots in a collection (restorable).",
+      inputSchema: { collectionId: z.string().uuid() },
+    },
+    async ({ collectionId }) => json((await documents.listArchived(collectionId)).map(publicDoc)),
+  );
+
+  server.registerTool(
+    "list_tags",
+    {
+      title: "List tags",
+      description: "Every tag in use across documents you can read, with counts.",
+      inputSchema: {},
+    },
+    async () => json(await documents.listTags()),
+  );
+
+  server.registerTool(
+    "list_backlinks",
+    {
+      title: "List backlinks",
+      description: "Documents that link to the given document (cross-references).",
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      if (!(await documents.get(id))) return notFound("document");
+      return json((await documents.backlinks(id)).map(publicDoc));
+    },
+  );
+
+  server.registerTool(
+    "list_members",
+    {
+      title: "List workspace members",
+      description:
+        "Members of a workspace with their @handle (the email local part) — " +
+        "use handles to assign tasks (`- [ ] @handle …`) or mention people.",
+      inputSchema: { workspaceId: z.string().uuid() },
+    },
+    async ({ workspaceId }) => {
+      const members = await workspaces.members(workspaceId);
+      return json(members.map((m) => ({ ...m, handle: m.email.split("@")[0] })));
+    },
+  );
+
+  server.registerTool(
+    "my_tasks",
+    {
+      title: "My tasks",
+      description:
+        "To-do items assigned to the user you act for (checkbox items " +
+        "mentioning their @handle), each pointing at its document.",
+      inputSchema: {},
+    },
+    async () => json(await documents.listMyTodos()),
+  );
+
+  server.registerTool(
+    "list_comments",
+    {
+      title: "List comments",
+      description:
+        "All comment threads on a document — top-level comments and replies " +
+        "(parentId), with author, human-vs-AI not distinguished here, and " +
+        "resolved state. Commenting needs only read access.",
+      inputSchema: { documentId: z.string().uuid() },
+    },
+    async ({ documentId }) => {
+      if (!(await documents.get(documentId))) return notFound("document");
+      return json(await comments.list(documentId));
+    },
+  );
+
+  server.registerTool(
+    "add_comment",
+    {
+      title: "Add comment",
+      description:
+        "Comment on a document, or reply to an existing top-level comment by " +
+        "passing its id as parentId. Needs only read access to the document.",
+      inputSchema: {
+        documentId: z.string().uuid(),
+        body: z.string().min(1).max(10_000),
+        parentId: z.string().uuid().optional(),
+      },
+    },
+    async ({ documentId, body, parentId }) => {
+      const doc = await documents.get(documentId);
+      if (!doc) return notFound("document");
+      const comment = await comments.create({ documentId, body, parentId });
+      logAudit("add_comment", doc);
+      notify?.(documentId, "comments");
+      return json(comment);
+    },
+  );
+
+  server.registerTool(
+    "resolve_comment",
+    {
+      title: "Resolve comment",
+      description:
+        "Mark a comment thread resolved (or reopen it with resolved=false).",
+      inputSchema: { id: z.string().uuid(), resolved: z.boolean().optional() },
+    },
+    async ({ id, resolved }) => {
+      const comment = await comments.setResolved(id, resolved ?? true);
+      const doc = await documents.get(comment.documentId);
+      logAudit(resolved === false ? "reopen_comment" : "resolve_comment", doc);
+      notify?.(comment.documentId, "comments");
+      return json(comment);
+    },
+  );
+
+  server.registerTool(
+    "list_versions",
+    {
+      title: "List versions",
+      description:
+        "Point-in-time versions of a document (newest first), with the " +
+        "sessions that edited between captures.",
+      inputSchema: { documentId: z.string().uuid() },
+    },
+    async ({ documentId }) => {
+      if (!(await documents.get(documentId))) return notFound("document");
+      return json(await snapshots.list(documentId));
+    },
+  );
+
+  server.registerTool(
+    "read_version",
+    {
+      title: "Read version",
+      description: "A past version's full markdown, by version id (from list_versions).",
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      const snap = await snapshots.get(id);
+      if (!snap) return notFound("version");
+      return json({
+        id,
+        documentId: snap.documentId,
+        createdAt: snap.createdAt,
+        kind: snap.kind,
+        markdown: jsonToMarkdown(stateToJSON(snap.ydocState)),
+      });
+    },
+  );
+
+  server.registerTool(
+    "get_authors",
+    {
+      title: "Get authorship (blame)",
+      description:
+        "Who wrote what: the document's text in order, split into spans " +
+        "attributed to the human or AI session that inserted them, plus a " +
+        "contributor summary. This is the blame view the editor renders.",
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      const doc = await documents.get(id);
+      if (!doc) return notFound("document");
+      if (!doc.ydocState) {
+        // Legacy doc never opened since blame tracking: nothing to attribute.
+        return json({ id: doc.id, title: doc.title, contributors: [], spans: [] });
+      }
+      const ydoc = new Y.Doc();
+      Y.applyUpdate(ydoc, doc.ydocState);
+      const authors = getAuthors(ydoc);
+      const pmDoc = schema.nodeFromJSON(stateToJSON(doc.ydocState) as never);
+      const size = pmDoc.content.size;
+      const spans: Array<{ author: string; ai: boolean; at: string | null; text: string }> = [];
+      for (const s of blameSpans(ydoc.getXmlFragment(COLLAB_FIELD))) {
+        const a = authors.get(s.clientId) ?? UNKNOWN_AUTHOR;
+        const text = pmDoc.textBetween(Math.min(s.from, size), Math.min(s.to, size), "\n", "");
+        if (!text.trim()) continue; // pure structure (open/close tags)
+        const last = spans[spans.length - 1];
+        // Merge consecutive spans by the same identity so prose reads as runs.
+        if (last && last.author === a.name && last.ai === a.ai) {
+          last.text += text;
+        } else {
+          spans.push({
+            author: a.name,
+            ai: a.ai,
+            at: a.at ? new Date(a.at).toISOString() : null,
+            text,
+          });
+        }
+      }
+      const contributors = new Map<
+        string,
+        { userId: string; name: string; ai: boolean; lastEditAt: number }
+      >();
+      for (const a of authors.values()) {
+        const key = `${a.userId}:${a.ai}`;
+        const prev = contributors.get(key);
+        if (!prev || a.at > prev.lastEditAt) {
+          contributors.set(key, { userId: a.userId, name: a.name, ai: a.ai, lastEditAt: a.at });
+        }
+      }
+      return json({
+        id: doc.id,
+        title: doc.title,
+        contributors: [...contributors.values()].map((c) => ({
+          ...c,
+          lastEditAt: c.lastEditAt ? new Date(c.lastEditAt).toISOString() : null,
+        })),
+        spans,
+      });
     },
   );
 
