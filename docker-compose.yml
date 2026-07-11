@@ -17,6 +17,9 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       WEB_ORIGIN: ${WEB_ORIGIN}
+      # Optional SMTP: enables self-service password reset + emailed invites.
+      SMTP_URL: ${SMTP_URL:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
       # Uploaded image bytes live on this volume so they survive rebuilds.
       UPLOADS_DIR: /data/uploads
     volumes:

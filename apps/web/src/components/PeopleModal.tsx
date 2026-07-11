@@ -22,7 +22,9 @@ export function PeopleModal({
 
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [inviteExpiry, setInviteExpiry] = useState<string>("14");
+  const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteNote, setInviteNote] = useState<string | null>(null);
   const [newGroup, setNewGroup] = useState("");
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -52,6 +54,12 @@ export function PeopleModal({
 
       <h3>Invite someone</h3>
       <div className="invite-row">
+        <input
+          type="email"
+          placeholder="Email (optional)"
+          value={inviteEmail}
+          onChange={(e) => setInviteEmail(e.target.value)}
+        />
         <select
           value={inviteRole}
           onChange={(e) => setInviteRole(e.target.value as "member" | "admin")}
@@ -71,18 +79,30 @@ export function PeopleModal({
           onClick={() =>
             void run(async () => {
               setInviteLink(null);
-              const { token } = await createInvite.mutateAsync({
+              setInviteNote(null);
+              const email = inviteEmail.trim();
+              const inv = await createInvite.mutateAsync({
                 workspaceId,
                 role: inviteRole,
+                ...(email ? { email } : {}),
                 ...(inviteExpiry ? { expiresInDays: Number(inviteExpiry) } : {}),
               });
-              setInviteLink(`${window.location.origin}/invite?token=${token}`);
+              setInviteLink(`${window.location.origin}/invite?token=${inv.token}`);
+              if (email) {
+                setInviteNote(
+                  inv.emailed
+                    ? `Invite emailed to ${email}.`
+                    : "Couldn't email the invite — share the link below instead.",
+                );
+              }
+              setInviteEmail("");
             })
           }
         >
           Create invite link
         </button>
       </div>
+      {inviteNote && <p className="modal-note">{inviteNote}</p>}
       {inviteLink && (
         <input
           className="invite-link"

@@ -317,12 +317,20 @@ function Invites({
 
   const [role, setRole] = useState<"user" | "admin">("user");
   const [expiry, setExpiry] = useState("14");
+  const [email, setEmail] = useState("");
   const [link, setLink] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   return (
     <>
       <h3>Invite people to the server</h3>
       <div className="invite-row">
+        <input
+          type="email"
+          placeholder="Email (optional)"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
         <select value={role} onChange={(e) => setRole(e.target.value as "user" | "admin")}>
           <option value="user">As member</option>
           <option value="admin">As admin</option>
@@ -339,11 +347,22 @@ function Invites({
           onClick={() =>
             void run(async () => {
               setLink(null);
+              setNote(null);
+              const to = email.trim();
               const inv = await create.mutateAsync({
                 role,
+                ...(to ? { email: to } : {}),
                 ...(expiry ? { expiresInDays: Number(expiry) } : {}),
               });
               setLink(`${window.location.origin}/invite?token=${inv.token}`);
+              if (to) {
+                setNote(
+                  inv.emailed
+                    ? `Invite emailed to ${to}.`
+                    : "Couldn't email the invite — share the link below instead.",
+                );
+              }
+              setEmail("");
               await utils.admin.listInvites.invalidate();
             })
           }
@@ -351,6 +370,7 @@ function Invites({
           Create invite link
         </button>
       </div>
+      {note && <p className="modal-note">{note}</p>}
       {link && (
         <input
           className="invite-link"

@@ -20,6 +20,7 @@ import {
 } from "better-auth/plugins";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createAuth } from "./auth.js";
+import { createMailerFromEnv, type Mailer } from "./mail.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
 import { registerImageRoutes } from "./images.js";
@@ -57,7 +58,10 @@ export async function mcpAccessError(
  * mounts Hocuspocus (/collab) and the MCP HTTP transport (/mcp) here too.
  * One db instance is shared by services and auth (PGlite = one connection).
  */
-export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatabase>) {
+export async function buildHttpServer(
+  injectedDb?: ReturnType<typeof createDatabase>,
+  opts?: { mailer?: Mailer | null },
+) {
   const isProd = process.env.NODE_ENV === "production";
   // Fail fast in production rather than fall back to a forgeable default secret.
   const secret = process.env.BETTER_AUTH_SECRET;
@@ -74,7 +78,9 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
     }
   }
   const db = injectedDb ?? createDatabase(process.env.DATABASE_URL);
-  const auth = createAuth(db);
+  // Email is optional (SMTP_URL); tests inject a fake to observe sends.
+  const mailer = opts?.mailer !== undefined ? opts.mailer : createMailerFromEnv();
+  const auth = createAuth(db, mailer);
   // Hocuspocus builds actor-scoped services per connection from the db.
   const hocuspocus = createHocuspocus(db, auth);
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
@@ -129,7 +135,7 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   await app.register(websocket);
   await registerImageRoutes(app, db, auth);
   await registerTransferRoutes(app, db, auth);
-  await registerSetupRoutes(app, db, auth);
+  await registerSetupRoutes(app, db, auth, { emailEnabled: !!mailer });
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
   // ourselves (it dropped the `ws` library for crossws).
@@ -195,6 +201,12 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     authHandler,
   );
+  // Each request emails the account owner — keep it too slow for mail-bombing.
+  app.post(
+    "/api/auth/request-password-reset",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    authHandler,
+  );
   app.route({
     method: ["GET", "POST"],
     url: "/api/auth/*",
@@ -237,6 +249,8 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
           services,
           collabWriter,
           user: session?.user ?? null,
+          mailer,
+          appUrl: publicUrl ?? process.env.WEB_ORIGIN ?? "http://localhost:5173",
           // Data-free ping over the doc's live channel; only connections that
           // already passed onAuthenticate for this doc receive it, and they
           // refetch through their own RLS-scoped queries.

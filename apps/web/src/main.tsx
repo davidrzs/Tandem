@@ -4,7 +4,7 @@ import React, { lazy, useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App.js";
-import { AuthGate } from "./components/AuthGate.js";
+import { AuthGate, ResetPassword } from "./components/AuthGate.js";
 import { ConsentScreen } from "./components/ConsentScreen.js";
 import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
@@ -68,6 +68,12 @@ function Bootstrap() {
   if (window.location.pathname === "/invite") {
     const token = new URLSearchParams(window.location.search).get("token");
     if (token) return <InviteAccept token={token} />;
+  }
+
+  // The emailed password-reset link also lands without a session.
+  if (window.location.pathname === "/reset-password") {
+    const token = new URLSearchParams(window.location.search).get("token");
+    if (token) return <ResetPassword token={token} />;
   }
 
   return (

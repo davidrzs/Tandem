@@ -30,6 +30,10 @@ export interface Context {
   /** Remaining single-use 2FA backup codes for a user, or null when not
    * enrolled. Server-side Better Auth call — wired in http.ts. */
   countBackupCodes?: (userId: string) => Promise<number | null>;
+  /** Outbound email, present only when the instance has SMTP configured. */
+  mailer?: { send(msg: { to: string; subject: string; text: string }): Promise<void> } | null;
+  /** Public base URL, for links inside emails. */
+  appUrl?: string;
 }
 
 const isProd = process.env.NODE_ENV === "production";
@@ -128,7 +132,31 @@ export const appRouter = t.router({
           action: "invite_create",
           detail: `${input.email ?? "anyone with the link"} role=${invite.role}`,
         });
-        return invite;
+        // Deliver by email when addressed and the instance has SMTP; a mail
+        // failure downgrades to the copy-link flow instead of failing the invite.
+        let emailed = false;
+        if (input.email && ctx.mailer) {
+          const ws = (await ctx.services.workspaces.listMine()).find(
+            (w) => w.id === input.workspaceId,
+          );
+          try {
+            await ctx.mailer.send({
+              to: input.email,
+              subject: `You're invited to ${ws?.name ?? "a workspace"} on Tandem`,
+              text: [
+                `${ctx.user.name || ctx.user.email} invited you to the "${ws?.name ?? "workspace"}" workspace.`,
+                "",
+                `Accept the invite: ${ctx.appUrl}/invite?token=${invite.token}`,
+                "",
+                "The link is single-use.",
+              ].join("\n"),
+            });
+            emailed = true;
+          } catch (err) {
+            console.error("invite email failed", err);
+          }
+        }
+        return { ...invite, emailed };
       }),
     acceptInvite: protectedProcedure
       .input(z.object({ token: z.string().min(1) }))
@@ -444,7 +472,27 @@ export const appRouter = t.router({
           action: "admin_create_invite",
           detail: `${input.email ?? "anyone with the link"} role=${input.role ?? "user"}`,
         });
-        return invite;
+        let emailed = false;
+        if (input.email && ctx.mailer) {
+          const settings = await ctx.services.instance.getSettings();
+          try {
+            await ctx.mailer.send({
+              to: input.email,
+              subject: `You're invited to ${settings.instanceName}`,
+              text: [
+                `${ctx.user.name || ctx.user.email} invited you to join ${settings.instanceName}.`,
+                "",
+                `Create your account: ${ctx.appUrl}/invite?token=${invite.token}`,
+                "",
+                "The link is single-use.",
+              ].join("\n"),
+            });
+            emailed = true;
+          } catch (err) {
+            console.error("invite email failed", err);
+          }
+        }
+        return { ...invite, emailed };
       }),
     listInvites: adminProcedure.query(({ ctx }) => ctx.services.instance.listInvites()),
     revokeInvite: adminProcedure

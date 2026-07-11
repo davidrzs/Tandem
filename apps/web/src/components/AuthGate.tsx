@@ -5,6 +5,9 @@ interface PublicSettings {
   instanceName: string;
   registrationMode: "open" | "invite" | "domain" | "closed";
   allowedEmailDomains: string[];
+  /** True when the server can send email (SMTP configured) — gates the
+   * self-service "forgot password" flow. */
+  emailEnabled: boolean;
 }
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -21,11 +24,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
 }
 
 function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [instance, setInstance] = useState<PublicSettings | null>(null);
 
@@ -42,11 +46,26 @@ function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) 
   const canSelfRegister =
     instance?.registrationMode === "open" || instance?.registrationMode === "domain";
   const showSignup = mode === "signup" && canSelfRegister;
+  const showForgot = mode === "forgot";
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    if (showForgot) {
+      // Deliberately the same response whether or not the account exists.
+      const res = await authClient.requestPasswordReset({
+        email,
+        redirectTo: "/reset-password",
+      });
+      setBusy(false);
+      if (res.error) {
+        setError(res.error.message ?? "Couldn't send the reset email");
+        return;
+      }
+      setNotice("If that account exists, a reset link is on its way.");
+      return;
+    }
     const res = showSignup
       ? await authClient.signUp.email({ email, password, name })
       : await authClient.signIn.email({ email, password });
@@ -67,7 +86,14 @@ function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) 
       <form className="auth-card" onSubmit={submit}>
         <div className="wordmark">{instance?.instanceName || "Tandem"}</div>
         <p className="auth-tagline">The wiki that knows who wrote what.</p>
-        <h1>{showSignup ? "Create your account" : "Sign in"}</h1>
+        <h1>
+          {showForgot ? "Reset your password" : showSignup ? "Create your account" : "Sign in"}
+        </h1>
+        {showForgot && (
+          <p className="setup-hint">
+            Enter your account email and we'll send a reset link.
+          </p>
+        )}
         {showSignup && (
           <input
             placeholder="Name"
@@ -83,24 +109,27 @@ function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) 
           onChange={(e) => setEmail(e.target.value)}
           required
         />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-        />
+        {!showForgot && (
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+          />
+        )}
         {showSignup && instance?.registrationMode === "domain" && instance.allowedEmailDomains.length > 0 && (
           <p className="setup-hint">
             Sign-ups are limited to: {instance.allowedEmailDomains.join(", ")}
           </p>
         )}
         {error && <div className="auth-error">{error}</div>}
+        {notice && <p className="setup-hint">{notice}</p>}
         <button type="submit" className="btn primary" disabled={busy}>
-          {busy ? "…" : showSignup ? "Sign up" : "Sign in"}
+          {busy ? "…" : showForgot ? "Send reset link" : showSignup ? "Sign up" : "Sign in"}
         </button>
-        {canSelfRegister && (
+        {canSelfRegister && !showForgot && (
           <button
             type="button"
             className="auth-toggle"
@@ -110,6 +139,92 @@ function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) 
               ? "Have an account? Sign in"
               : "Need an account? Sign up"}
           </button>
+        )}
+        {instance?.emailEnabled && mode === "signin" && (
+          <button type="button" className="auth-toggle" onClick={() => setMode("forgot")}>
+            Forgot your password?
+          </button>
+        )}
+        {showForgot && (
+          <button
+            type="button"
+            className="auth-toggle"
+            onClick={() => {
+              setMode("signin");
+              setNotice(null);
+              setError(null);
+            }}
+          >
+            Back to sign in
+          </button>
+        )}
+      </form>
+    </div>
+  );
+}
+
+/** Landing page for the emailed reset link (`/reset-password?token=…`).
+ * Renders outside AuthGate — the user has no session here. */
+export function ResetPassword({ token }: { token: string }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (password !== confirm) {
+      setError("Passwords don't match");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await authClient.resetPassword({ newPassword: password, token });
+    setBusy(false);
+    if (res.error) {
+      setError(res.error.message ?? "That link is invalid or expired");
+      return;
+    }
+    setDone(true);
+  }
+
+  return (
+    <div className="auth-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <div className="wordmark">Tandem</div>
+        <h1>Choose a new password</h1>
+        {done ? (
+          <>
+            <p className="setup-hint">Your password is updated.</p>
+            <button type="button" className="btn primary" onClick={() => window.location.assign("/")}>
+              Sign in
+            </button>
+          </>
+        ) : (
+          <>
+            <input
+              type="password"
+              placeholder="New password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              autoFocus
+            />
+            <input
+              type="password"
+              placeholder="Repeat new password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              minLength={8}
+            />
+            {error && <div className="auth-error">{error}</div>}
+            <button type="submit" className="btn primary" disabled={busy}>
+              {busy ? "…" : "Set new password"}
+            </button>
+          </>
         )}
       </form>
     </div>

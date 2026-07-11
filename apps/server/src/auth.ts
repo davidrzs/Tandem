@@ -11,6 +11,7 @@ import {
   reconcileBootstrapAdmin,
   registrationRole,
 } from "./registration.js";
+import type { Mailer } from "./mail.js";
 
 /** Better Auth admin endpoints that must leave an instance-level audit entry.
  * remove-user is audited in the user.delete.after hook instead — by the time
@@ -31,10 +32,32 @@ export type Auth = ReturnType<typeof createAuth>;
  * The mcp() plugin makes this an OAuth 2.1 provider for the MCP endpoint
  * (discovery + dynamic client registration + token issuance).
  */
-export function createAuth(db: Database) {
+export function createAuth(db: Database, mailer?: Mailer | null) {
   return betterAuth({
     database: drizzleAdapter(db, { provider: "pg" }),
-    emailAndPassword: { enabled: true },
+    emailAndPassword: {
+      enabled: true,
+      // Self-service reset only when the instance can send email; without
+      // SMTP the login screen hides "forgot password" and a server admin
+      // resets passwords instead (Admin > set password).
+      ...(mailer
+        ? {
+            sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
+              await mailer.send({
+                to: user.email,
+                subject: "Reset your Tandem password",
+                text: [
+                  `Someone asked to reset the Tandem password for ${user.email}.`,
+                  "",
+                  `Reset it here: ${url}`,
+                  "",
+                  "If this wasn't you, you can ignore this email.",
+                ].join("\n"),
+              });
+            },
+          }
+        : {}),
+    },
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:5173",
     trustedOrigins: [process.env.WEB_ORIGIN ?? "http://localhost:5173"],

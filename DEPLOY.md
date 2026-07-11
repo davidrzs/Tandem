@@ -24,6 +24,7 @@ the web SPA) behind Caddy (auto-TLS + WebSockets), with Postgres on Neon.
 cp .env.deploy.example .env.deploy
 # edit DOMAIN, DATABASE_URL, BETTER_AUTH_SECRET (openssl rand -base64 32),
 # BETTER_AUTH_URL=https://<domain>, WEB_ORIGIN=https://<domain>
+# optional: SMTP_URL + EMAIL_FROM (see "Email" below)
 ```
 
 ## 3. Migrate, then start
@@ -60,6 +61,17 @@ entry — registration mode, allowed email domains, server invites, users.
    instance. Uploaded bytes are NOT in Postgres — back up this volume
    (e.g. nightly `docker run --rm -v tandem_uploads:/u -v /backup:/b alpine
    tar czf /b/uploads-$(date +%F).tgz -C /u .`).
+
+## Email (optional but recommended)
+Set `SMTP_URL` (`smtp://user:pass@host:587`, `smtps://…:465` for implicit TLS)
+and `EMAIL_FROM` (`Tandem <tandem@example.com>`). With email configured:
+- users get a **"Forgot your password?"** flow on the login screen;
+- invites addressed to an email (workspace and server invites) are
+  **delivered by email** as well as shown as a copy-link.
+
+Without SMTP, invites are copy-link only and a locked-out user needs a server
+admin to set a new password (Admin → user → set password). A half-configured
+instance (SMTP_URL without EMAIL_FROM) refuses to boot.
 
 ## Notes
 - **Rate limits** are in-memory and per-instance: they reset on restart and

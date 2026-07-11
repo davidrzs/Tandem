@@ -59,6 +59,8 @@ test("setup status flips true -> false after the first admin is created", async 
       instanceName: "Acme Wiki",
       registrationMode: "closed",
       allowedEmailDomains: [],
+      // No SMTP in tests -> no self-service password reset offered.
+      emailEnabled: false,
     });
   } finally {
     await app.close();

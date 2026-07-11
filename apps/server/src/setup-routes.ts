@@ -11,14 +11,23 @@ const MODES: RegistrationMode[] = ["open", "invite", "domain", "closed"];
  * server still needs its first admin (setup wizard), the public branding /
  * registration policy (login screen), and the one-time first-admin creation.
  */
-export async function registerSetupRoutes(app: FastifyInstance, db: Database, auth: Auth) {
+export async function registerSetupRoutes(
+  app: FastifyInstance,
+  db: Database,
+  auth: Auth,
+  opts?: { emailEnabled?: boolean },
+) {
   const instance = new InstanceService(db);
 
   // Does the server still need its first admin? Drives the setup wizard.
   app.get("/api/setup/status", async () => ({ needsSetup: await instance.needsSetup() }));
 
-  // Safe subset for the login/signup screen (branding + registration policy).
-  app.get("/api/instance/public", async () => instance.getPublicSettings());
+  // Safe subset for the login/signup screen (branding + registration policy +
+  // whether self-service password reset is available).
+  app.get("/api/instance/public", async () => ({
+    ...(await instance.getPublicSettings()),
+    emailEnabled: !!opts?.emailEnabled,
+  }));
 
   // Create the first admin + the initial registration policy. Guarded so it is
   // usable exactly once (when no user exists); the client status check is only

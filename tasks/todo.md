@@ -374,9 +374,9 @@ One commit per phase, suites green per step.
 - [x] Stale collaborative title: broadcast meta ping on rename, editor updates when not editing
 
 ### Phase B — email infrastructure
-- [ ] Mailer (nodemailer, SMTP_URL/EMAIL_FROM env, graceful off-state); DEPLOY.md docs
-- [ ] Better Auth sendResetPassword + forgot-password UI (shown only when email configured)
-- [ ] Invites: optional email delivery (workspace + server invites)
+- [x] Mailer (nodemailer, SMTP_URL/EMAIL_FROM env, graceful off-state); DEPLOY.md docs
+- [x] Better Auth sendResetPassword + forgot-password UI (shown only when email configured)
+- [x] Invites: optional email delivery (workspace + server invites)
 
 ### Phase C — MCP colleague parity
 - [ ] Tools: list_comments, add_comment, resolve_comment, my_tasks, list_members,
