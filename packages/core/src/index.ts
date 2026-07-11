@@ -1,3 +1,4 @@
+export * from "./errors.js";
 export * from "./markdown.js";
 export * from "./services/collections.js";
 export * from "./services/comments.js";

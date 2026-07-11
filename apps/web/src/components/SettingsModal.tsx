@@ -8,7 +8,8 @@ import { TwoFactorSection } from "./TwoFactorSection.js";
 
 /**
  * Account & AI settings: the per-user MCP kill switch, how to connect an
- * agent, and the workspace's audit trail of agent actions.
+ * agent, and the workspace's activity trail (agent actions plus sensitive
+ * human actions: sharing, invites, import/export).
  */
 export function SettingsModal({
   workspaceId,
@@ -104,13 +105,16 @@ export function SettingsModal({
         <li>Sign in when the browser opens — the agent gets your permissions, nothing more.</li>
       </ol>
 
-      <h3>Agent activity in this workspace</h3>
+      <h3>Activity in this workspace</h3>
+      <p className="modal-note">
+        Agent edits, sharing changes, invites, and imports/exports.
+      </p>
       {!workspaceId && <p className="modal-note">Select a workspace first.</p>}
       {audit.error && (
         <p className="modal-note">{friendlyError(audit.error, "Couldn't load the audit trail.")}</p>
       )}
       {audit.data && audit.data.length === 0 && (
-        <p className="modal-note">No agent actions recorded yet.</p>
+        <p className="modal-note">No activity recorded yet.</p>
       )}
       {(audit.data ?? []).length > 0 && (
         <ul className="audit-list">
@@ -118,7 +122,11 @@ export function SettingsModal({
             <li key={entry.id}>
               <Icon name="pen" size={13} />
               <span className="audit-what">
-                <strong>{entry.userName}'s AI</strong> · {entry.action.replaceAll("_", " ")}
+                <strong>
+                  {entry.userName}
+                  {entry.ai ? "'s AI" : ""}
+                </strong>{" "}
+                · {entry.action.replaceAll("_", " ")}
                 {entry.detail ? ` ${entry.detail}` : ""}
               </span>
               <span className="audit-when">{timeAgo(entry.createdAt)}</span>

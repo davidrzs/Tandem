@@ -12,7 +12,7 @@ import {
 } from "@trpc/server/adapters/fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createDatabase, user as userTable, type Actor } from "@tandem/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 import {
   oAuthDiscoveryMetadata,
@@ -77,7 +77,7 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
   const auth = createAuth(db);
   // Hocuspocus builds actor-scoped services per connection from the db.
   const hocuspocus = createHocuspocus(db, auth);
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 
   await app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
@@ -240,10 +240,20 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
           // Data-free ping over the doc's live channel; only connections that
           // already passed onAuthenticate for this doc receive it, and they
           // refetch through their own RLS-scoped queries.
-          notifyDocument: (documentId: string, topic: "comments" | "snapshots") => {
+          notifyDocument: (documentId: string, topic: "comments" | "snapshots" | "meta") => {
             hocuspocus.documents
               .get(documentId)
               ?.broadcastStateless(JSON.stringify({ topic }));
+          },
+          // Remaining 2FA backup codes (server-only Better Auth endpoint);
+          // null when the user isn't enrolled.
+          countBackupCodes: async (userId: string) => {
+            try {
+              const res = await auth.api.viewBackupCodes({ body: { userId } });
+              return res.backupCodes.length;
+            } catch {
+              return null;
+            }
           },
         };
       },
@@ -308,7 +318,7 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
       // the tool call.
       (action, detail, workspaceId) => {
         void services.settings
-          .recordAudit({ workspaceId, userId: token.userId, action, detail })
+          .recordAudit({ workspaceId, userId: token.userId, ai: true, action, detail })
           .catch((err) => app.log.error({ err }, "audit write failed"));
       },
     );
@@ -320,7 +330,20 @@ export async function buildHttpServer(injectedDb?: ReturnType<typeof createDatab
     await transport.handleRequest(req.raw, reply.raw, req.body);
   });
 
-  app.get("/health", () => ({ ok: true }));
+  // Readiness, not just liveness: a healthy report means the database
+  // answers too, so orchestration notices a DB outage, not only a dead process.
+  app.get("/health", async (_req, reply) => {
+    try {
+      await Promise.race([
+        db.execute(sql`SELECT 1`),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("db timeout")), 2000)),
+      ]);
+      return { ok: true };
+    } catch (err) {
+      app.log.error({ err }, "healthcheck failed");
+      return reply.code(503).send({ ok: false });
+    }
+  });
 
   // Single-deployable: serve the built web SPA when present (production). In
   // dev the dist doesn't exist and Vite serves the app instead.

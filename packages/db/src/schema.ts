@@ -278,7 +278,8 @@ export const userSettings = pgTable("user_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Append-only record of AI-agent (MCP) actions, for workspace transparency.
+/** Append-only audit of agent (MCP) actions and sensitive human actions
+ * (sharing changes, invites, import/export), for workspace transparency.
  * Written system-side only; members read their workspaces' entries. */
 export const auditLog = pgTable(
   "audit_log",
@@ -287,8 +288,10 @@ export const auditLog = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id, {
       onDelete: "cascade",
     }),
-    /** The human whose credentials the agent acted with. */
+    /** The human who acted — directly, or whose credentials the agent used. */
     userId: text("user_id").notNull(),
+    /** True when an AI agent performed the action on the user's behalf. */
+    ai: boolean("ai").notNull().default(false),
     /** Tool/action name, e.g. "edit_document". */
     action: text("action").notNull(),
     /** Human-readable target, e.g. the document title. */

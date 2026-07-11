@@ -18,7 +18,9 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
     auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
 
   // Export a collection (?collection=) or a whole workspace (?workspace=).
-  app.get("/api/export", async (req, reply) => {
+  // Building the zip walks everything readable — expensive, so rate-limited,
+  // and bulk reads leave an audit entry like other sensitive actions.
+  app.get("/api/export", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
     const session = await sessionOf(req);
     if (!session) return reply.code(401).send({ error: "unauthorized" });
 
@@ -34,14 +36,17 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
     });
 
     let name = "workspace";
+    let workspaceId: string;
     if (q.collection) {
       const col = (await services.collections.list()).find((c) => c.id === q.collection);
       if (!col) return reply.code(404).send({ error: "collection not found" });
       name = col.name;
+      workspaceId = col.workspaceId;
     } else {
       const ws = (await services.workspaces.listMine()).find((w) => w.id === q.workspace);
       if (!ws) return reply.code(404).send({ error: "workspace not found" });
       name = ws.name;
+      workspaceId = ws.id;
     }
 
     const result = await buildExportZip(
@@ -50,6 +55,17 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
       name,
     );
     if (result.buffer.length === 0) return reply.code(404).send({ error: "nothing to export" });
+
+    // Fire-and-forget: an audit hiccup must not fail the download.
+    void services.settings
+      .recordAudit({
+        workspaceId,
+        userId: session.user.id,
+        ai: false,
+        action: q.collection ? "export_collection" : "export_workspace",
+        detail: name,
+      })
+      .catch((err) => req.log.error({ err }, "audit write failed"));
 
     const safe = name.replace(/[^\w.-]+/g, "_");
     reply.header("content-type", "application/zip");
@@ -86,6 +102,15 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
         zipName: file.filename ?? "Imported",
         buffer,
       });
+      void services.settings
+        .recordAudit({
+          workspaceId,
+          userId: session.user.id,
+          ai: false,
+          action: "import_zip",
+          detail: `${file.filename ?? "zip"}: ${summary.collections} collections, ${summary.documents} documents`,
+        })
+        .catch((err) => req.log.error({ err }, "audit write failed"));
       return reply.send(summary);
     } catch (err) {
       if (err instanceof ImportError) return reply.code(400).send({ error: err.message });

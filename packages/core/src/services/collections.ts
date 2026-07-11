@@ -1,3 +1,4 @@
+import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { and, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import {
   collectionPermissions,
@@ -40,7 +41,7 @@ export class CollectionService {
     return runAsActor(this.db, SYSTEM, fn);
   }
   private userId(): string {
-    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     return this.actor.userId;
   }
 
@@ -52,7 +53,7 @@ export class CollectionService {
         .select({ ws: collections.workspaceId })
         .from(collections)
         .where(eq(collections.id, collectionId));
-      if (!col) throw new Error("collection not found");
+      if (!col) throw new NotFoundError("collection not found");
       const [m] = await db
         .select({ role: workspaceMembers.role })
         .from(workspaceMembers)
@@ -63,7 +64,7 @@ export class CollectionService {
           ),
         );
       if (!m || (m.role !== "owner" && m.role !== "admin")) {
-        throw new Error("only an owner or admin can manage sharing");
+        throw new ForbiddenError("only an owner or admin can manage sharing");
       }
     });
   }
@@ -76,9 +77,9 @@ export class CollectionService {
         // result is a safe default; more than one is ambiguous — refuse to
         // guess, or we'd write into an arbitrary tenant.
         const rows = await db.select({ id: workspaces.id }).from(workspaces).limit(2);
-        if (rows.length === 0) throw new Error("no workspace available for collection");
+        if (rows.length === 0) throw new InvalidInputError("no workspace available for collection");
         if (rows.length > 1) {
-          throw new Error("workspaceId is required: you belong to more than one workspace");
+          throw new InvalidInputError("workspaceId is required: you belong to more than one workspace");
         }
         workspaceId = rows[0]!.id;
       }
@@ -176,7 +177,7 @@ export class CollectionService {
               eq(workspaceMembers.userId, principalId),
             ),
           );
-        if (!m) throw new Error("that user is not a member of this workspace");
+        if (!m) throw new InvalidInputError("that user is not a member of this workspace");
       } else {
         const isUuid = /^[0-9a-f-]{36}$/i.test(principalId);
         const [g] = isUuid
@@ -186,7 +187,7 @@ export class CollectionService {
               .where(eq(groups.id, principalId))
           : [];
         if (!g || g.ws !== col!.ws) {
-          throw new Error("that group does not belong to this workspace");
+          throw new InvalidInputError("that group does not belong to this workspace");
         }
       }
       await db
@@ -219,6 +220,19 @@ export class CollectionService {
             eq(collectionPermissions.principalId, principalId),
           ),
         );
+    });
+  }
+
+  /** The collection's workspace id — tenant context for audit records.
+   * System read; call only after an actor-scoped operation has authorized. */
+  async workspaceIdOf(id: string): Promise<string> {
+    return this.system(async (db) => {
+      const [col] = await db
+        .select({ ws: collections.workspaceId })
+        .from(collections)
+        .where(eq(collections.id, id));
+      if (!col) throw new NotFoundError("collection not found");
+      return col.ws;
     });
   }
 

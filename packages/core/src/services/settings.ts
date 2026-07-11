@@ -1,3 +1,4 @@
+import { ForbiddenError } from "../errors.js";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   auditLog,
@@ -15,6 +16,8 @@ export interface AuditView {
   id: string;
   userId: string;
   userName: string;
+  /** True when an AI agent performed the action on the user's behalf. */
+  ai: boolean;
   action: string;
   detail: string;
   createdAt: Date;
@@ -36,7 +39,7 @@ export class SettingsService {
   }
 
   private userId(): string {
-    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     return this.actor.userId;
   }
 
@@ -64,10 +67,12 @@ export class SettingsService {
     });
   }
 
-  /** Record an agent action (system write — callers are trusted server code). */
+  /** Record an audit entry (system write — callers are trusted server code).
+   * `ai: true` marks agent (MCP) actions; sensitive human actions pass false. */
   async recordAudit(entry: {
     workspaceId: string | null;
     userId: string;
+    ai: boolean;
     action: string;
     detail: string;
   }): Promise<void> {
@@ -91,7 +96,7 @@ export class SettingsService {
             eq(workspaceMembers.userId, me),
           ),
         );
-      if (!member) throw new Error("not a member of this workspace");
+      if (!member) throw new ForbiddenError("not a member of this workspace");
       return db
         .select()
         .from(auditLog)
@@ -128,6 +133,7 @@ export class SettingsService {
       id: r.id,
       userId: r.userId,
       userName: names.get(r.userId) ?? "Unknown",
+      ai: r.ai,
       action: r.action,
       detail: r.detail,
       createdAt: r.createdAt,

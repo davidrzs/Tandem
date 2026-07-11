@@ -170,6 +170,10 @@ export function Editor({
               void utilsRef.current.comments.list.invalidate({ documentId: docId });
             } else if (message.topic === "snapshots") {
               void utilsRef.current.documents.listSnapshots.invalidate({ documentId: docId });
+            } else if (message.topic === "meta") {
+              // Someone renamed the doc (the title lives outside the CRDT).
+              void utilsRef.current.documents.getMeta.invalidate({ id: docId });
+              void utilsRef.current.documents.tree.invalidate();
             }
           } catch {
             // Unknown payloads are ignored.
@@ -462,18 +466,29 @@ export function Editor({
     });
   }, []);
 
-  // Title is independent of the Yjs body; persist it via tRPC.
+  // Title is independent of the Yjs body; persist it via tRPC. A collaborator's
+  // rename arrives as a refetched getMeta (via the "meta" ping): adopt it unless
+  // this input is focused or holds unsaved local edits — then local wins
+  // (last-writer, like the save itself).
   const [title, setTitle] = useState("");
   const titleLoaded = useRef(false);
+  const titleDirty = useRef(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (!titleLoaded.current && doc.data) {
+    if (!doc.data) return;
+    if (!titleLoaded.current) {
       setTitle(doc.data.title);
       titleLoaded.current = true;
+    } else if (!titleDirty.current && document.activeElement !== titleInputRef.current) {
+      setTitle(doc.data.title);
     }
   }, [doc.data]);
 
   const saveTitle = useDebounced((t: string) => {
-    update.mutate({ id: docId, title: t });
+    update.mutate(
+      { id: docId, title: t },
+      { onSuccess: () => (titleDirty.current = false) },
+    );
   }, 500);
 
   if (doc.isLoading) return <div className="empty">Loading…</div>;
@@ -582,12 +597,14 @@ export function Editor({
         )}
       </div>
       <input
+        ref={titleInputRef}
         className="title-input"
         value={title}
         placeholder="Untitled"
         readOnly={!canEdit}
         onChange={(e) => {
           if (!canEdit) return;
+          titleDirty.current = true;
           setTitle(e.target.value);
           saveTitle(e.target.value);
         }}

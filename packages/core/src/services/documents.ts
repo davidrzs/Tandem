@@ -1,3 +1,4 @@
+import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { and, asc, desc, eq, isNull, like, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
@@ -49,9 +50,10 @@ export function normalizeTags(tags: readonly string[]): string[] {
 }
 
 /** The actor tried to write a document their role only lets them read. */
-export class DocumentWriteDeniedError extends Error {
+export class DocumentWriteDeniedError extends ForbiddenError {
   constructor(message = "you do not have write access to this document") {
     super(message);
+    this.name = "DocumentWriteDeniedError";
   }
 }
 
@@ -181,7 +183,7 @@ export class DocumentService {
         .select({ workspaceId: collections.workspaceId })
         .from(collections)
         .where(eq(collections.id, input.collectionId));
-      if (!col) throw new Error("collection not found");
+      if (!col) throw new NotFoundError("collection not found");
 
       const parentId = input.parentDocumentId ?? null;
       if (parentId) {
@@ -193,7 +195,7 @@ export class DocumentService {
           .from(documents)
           .where(and(eq(documents.id, parentId), isNull(documents.deletedAt)));
         if (!parent || parent.collectionId !== input.collectionId) {
-          throw new Error("parent must be a document in the same collection");
+          throw new InvalidInputError("parent must be a document in the same collection");
         }
       }
       const position = await this.nextPosition(db, input.collectionId, parentId);
@@ -275,7 +277,7 @@ export class DocumentService {
     transform: (currentMd: string) => string,
   ): Promise<Document> {
     const doc = await this.get(id);
-    if (!doc) throw new Error("document not found");
+    if (!doc) throw new NotFoundError("document not found");
     if (!(await this.canWrite(id))) throw new DocumentWriteDeniedError();
     const edited = applyEditToState(
       doc.ydocState,
@@ -343,7 +345,7 @@ export class DocumentService {
 
       if (target.parentDocumentId) {
         if (target.parentDocumentId === id) {
-          throw new Error("a document cannot be its own parent");
+          throw new InvalidInputError("a document cannot be its own parent");
         }
         // The new parent must live in the same collection (keeps the tree
         // consistent and prevents cross-collection/tenant parent edges).
@@ -352,7 +354,7 @@ export class DocumentService {
           .from(documents)
           .where(and(eq(documents.id, target.parentDocumentId), isNull(documents.deletedAt)));
         if (!parent || parent.collectionId !== doc.collectionId) {
-          throw new Error("parent must be a document in the same collection");
+          throw new InvalidInputError("parent must be a document in the same collection");
         }
 
         // Reject moving id into one of its own descendants (would create a cycle).
@@ -368,7 +370,7 @@ export class DocumentService {
         // { rows } object for PGlite — same normalization workspaces.ts uses.
         const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
         if (rows.length > 0) {
-          throw new Error("cannot move a document into one of its own descendants");
+          throw new InvalidInputError("cannot move a document into one of its own descendants");
         }
       }
 
@@ -590,7 +592,7 @@ export class DocumentService {
    * email or its local part: `- [ ] @alice ship the thing`.
    */
   async listMyTodos(): Promise<TodoItem[]> {
-    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     const userId = this.actor.userId;
     // Email lookup runs system-scoped: the auth user table isn't RLS-granted.
     const [me] = await runAsActor(this.db, SYSTEM, (db) =>

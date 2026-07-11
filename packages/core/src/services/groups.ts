@@ -1,3 +1,4 @@
+import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { and, eq } from "drizzle-orm";
 import {
   groupMembers,
@@ -23,7 +24,7 @@ export class GroupService {
     return runAsActor(this.db, this.actor, fn);
   }
   private userId(): string {
-    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     return this.actor.userId;
   }
 
@@ -43,7 +44,7 @@ export class GroupService {
   /** Groups in a workspace — visible to any member. */
   async list(workspaceId: string): Promise<Group[]> {
     return this.exec(async (db) => {
-      if (!(await this.roleIn(db, workspaceId))) throw new Error("not a member");
+      if (!(await this.roleIn(db, workspaceId))) throw new ForbiddenError("not a member");
       return db.select().from(groups).where(eq(groups.workspaceId, workspaceId));
     });
   }
@@ -52,7 +53,7 @@ export class GroupService {
     return this.exec(async (db) => {
       const role = await this.roleIn(db, workspaceId);
       if (role !== "owner" && role !== "admin") {
-        throw new Error("only an owner or admin can create groups");
+        throw new ForbiddenError("only an owner or admin can create groups");
       }
       const [row] = await db.insert(groups).values({ workspaceId, name }).returning();
       return row!;
@@ -64,10 +65,10 @@ export class GroupService {
       .select({ ws: groups.workspaceId })
       .from(groups)
       .where(eq(groups.id, groupId));
-    if (!g) throw new Error("group not found");
+    if (!g) throw new NotFoundError("group not found");
     const role = await this.roleIn(db, g.ws);
     if (role !== "owner" && role !== "admin") {
-      throw new Error("only an owner or admin can manage groups");
+      throw new ForbiddenError("only an owner or admin can manage groups");
     }
   }
 
@@ -86,7 +87,7 @@ export class GroupService {
         .where(
           and(eq(workspaceMembers.workspaceId, g!.ws), eq(workspaceMembers.userId, userId)),
         );
-      if (!m) throw new Error("that user is not a member of this workspace");
+      if (!m) throw new InvalidInputError("that user is not a member of this workspace");
       await db.insert(groupMembers).values({ groupId, userId }).onConflictDoNothing();
     });
   }
@@ -107,8 +108,8 @@ export class GroupService {
         .select({ ws: groups.workspaceId })
         .from(groups)
         .where(eq(groups.id, groupId));
-      if (!g) throw new Error("group not found");
-      if (!(await this.roleIn(db, g.ws))) throw new Error("not a member");
+      if (!g) throw new NotFoundError("group not found");
+      if (!(await this.roleIn(db, g.ws))) throw new ForbiddenError("not a member");
       const rows = await db
         .select({ userId: groupMembers.userId })
         .from(groupMembers)

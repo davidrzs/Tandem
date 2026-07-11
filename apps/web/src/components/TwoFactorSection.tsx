@@ -1,19 +1,25 @@
 import { useState } from "react";
 import { authClient } from "../auth-client.js";
+import { trpc } from "../trpc.js";
 
 /**
  * Per-user TOTP enrollment (Settings). Enable asks for the password, shows the
  * otpauth secret to enter into an authenticator app plus the single-use backup
  * codes, and activates only after a first code verifies. Disable asks for the
- * password again.
+ * password again. While on, shows how many backup codes remain and can
+ * regenerate a fresh set (invalidating the old ones).
  */
 export function TwoFactorSection() {
   const session = authClient.useSession();
   const enabled = !!(session.data?.user as { twoFactorEnabled?: boolean } | undefined)
     ?.twoFactorEnabled;
 
+  const utils = trpc.useUtils();
+  const backup = trpc.settings.backupCodes.useQuery(undefined, { enabled });
+
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState<{ totpURI: string; backupCodes: string[] } | null>(null);
+  const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +61,18 @@ export function TwoFactorSection() {
       const res = await authClient.twoFactor.disable({ password });
       if (res.error) throw new Error(res.error.message ?? "Couldn't turn 2FA off");
       setPassword("");
+      setFreshCodes(null);
       setMessage("Two-factor authentication is off.");
       await session.refetch();
+    });
+
+  const regenerate = () =>
+    run(async () => {
+      const res = await authClient.twoFactor.generateBackupCodes({ password });
+      if (res.error) throw new Error(res.error.message ?? "Couldn't regenerate backup codes");
+      setPassword("");
+      setFreshCodes(res.data.backupCodes);
+      await utils.settings.backupCodes.invalidate();
     });
 
   // The otpauth URI carries the base32 secret for manual entry.
@@ -69,14 +85,35 @@ export function TwoFactorSection() {
         <>
           <p className="modal-note">
             On — signing in requires a code from your authenticator app.
+            {typeof backup.data?.remaining === "number" &&
+              ` ${backup.data.remaining} backup ${
+                backup.data.remaining === 1 ? "code" : "codes"
+              } left.`}
           </p>
+          {freshCodes && (
+            <>
+              <p className="modal-note">
+                Your new backup codes — save them somewhere safe. The old ones no
+                longer work.
+              </p>
+              <input
+                className="invite-link"
+                readOnly
+                value={freshCodes.join("  ")}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </>
+          )}
           <div className="invite-row">
             <input
               type="password"
-              placeholder="Confirm password to turn off"
+              placeholder="Confirm password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+            <button className="btn" disabled={busy || !password} onClick={regenerate}>
+              New backup codes
+            </button>
             <button className="btn danger" disabled={busy || !password} onClick={disable}>
               Turn off 2FA
             </button>

@@ -1,3 +1,4 @@
+import { ForbiddenError, InvalidInputError } from "../errors.js";
 import { randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import {
@@ -36,7 +37,7 @@ export class WorkspaceService {
   }
 
   private userId(): string {
-    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     return this.actor.userId;
   }
 
@@ -93,16 +94,16 @@ export class WorkspaceService {
   }): Promise<{ token: string; workspaceId: string; role: string }> {
     const role = await this.myRole(input.workspaceId);
     if (role !== "owner" && role !== "admin") {
-      throw new Error("only an owner or admin can invite");
+      throw new ForbiddenError("only an owner or admin can invite");
     }
     // Validate the granted role in the service (not just the tRPC enum): you
     // can't grant a role above your own — only an owner may invite owners.
     const granted = input.role ?? "member";
     if (!["member", "admin", "owner"].includes(granted)) {
-      throw new Error("invalid invite role");
+      throw new InvalidInputError("invalid invite role");
     }
     if (granted === "owner" && role !== "owner") {
-      throw new Error("only an owner can grant the owner role");
+      throw new ForbiddenError("only an owner can grant the owner role");
     }
     const token = randomBytes(24).toString("base64url");
     const expiresAt = input.expiresInDays
@@ -141,7 +142,7 @@ export class WorkspaceService {
       // { rows } object for PGlite. Normalize before reading the returned id.
       const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
       const wsId = (rows[0] as { workspace_id?: string } | undefined)?.workspace_id;
-      if (!wsId) throw new Error("invalid or already-used invite");
+      if (!wsId) throw new InvalidInputError("invalid or already-used invite");
       const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, wsId));
       return ws!;
     });
@@ -151,7 +152,7 @@ export class WorkspaceService {
    * sharing pickers, and blame name resolution. Members only. */
   async members(workspaceId: string): Promise<WorkspaceMemberInfo[]> {
     const role = await this.myRole(workspaceId);
-    if (!role) throw new Error("not a member of this workspace");
+    if (!role) throw new ForbiddenError("not a member of this workspace");
     // The auth user table isn't RLS-granted; join it system-scoped after the
     // membership check above.
     return this.system((db) =>

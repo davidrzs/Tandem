@@ -1,3 +1,4 @@
+import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
   comments,
@@ -48,7 +49,7 @@ export class CommentService {
   }
 
   private userId(): string {
-    if (this.actor.kind !== "user") throw new Error("requires a user actor");
+    if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     return this.actor.userId;
   }
 
@@ -90,7 +91,7 @@ export class CommentService {
         .select({ workspaceId: documents.workspaceId })
         .from(documents)
         .where(and(eq(documents.id, input.documentId), isNull(documents.deletedAt)));
-      if (!doc) throw new Error("document not found");
+      if (!doc) throw new NotFoundError("document not found");
 
       if (input.parentId) {
         const [parent] = await db
@@ -98,9 +99,9 @@ export class CommentService {
           .from(comments)
           .where(eq(comments.id, input.parentId));
         if (!parent || parent.documentId !== input.documentId) {
-          throw new Error("parent comment not found on this document");
+          throw new NotFoundError("parent comment not found on this document");
         }
-        if (parent.parentId) throw new Error("replies cannot be nested");
+        if (parent.parentId) throw new InvalidInputError("replies cannot be nested");
       }
 
       const [row] = await db
@@ -129,7 +130,7 @@ export class CommentService {
         .set({ resolvedAt: resolved ? new Date() : null })
         .where(and(eq(comments.id, id), isNull(comments.parentId)))
         .returning();
-      if (!row) throw new Error("comment not found or you may not resolve it");
+      if (!row) throw new NotFoundError("comment not found or you may not resolve it");
       return row;
     });
   }

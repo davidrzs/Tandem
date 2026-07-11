@@ -1,6 +1,11 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { DocumentWriteDeniedError } from "@tandem/core";
+import {
+  DocumentWriteDeniedError,
+  ForbiddenError,
+  InvalidInputError,
+  NotFoundError,
+} from "@tandem/core";
 import { stateToJSON } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
@@ -21,7 +26,10 @@ export interface Context {
   /** Push a "something about this document changed" ping to its live
    * collaboration channel (no data — clients refetch through their own,
    * RLS-scoped queries). Absent in tests that run without Hocuspocus. */
-  notifyDocument?: (documentId: string, topic: "comments" | "snapshots") => void;
+  notifyDocument?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void;
+  /** Remaining single-use 2FA backup codes for a user, or null when not
+   * enrolled. Server-side Better Auth call — wired in http.ts. */
+  countBackupCodes?: (userId: string) => Promise<number | null>;
 }
 
 const isProd = process.env.NODE_ENV === "production";
@@ -36,9 +44,19 @@ const t = initTRPC.context<Context>().create({
   },
 });
 
-/** Turn a DB unique-constraint violation into a clean CONFLICT; pass through the rest. */
+/** Map domain errors and DB unique-constraint violations to transport codes;
+ * anything unrecognized stays a 500. */
 function mapError(err: unknown): TRPCError {
   if (err instanceof TRPCError) return err;
+  if (err instanceof NotFoundError) {
+    return new TRPCError({ code: "NOT_FOUND", message: err.message, cause: err });
+  }
+  if (err instanceof ForbiddenError) {
+    return new TRPCError({ code: "FORBIDDEN", message: err.message, cause: err });
+  }
+  if (err instanceof InvalidInputError) {
+    return new TRPCError({ code: "BAD_REQUEST", message: err.message, cause: err });
+  }
   const code = (err as { code?: string }).code;
   const message = err instanceof Error ? err.message : String(err);
   if (code === "23505" || /unique|duplicate key/i.test(message)) {
@@ -101,12 +119,30 @@ export const appRouter = t.router({
           expiresInDays: z.number().int().positive().optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.services.workspaces.createInvite(input)),
+      .mutation(async ({ ctx, input }) => {
+        const invite = await ctx.services.workspaces.createInvite(input);
+        await ctx.services.settings.recordAudit({
+          workspaceId: invite.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "invite_create",
+          detail: `${input.email ?? "anyone with the link"} role=${invite.role}`,
+        });
+        return invite;
+      }),
     acceptInvite: protectedProcedure
       .input(z.object({ token: z.string().min(1) }))
-      .mutation(({ ctx, input }) =>
-        ctx.services.workspaces.acceptInvite(input.token),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        const ws = await ctx.services.workspaces.acceptInvite(input.token);
+        await ctx.services.settings.recordAudit({
+          workspaceId: ws.id,
+          userId: ctx.user.id,
+          ai: false,
+          action: "invite_accept",
+          detail: "joined via invite link",
+        });
+        return ws;
+      }),
   }),
 
   groups: t.router({
@@ -165,9 +201,16 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => ctx.services.collections.softDelete(input.id)),
     setDefaultRole: protectedProcedure
       .input(z.object({ id: uuid, role: z.enum(["none", "read", "read_write"]) }))
-      .mutation(({ ctx, input }) =>
-        ctx.services.collections.setDefaultRole(input.id, input.role),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        await ctx.services.collections.setDefaultRole(input.id, input.role);
+        await ctx.services.settings.recordAudit({
+          workspaceId: await ctx.services.collections.workspaceIdOf(input.id),
+          userId: ctx.user.id,
+          ai: false,
+          action: "share_default_role",
+          detail: `collection=${input.id} role=${input.role}`,
+        });
+      }),
     grant: protectedProcedure
       .input(
         z.object({
@@ -177,14 +220,21 @@ export const appRouter = t.router({
           role: z.enum(["read", "read_write"]),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        ctx.services.collections.grant(
+      .mutation(async ({ ctx, input }) => {
+        await ctx.services.collections.grant(
           input.id,
           input.principalType,
           input.principalId,
           input.role,
-        ),
-      ),
+        );
+        await ctx.services.settings.recordAudit({
+          workspaceId: await ctx.services.collections.workspaceIdOf(input.id),
+          userId: ctx.user.id,
+          ai: false,
+          action: "share_grant",
+          detail: `collection=${input.id} ${input.principalType}=${input.principalId} role=${input.role}`,
+        });
+      }),
     revoke: protectedProcedure
       .input(
         z.object({
@@ -193,9 +243,16 @@ export const appRouter = t.router({
           principalId: z.string().min(1),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        ctx.services.collections.revoke(input.id, input.principalType, input.principalId),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        await ctx.services.collections.revoke(input.id, input.principalType, input.principalId);
+        await ctx.services.settings.recordAudit({
+          workspaceId: await ctx.services.collections.workspaceIdOf(input.id),
+          userId: ctx.user.id,
+          ai: false,
+          action: "share_revoke",
+          detail: `collection=${input.id} ${input.principalType}=${input.principalId}`,
+        });
+      }),
     permissions: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.collections.listPermissions(input.id)),
@@ -237,6 +294,9 @@ export const appRouter = t.router({
         const doc = await ctx.services.documents.update(id, patch);
         // A null row on an RLS-scoped write means denied, not "not found".
         if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+        // The title lives outside the CRDT body, so collaborators viewing the
+        // doc need a ping to refetch it — otherwise a rename stays stale.
+        if (patch.title !== undefined) ctx.notifyDocument?.(id, "meta");
         return doc;
       }),
 
@@ -358,6 +418,7 @@ export const appRouter = t.router({
         await ctx.services.settings.recordAudit({
           workspaceId: null,
           userId: ctx.user.id,
+          ai: false,
           action: "admin_update_settings",
           detail: JSON.stringify(input),
         });
@@ -379,6 +440,7 @@ export const appRouter = t.router({
         await ctx.services.settings.recordAudit({
           workspaceId: null,
           userId: ctx.user.id,
+          ai: false,
           action: "admin_create_invite",
           detail: `${input.email ?? "anyone with the link"} role=${input.role ?? "user"}`,
         });
@@ -392,6 +454,7 @@ export const appRouter = t.router({
         await ctx.services.settings.recordAudit({
           workspaceId: null,
           userId: ctx.user.id,
+          ai: false,
           action: "admin_revoke_invite",
           detail: input.id,
         });
@@ -406,6 +469,9 @@ export const appRouter = t.router({
     setMcpEnabled: protectedProcedure
       .input(z.object({ enabled: z.boolean() }))
       .mutation(({ ctx, input }) => ctx.services.settings.setMcpEnabled(input.enabled)),
+    backupCodes: protectedProcedure.query(async ({ ctx }) => ({
+      remaining: (await ctx.countBackupCodes?.(ctx.user.id)) ?? null,
+    })),
     audit: protectedProcedure
       .input(z.object({ workspaceId: uuid }))
       .query(({ ctx, input }) => ctx.services.settings.auditTrail(input.workspaceId)),

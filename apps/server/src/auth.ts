@@ -78,6 +78,7 @@ export function createAuth(db: Database) {
           await new SettingsService(db).recordAudit({
             workspaceId: null,
             userId: session.user.id,
+            ai: false,
             action,
             detail,
           });
@@ -149,6 +150,7 @@ export function createAuth(db: Database) {
               await new SettingsService(db).recordAudit({
                 workspaceId: null,
                 userId: session?.user.id ?? "unknown",
+                ai: false,
                 action: "admin_remove_user",
                 detail: user.email,
               });

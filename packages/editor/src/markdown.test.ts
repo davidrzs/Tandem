@@ -153,6 +153,30 @@ test("math ($…$ / $$…$$) round-trips with its backslashes intact", () => {
   assert.equal(normalizeMarkdown("It cost $5, then $10."), "It cost $5, then $10.");
 });
 
+test("multi-line table cells keep their line structure via <br>", () => {
+  // Two paragraphs in one cell survive as a <br>, not a flattened space.
+  const md = "| A |\n| --- |\n| one<br>two |";
+  assert.equal(normalizeMarkdown(md), md, "canonical <br> cell round-trips exactly");
+
+  const json = markdownToJSON(md) as {
+    content: Array<{
+      content: Array<{ content: Array<{ content: Array<{ content: Array<{ type: string }> }> }> }>;
+    }>;
+  };
+  const cellPara = json.content[0]!.content[1]!.content[0]!.content[0]!;
+  assert.ok(
+    cellPara.content.some((n) => n.type === "hardBreak"),
+    "<br> parses to a hard break inside the cell",
+  );
+});
+
+test("a <br> outside a table also becomes a hard break (not silently dropped)", () => {
+  const json = markdownToJSON("line one<br>line two") as {
+    content: Array<{ content: Array<{ type: string }> }>;
+  };
+  assert.ok(json.content[0]!.content.some((n) => n.type === "hardBreak"));
+});
+
 test("an empty table cell round-trips as an empty column", () => {
   const md = "| A | B |\n| --- | --- |\n| x |  |";
   const out = normalizeMarkdown(md);
@@ -212,6 +236,36 @@ test("toggles round-trip as <details> with an editable summary + block content",
   assert.equal(toggle.content[0]!.content[0]!.text, "More detail");
   assert.equal(toggle.content[1]!.type, "toggleContent");
   assert.equal(toggle.content[1]!.content[0]!.type, "paragraph");
+});
+
+test("toggle summaries keep inline marks through the round trip", () => {
+  const md = "<details>\n<summary>The **plan**, with `code`</summary>\n\nbody\n\n</details>";
+  assert.equal(normalizeMarkdown(md), md, "marked-up summary round-trips exactly");
+
+  const json = markdownToJSON(md) as {
+    content: Array<{
+      content: Array<{ content: Array<{ text?: string; marks?: Array<{ type: string }> }> }>;
+    }>;
+  };
+  const summary = json.content[0]!.content[0]!.content;
+  assert.ok(
+    summary.some((n) => n.text === "plan" && n.marks?.some((m) => m.type === "bold")),
+    "bold mark survives in the summary",
+  );
+  assert.ok(
+    summary.some((n) => n.text === "code" && n.marks?.some((m) => m.type === "code")),
+    "code mark survives in the summary",
+  );
+});
+
+test("literal angle brackets in a toggle summary survive as entities", () => {
+  const src = "<details>\n<summary>Use &lt;renamed&gt; here</summary>\n\nbody\n\n</details>";
+  const out = normalizeMarkdown(src);
+  assert.equal(out, src, "entity-escaped summary is stable");
+  const json = markdownToJSON(src) as {
+    content: Array<{ content: Array<{ content: Array<{ text?: string }> }> }>;
+  };
+  assert.equal(json.content[0]!.content[0]!.content[0]!.text, "Use <renamed> here");
 });
 
 test("nested toggles round-trip and stay idempotent", () => {

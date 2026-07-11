@@ -506,12 +506,13 @@ test("settings: MCP kill switch and workspace audit trail", async () => {
   await s1.recordAudit({
     workspaceId: ws!.id,
     userId: "u1",
+    ai: true,
     action: "edit_document",
     detail: '"Paper"',
   });
   const trail = await s1.auditTrail(ws!.id);
   assert.ok(
-    trail.some((e) => e.action === "edit_document" && e.userName === "Alice"),
+    trail.some((e) => e.action === "edit_document" && e.userName === "Alice" && e.ai),
     "entry visible with the human's name",
   );
 

@@ -357,3 +357,58 @@ Review (DONE): The four sharing tables are now RLS-enforced.
 - Prod note: acceptInvite normalizes execute()'s row shape across drivers
   (array for postgres-js, {rows} for PGlite); the PGlite branch is exercised by
   tests, the postgres-js branch is the standard drizzle idiom.
+
+## Gap-closing build-out (started 2026-07-11)
+
+Source: five-angle review (web UX, editor, server/MCP, ops, cleanliness).
+Order: bugs/security first, then email, MCP parity, editor UX, app shell, platform/ops.
+One commit per phase, suites green per step.
+
+### Phase A — real bugs + security quick wins
+- [x] Domain errors in core (NotFound/Forbidden/InvalidInput) + mapError -> proper tRPC codes (stop 500-ing "not found")
+- [x] /api/export: rate limit + audit records for export and import
+- [x] Audit sharing changes (grant/revoke/setDefaultRole) + workspace invite create/accept
+- [x] /health checks DB connectivity (503 when down); LOG_LEVEL env for logger
+- [x] 2FA backup codes: regenerate + remaining count in Settings
+- [x] Round-trip data loss: toggle-summary marks preserved; table cells keep line structure via <br>
+- [x] Stale collaborative title: broadcast meta ping on rename, editor updates when not editing
+
+### Phase B — email infrastructure
+- [ ] Mailer (nodemailer, SMTP_URL/EMAIL_FROM env, graceful off-state); DEPLOY.md docs
+- [ ] Better Auth sendResetPassword + forgot-password UI (shown only when email configured)
+- [ ] Invites: optional email delivery (workspace + server invites)
+
+### Phase C — MCP colleague parity
+- [ ] Tools: list_comments, add_comment, resolve_comment, my_tasks, list_members,
+      list_versions, read_version, restore_document, list_tags, list_archived, get_authors (blame read)
+- [ ] Comment writes ping live clients (notify wiring for MCP path)
+
+### Phase D — editor UX
+- [ ] Formatting bubble menu (bold/italic/strike/code/link + comment)
+- [ ] Link add/edit/remove popover
+- [ ] Placeholder ("Type / for commands")
+- [ ] Code block: language label/picker + copy button
+- [ ] Callout type picker; image alt-text editing
+- [ ] Find in document (basic)
+
+### Phase E — app shell
+- [ ] Toast system + wire copy/mutation feedback
+- [ ] Doc header: copy link, breadcrumbs; duplicate document; per-doc markdown export + print CSS
+- [ ] Favorites (migration) + recents (local) on Home/sidebar
+- [ ] Profile: display name + password change; active sessions list/revoke
+- [ ] Dark mode (tokens + toggle + prefers-color-scheme)
+- [ ] Responsive shell: collapsible sidebar drawer under ~900px
+- [ ] In-app notifications: comments on your threads + task assignment (inbox + badge)
+
+### Phase F — platform/ops
+- [ ] Background jobs: snapshot retention (env) + orphaned-image GC
+- [ ] Dockerfile: compiled prod build, prod deps, USER node; compose mem limits + healthy depends_on
+- [ ] Biome lint/format + CI step; CI docker build
+- [ ] myTodos: prefilter candidates (stop full-scan) + list caps/pagination pass
+
+### Needs a product decision (not started)
+- Public read-only doc share links (new unauthenticated surface)
+- API tokens (PATs), outbound webhooks
+- Embeds/mermaid; footnotes
+- Full mobile polish beyond responsive shell; i18n/RTL
+- S3/object storage; collection icons; doc emoji/covers; templates beyond duplicate

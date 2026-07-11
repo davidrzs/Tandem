@@ -293,7 +293,11 @@ const DETAILS_CLOSE = /^\s*<\/details>\s*$/i;
  * into toggle nodes. Nesting-aware via the recursion on the inner slice. */
 function convertDetails(
   toks: Token[],
-  state: { Token: typeof import("markdown-it/lib/token.mjs").default },
+  state: {
+    Token: typeof import("markdown-it/lib/token.mjs").default;
+    md: MarkdownIt;
+    env: unknown;
+  },
 ): Token[] {
   const isOpen = (t: Token) => t.type === "html_block" && DETAILS_OPEN.test(t.content);
   const isClose = (t: Token) => t.type === "html_block" && DETAILS_CLOSE.test(t.content);
@@ -333,10 +337,12 @@ function convertDetails(
         new state.Token("paragraph_close", "p", -1),
       ];
     }
+    // The summary carries markdown (we serialize it that way); parse it so
+    // bold/links/code survive instead of degrading to their literal source.
     const sInline = new state.Token("inline", "", 0);
     sInline.content = summary;
     sInline.children = summary
-      ? [Object.assign(new state.Token("text", "", 0), { content: summary })]
+      ? (state.md.parseInline(summary, state.env)[0]?.children ?? [])
       : [];
     out.push(
       new state.Token("toggle_open", "details", 1),
@@ -367,14 +373,47 @@ function detailsPlugin(md: MarkdownIt) {
   });
 }
 
+const BR_RE = /^<br\s*\/?>$/i;
+
+/** markdown-it rule: an inline `<br>` (how multi-line table cells survive GFM
+ * pipes) becomes a hard break instead of being dropped with other inline HTML. */
+function brPlugin(md: MarkdownIt) {
+  md.core.ruler.push("tandem_br", (state) => {
+    for (const tok of state.tokens) {
+      if (tok.type !== "inline" || !tok.children) continue;
+      tok.children = tok.children.map((child) =>
+        child.type === "html_inline" && BR_RE.test(child.content)
+          ? new state.Token("hardbreak", "br", 0)
+          : child,
+      );
+    }
+  });
+}
+
 /** Serialize a table cell's blocks to a single inline string (marks kept),
- * safe to drop into a `| … |` row. Reuses the full serializer at call time. */
+ * safe to drop into a `| … |` row. Line structure — multiple blocks or hard
+ * breaks — is preserved as `<br>` (GitHub's idiom for multi-line cells) and
+ * parsed back to hard breaks. Reuses the full serializer at call time. */
 function cellToInline(cell: Node): string {
   if (cell.content.size === 0) return "";
   const md = serializer.serialize(schema.node("doc", null, cell.content), {
     tightLists: true,
   });
-  return md.trim().replace(/\n+/g, " ").replace(/\|/g, "\\|");
+  return md
+    .trim()
+    .replace(/\\\n/g, "\n") // a serialized hardBreak is "\<newline>"
+    .replace(/\n+/g, "<br>")
+    .replace(/\|/g, "\\|");
+}
+
+/** Serialize a node's inline content to markdown (marks kept), one line. */
+function inlineToMarkdown(node: Node): string {
+  if (node.content.size === 0) return "";
+  const md = serializer.serialize(
+    schema.node("doc", null, schema.node("paragraph", null, node.content)),
+    { tightLists: true },
+  );
+  return md.trim().replace(/\s*\n+\s*/g, " ");
 }
 
 // Serializer keyed to TipTap StarterKit node/mark names. We reuse the default
@@ -462,8 +501,11 @@ const serializer = new MarkdownSerializer(
     },
     // Collapsible section as standard <details> HTML (portable, foldable on
     // GitHub). Blank lines around the body let markdown-it parse it as markdown.
+    // The summary is written as HTML-escaped *markdown* (not flattened text),
+    // so bold/links/code in a summary survive the round trip — the parser
+    // re-reads it with parseInline.
     toggle(state, node) {
-      const summary = node.child(0).textContent;
+      const summary = inlineToMarkdown(node.child(0));
       state.write("<details>\n");
       state.write(`<summary>${escHtml(summary)}</summary>\n\n`);
       state.renderContent(node.child(1));
@@ -517,7 +559,8 @@ const parser = new MarkdownParser(
     .use(tableTokensPlugin)
     .use(pageRefPlugin)
     .use(calloutPlugin)
-    .use(detailsPlugin),
+    .use(detailsPlugin)
+    .use(brPlugin),
   {
   blockquote: { block: "blockquote" },
   callout: {
