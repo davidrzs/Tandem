@@ -2,7 +2,7 @@ import { HocuspocusProvider, type HocuspocusProviderConfiguration } from "@hocus
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import Link from "@tiptap/extension-link";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import Placeholder from "@tiptap/extension-placeholder";
 import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
@@ -35,6 +35,9 @@ import { authorColor, authorKey } from "./colors.js";
 import { ClientImage } from "./image-node.js";
 import { ClientCallout } from "./callout-node.js";
 import { ClientToggle } from "./toggle-node.js";
+import { createCodeBlock } from "./code-block-node.js";
+import { Find } from "./find.js";
+import { FindBar } from "./FindBar.js";
 import { Icon } from "./Icon.js";
 import { createMentionExtension, type MentionCandidate } from "./mention.js";
 import { createMentionHighlight, mentionHighlightKey } from "./mention-highlight.js";
@@ -235,6 +238,13 @@ export function Editor({
   const [rail, setRail] = useState<null | "comments" | "history">(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  // Find-in-document; the editor keymap opens it through a ref because
+  // editorProps are captured once at editor creation.
+  const [findOpen, setFindOpen] = useState(false);
+  const openFindRef = useRef<() => void>();
+  openFindRef.current = () => setFindOpen(true);
+  // Link bubble state: null = closed, string = draft href being edited.
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
   // The decoration plugin reads anchors/active through refs (created once).
   const anchorsRef = useRef<CommentAnchor[]>([]);
   const activeCommentRef = useRef<string | null>(null);
@@ -252,8 +262,13 @@ export function Editor({
         // History is disabled — Collaboration manages undo via Yjs. Code blocks
         // come from CodeBlockLowlight (syntax highlighting) instead of StarterKit.
         StarterKit.configure({ history: false, codeBlock: false }),
-        CodeBlockLowlight.configure({ lowlight }),
+        createCodeBlock(lowlight),
         Link.configure({ openOnClick: false }),
+        // A hint only while the document is empty — not on every blank line.
+        Placeholder.configure({
+          placeholder: ({ editor }) => (editor.isEmpty ? "Write, or type / for commands…" : ""),
+        }),
+        Find,
         ClientImage,
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -277,6 +292,16 @@ export function Editor({
         createCommentsExtension(ydoc, () => anchorsRef.current, () => activeCommentRef.current),
       ],
       editorProps: {
+        handleKeyDown(_view, event) {
+          // Mod+F finds within the document (the browser's find can't see
+          // into collapsed toggles or track live edits).
+          if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "f") {
+            event.preventDefault();
+            openFindRef.current?.();
+            return true;
+          }
+          return false;
+        },
         handlePaste(view, event) {
           const files = imageFiles(event.clipboardData?.files);
           if (!view.editable || files.length === 0) return false;
@@ -511,16 +536,117 @@ export function Editor({
       {editor && (
         <BubbleMenu
           editor={editor}
-          pluginKey="commentMenu"
-          tippyOptions={{ placement: "top" }}
+          pluginKey="formatMenu"
+          tippyOptions={{ placement: "top", onHidden: () => setLinkDraft(null) }}
           shouldShow={({ editor, state }) =>
-            previewId === null && !state.selection.empty && !editor.isActive("table")
+            previewId === null &&
+            !editor.isActive("table") &&
+            (!state.selection.empty || (canEdit && editor.isActive("link")))
           }
         >
-          <button className="bubble-btn" onClick={startComment}>
-            <Icon name="comment" size={13} />
-            Comment
-          </button>
+          {linkDraft !== null && canEdit ? (
+            <form
+              className="bubble-group"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const href = linkDraft.trim();
+                if (href) {
+                  editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+                } else {
+                  editor.chain().focus().extendMarkRange("link").unsetLink().run();
+                }
+                setLinkDraft(null);
+              }}
+            >
+              <input
+                className="bubble-input"
+                value={linkDraft}
+                placeholder="https://…"
+                autoFocus
+                onChange={(e) => setLinkDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setLinkDraft(null);
+                    editor.chain().focus().run();
+                  }
+                }}
+              />
+              <button className="bubble-btn" type="submit">
+                Apply
+              </button>
+              {editor.isActive("link") && (
+                <button
+                  className="bubble-btn danger"
+                  type="button"
+                  onClick={() => {
+                    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+                    setLinkDraft(null);
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </form>
+          ) : (
+            <div className="bubble-group">
+              {canEdit && !editor.isActive("codeBlock") && (
+                <>
+                  <button
+                    className={"bubble-btn" + (editor.isActive("bold") ? " active" : "")}
+                    title="Bold (Mod+B)"
+                    aria-label="Bold"
+                    onClick={() => editor.chain().focus().toggleBold().run()}
+                  >
+                    <strong>B</strong>
+                  </button>
+                  <button
+                    className={"bubble-btn" + (editor.isActive("italic") ? " active" : "")}
+                    title="Italic (Mod+I)"
+                    aria-label="Italic"
+                    onClick={() => editor.chain().focus().toggleItalic().run()}
+                  >
+                    <em>I</em>
+                  </button>
+                  <button
+                    className={"bubble-btn" + (editor.isActive("strike") ? " active" : "")}
+                    title="Strikethrough"
+                    aria-label="Strikethrough"
+                    onClick={() => editor.chain().focus().toggleStrike().run()}
+                  >
+                    <s>S</s>
+                  </button>
+                  <button
+                    className={"bubble-btn" + (editor.isActive("code") ? " active" : "")}
+                    title="Inline code"
+                    aria-label="Inline code"
+                    onClick={() => editor.chain().focus().toggleCode().run()}
+                  >
+                    <code>{"<>"}</code>
+                  </button>
+                  <button
+                    className={"bubble-btn" + (editor.isActive("link") ? " active" : "")}
+                    title={editor.isActive("link") ? "Edit link" : "Add link"}
+                    aria-label={editor.isActive("link") ? "Edit link" : "Add link"}
+                    onClick={() =>
+                      setLinkDraft(String(editor.getAttributes("link").href ?? ""))
+                    }
+                  >
+                    Link
+                  </button>
+                </>
+              )}
+              {!editor.state.selection.empty && (
+                <>
+                  {canEdit && <span className="bubble-divider" />}
+                  <button className="bubble-btn" onClick={startComment}>
+                    <Icon name="comment" size={13} />
+                    Comment
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </BubbleMenu>
       )}
       {editor && canEdit && (
@@ -541,6 +667,15 @@ export function Editor({
       )}
       <TocRail editor={editor} hidden={rail !== null || previewId !== null || wide} />
       <div className={"editor" + (wide ? " wide" : "")}>
+      {findOpen && editor && (
+        <FindBar
+          editor={editor}
+          onClose={() => {
+            setFindOpen(false);
+            editor.commands.focus();
+          }}
+        />
+      )}
       <div className="editor-tools">
         {!canEdit && <span className="save-state">Read only</span>}
         <span className={`save-state status-${status.tone}`}>
@@ -553,6 +688,14 @@ export function Editor({
         >
           <Icon name="comment" size={15} />
           Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
+        </button>
+        <button
+          className={"tool-btn" + (findOpen ? " active" : "")}
+          title="Find in document (Mod+F)"
+          onClick={() => setFindOpen((f) => !f)}
+        >
+          <Icon name="search" size={15} />
+          Find
         </button>
         <button
           className={"tool-btn" + (wide ? " active" : "")}

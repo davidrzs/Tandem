@@ -45,6 +45,18 @@ function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) 
       {editor.isEditable && (
         <span className="img-resize-handle" onPointerDown={startResize} />
       )}
+      {editor.isEditable && selected && (
+        // Alt text is document content (accessibility + markdown ![alt]) —
+        // editable only while the image is selected, so it stays out of the way.
+        <input
+          className="img-alt-input"
+          value={alt ?? ""}
+          placeholder="Describe this image (alt text)"
+          aria-label="Image alt text"
+          onChange={(e) => updateAttributes({ alt: e.target.value || null })}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
     </NodeViewWrapper>
   );
 }

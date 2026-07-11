@@ -25,13 +25,18 @@ export function SettingsModal({
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId },
   );
+  // The switch is backed by LOCAL state, seeded from the query: React state
+  // set inside the click handler flushes synchronously, so the checkbox never
+  // visibly snaps back while the round trip is in flight. (Driving it from the
+  // query cache reverts the native flip for a microtask — a real dropped-click
+  // window for fast users and automation.)
+  const [localEnabled, setLocalEnabled] = useState<boolean | null>(null);
   const setMcp = trpc.settings.setMcpEnabled.useMutation({
-    // Optimistic: the switch flips instantly; the refetch reconciles.
-    onMutate: ({ enabled }) => {
-      utils.settings.get.setData(undefined, { mcpEnabled: enabled });
-    },
     onSettled: () => utils.settings.get.invalidate(),
-    onError: (e) => setError(friendlyError(e)),
+    onError: (e, vars) => {
+      setLocalEnabled(!vars.enabled);
+      setError(friendlyError(e));
+    },
   });
 
   const [importing, setImporting] = useState(false);
@@ -68,19 +73,31 @@ export function SettingsModal({
     }
   };
 
-  const enabled = settings.data?.mcpEnabled ?? true;
+  const enabled = localEnabled ?? settings.data?.mcpEnabled ?? true;
   const endpoint = `${window.location.origin}/mcp`;
 
   return (
     <Modal title="Settings" onClose={onClose} wide>
       <h3>AI access (MCP)</h3>
-      <label className="switch-row">
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={settings.isLoading || setMcp.isPending}
-          onChange={(e) => setMcp.mutate({ enabled: e.target.checked })}
-        />
+      <div className="switch-row">
+        {/* A button-backed switch: unlike a controlled checkbox, a button has
+            no native checked state for React to revert mid-render, so a click
+            can never be silently dropped. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          className="switch-btn"
+          disabled={settings.isLoading}
+          aria-label="Allow AI agents to act as me"
+          onClick={() => {
+            const next = !enabled;
+            setLocalEnabled(next);
+            setMcp.mutate({ enabled: next });
+          }}
+        >
+          <span className="switch-thumb" />
+        </button>
         <span>
           <strong>Allow AI agents to act as me</strong>
           <span className="switch-hint">
@@ -88,7 +105,7 @@ export function SettingsModal({
             agent edit is attributed to "your name's AI" in document history.
           </span>
         </span>
-      </label>
+      </div>
 
       <h3>Connect an agent</h3>
       <ol className="connect-steps">

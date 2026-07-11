@@ -19,7 +19,7 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "Note")
  * component state and never written to the document, so folding one to read it
  * creates no edit and no blame.
  */
-function CalloutView({ node }: NodeViewProps) {
+function CalloutView({ node, editor, updateAttributes }: NodeViewProps) {
   const type = String(node.attrs.type ?? "note");
   const collapsible = Boolean(node.attrs.collapsible);
   const [open, setOpen] = useState(!node.attrs.collapsed);
@@ -29,7 +29,25 @@ function CalloutView({ node }: NodeViewProps) {
     <NodeViewWrapper className={`callout callout-${known ? type : "neutral"}`}>
       <div className="callout-head" contentEditable={false}>
         <Icon name={ICON[type] ?? "info"} size={15} />
-        <span className="callout-label">{cap(type)}</span>
+        {editor.isEditable ? (
+          // The flavor is a document attribute (`> [!type]` in markdown), so
+          // changing it is a real, attributed edit — unlike folding.
+          <select
+            className="callout-type"
+            value={type}
+            aria-label="Callout type"
+            onChange={(e) => updateAttributes({ type: e.target.value })}
+          >
+            {KNOWN.map((t) => (
+              <option key={t} value={t}>
+                {cap(t)}
+              </option>
+            ))}
+            {!known && <option value={type}>{cap(type)}</option>}
+          </select>
+        ) : (
+          <span className="callout-label">{cap(type)}</span>
+        )}
         {collapsible && (
           <button
             type="button"

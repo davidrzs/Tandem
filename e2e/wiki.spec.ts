@@ -220,17 +220,18 @@ test.describe.serial("wiki journey", () => {
     const dialog = page.getByRole("dialog", { name: "Settings" });
     await expect(dialog.getByText("Allow AI agents to act as me")).toBeVisible();
     await expect(dialog.locator("code.copyable")).toContainText("/mcp");
-    await expect(dialog.getByText("No agent actions recorded yet.")).toBeVisible();
-    const toggle = dialog.locator(".switch-row input");
-    // The checkbox is disabled until settings.get resolves — wait, or the
-    // click is dropped ("did not change its state").
+    await expect(dialog.getByText("No activity recorded yet.")).toBeVisible();
+    const toggle = dialog.getByRole("switch", { name: "Allow AI agents to act as me" });
+    // The switch is disabled until settings.get resolves.
     await expect(toggle).toBeEnabled();
-    await toggle.uncheck();
+    await toggle.click();
     await expect(toggle).not.toBeChecked();
     // The choice persists across a reload.
     await page.reload();
     await page.getByRole("button", { name: "Settings" }).click();
-    await expect(page.getByRole("dialog", { name: "Settings" }).locator(".switch-row input")).not.toBeChecked();
+    await expect(
+      page.getByRole("switch", { name: "Allow AI agents to act as me" }),
+    ).not.toBeChecked();
   });
 });
 
@@ -302,7 +303,7 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
 
   // --- comments sync live over the collab channel ---
   await carol.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
-  await carol.locator(".bubble-btn").click();
+  await carol.locator(".bubble-btn", { hasText: "Comment" }).click();
   await carol.locator(".comment-composer textarea").fill("Can we cite this?");
   await carol.locator(".comment-composer").getByRole("button", { name: "Comment" }).click();
   // Dave has the doc open read-only; the thread appears without any reload.
@@ -383,7 +384,7 @@ test("comments: select text, discuss, reply, resolve", async ({ page }) => {
 
   // Select a word -> bubble -> comment.
   await page.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
-  await page.locator(".bubble-btn").click();
+  await page.locator(".bubble-btn", { hasText: "Comment" }).click();
   const composer = page.locator(".comment-composer textarea");
   await composer.fill("Please expand this before Friday.");
   await page.locator(".comment-composer").getByRole("button", { name: "Comment" }).click();

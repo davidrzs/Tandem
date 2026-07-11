@@ -385,12 +385,17 @@ One commit per phase, suites green per step.
 - [x] Comment writes ping live clients (notify wiring for MCP path; MCP renames ping meta)
 
 ### Phase D — editor UX
-- [ ] Formatting bubble menu (bold/italic/strike/code/link + comment)
-- [ ] Link add/edit/remove popover
-- [ ] Placeholder ("Type / for commands")
-- [ ] Code block: language label/picker + copy button
-- [ ] Callout type picker; image alt-text editing
-- [ ] Find in document (basic)
+- [x] Formatting bubble menu (bold/italic/strike/code/link + comment)
+- [x] Link add/edit/remove popover
+- [x] Placeholder ("Type / for commands")
+- [x] Code block: language label/picker + copy button
+- [x] Callout type picker; image alt-text editing
+- [x] Find in document (basic)
+
+### Phase D addenda (found while verifying)
+- [x] Modal entrance keyframe dropped translateX(-50%): every dialog slid in ~290px (jank + missed clicks)
+- [x] MCP kill switch: controlled-checkbox revert window dropped clicks; now a role=switch button with local state
+- [ ] Residual rare flake in "second account" e2e (~1/7): switch briefly disabled+reverted right after modal open — suspect session-flash remount or server stall; revisit with myTodos fix
 
 ### Phase E — app shell
 - [ ] Toast system + wire copy/mutation feedback
