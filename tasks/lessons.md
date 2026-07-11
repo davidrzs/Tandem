@@ -61,3 +61,38 @@ The TaskItem input rule is `[ ] ` at line start ("- " first creates a bullet
 list, inside which the marker stays literal). The markdown parser handles
 `- [ ]` on import; in the editor, users type `[ ] ` or use the `/to-do` slash
 command. Worth remembering when writing docs/tests.
+
+## A CSS keyframe transform REPLACES the element's own transform
+`.modal` centred with `transform: translateX(-50%)` + an entrance animation
+whose `from` frame only set `translateY/scale` made every dialog slide in
+~290px from the right: during the animation the element's base transform is
+gone. Keyframes on positioned elements must repeat the positioning transform
+in every frame. (This was also the root cause of "clicks near dialog-open get
+dropped" e2e flakes — Playwright aimed at pre-slide coordinates.)
+
+## Fastify + tRPC batching needs maxParamLength
+fastifyTRPCPlugin routes `/trpc/:path` where `:path` is every batched
+procedure name comma-joined. Fastify's default maxParamLength is 100; the
+moment a page batches enough queries the whole batch 404s (and react-query's
+retries make the app feel broken/slow). Set `maxParamLength: 5000` on the
+Fastify instance. Symptom to remember: 404s on /trpc URLs answered in <1ms.
+
+## Controlled checkboxes can silently drop clicks
+A checkbox whose `checked` comes from async state (react-query cache) reverts
+the native flip synchronously and re-applies it a microtask later — automation
+and fast users hit the revert window and the click is lost. Prefer a
+`role="switch"` button + local state set inside the click handler (flushed
+synchronously); disable it while the save is in flight so a reload can't race
+persistence.
+
+## Keyed-editor swap: don't type into the old instance (e2e)
+After navigating between documents, `.title-input` still resolves to the OLD
+doc's input until React swaps the keyed Editor. A fill() in that window
+renames the wrong document (server logs proved it: the mutation carried the
+old doc's id). Before typing into a swap-sensitive field, assert its expected
+value first (`toHaveValue("")` for a new doc).
+
+## Test users accumulate access across a shared-db test file
+core.test.ts shares one PGlite db; "u2"/"u3" join u1's workspace in earlier
+tests. A later test needing an outsider must provision a FRESH user id, or
+RLS assertions pass/fail depending on test order (and -g isolation lies).

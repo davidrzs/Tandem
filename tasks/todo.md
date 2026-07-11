@@ -422,3 +422,13 @@ One commit per phase, suites green per step.
 ### Known-flaky (pre-existing, verified at baseline 6dcdebc)
 - apps/web/e2e search spec fails ~50% under the full shared-vite suite on this
   machine; passes alone and at baseline shows the same failure rate.
+
+### Review — gap-closing build-out (2026-07-11)
+Twelve commits, suites green at every step (unit/integration 136 tests, both
+e2e suites, typecheck, lint, build). Fixed along the way, beyond the plan:
+modal slide-in keyframe bug, MCP-switch dropped clicks, tRPC batch 404
+(maxParamLength), title-swap e2e race, title staleness. Deliberately NOT done
+(product decisions): public share links, PATs, webhooks, embeds/mermaid,
+i18n/RTL, S3 storage, templates beyond duplicate, collection icons/doc emoji
+(schema columns already exist), compiled-server image, release publishing,
+metrics endpoint.
