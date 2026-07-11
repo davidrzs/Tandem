@@ -48,8 +48,7 @@ const DEFAULTS: InstanceSettingsView = {
  */
 export class InstanceService {
   constructor(
-    private readonly db: Database,
-    private readonly actor: Actor = SYSTEM,
+    private readonly db: Database,readonly _actor: Actor = SYSTEM,
   ) {}
 
   private system<T>(fn: (db: Database) => Promise<T>): Promise<T> {

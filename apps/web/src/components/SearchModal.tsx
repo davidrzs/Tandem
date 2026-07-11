@@ -109,7 +109,7 @@ export function SearchModal({
         {hits.length > 0 && (
           <div className="search-results">
             {hits.map((hit, i) => (
-              <button
+              <button type="button"
                 key={hit.id}
                 className={"search-hit" + (i === selected ? " selected" : "")}
                 onMouseEnter={() => setSelected(i)}

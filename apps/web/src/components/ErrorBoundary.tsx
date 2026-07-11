@@ -30,10 +30,10 @@ export class ErrorBoundary extends Component<Props, State> {
             or reload the page if it keeps happening.
           </p>
           <div className="error-actions">
-            <button className="btn" onClick={() => this.setState({ error: null })}>
+            <button type="button" className="btn" onClick={() => this.setState({ error: null })}>
               Try again
             </button>
-            <button className="btn" onClick={() => window.location.reload()}>
+            <button type="button" className="btn" onClick={() => window.location.reload()}>
               Reload
             </button>
           </div>

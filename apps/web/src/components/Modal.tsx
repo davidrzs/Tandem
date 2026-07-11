@@ -30,7 +30,7 @@ export function Modal({
               <h2>{title}</h2>
             </Dialog.Title>
             <Dialog.Close asChild>
-              <button className="modal-close" title="Close" aria-label="Close">
+              <button type="button" className="modal-close" title="Close" aria-label="Close">
                 <Icon name="close" />
               </button>
             </Dialog.Close>
@@ -115,10 +115,10 @@ export function ConfirmDialog({
     <Modal title={title} onClose={onClose}>
       <p className="dialog-body">{body}</p>
       <div className="dialog-actions">
-        <button className="btn" onClick={onClose} autoFocus>
+        <button type="button" className="btn" onClick={onClose} autoFocus>
           Cancel
         </button>
-        <button
+        <button type="button"
           className="btn danger"
           onClick={() => {
             onClose();
@@ -153,7 +153,7 @@ export function RowMenu({
       <DropdownMenu.Trigger asChild>
         {/* preventDefault marks the event handled so an enclosing router
             <Link> skips navigation; Radix toggles on pointerdown, unaffected. */}
-        <button
+        <button type="button"
           className="row-action"
           title={title}
           aria-label={title}

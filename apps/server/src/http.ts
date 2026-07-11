@@ -83,7 +83,12 @@ export async function buildHttpServer(
   const auth = createAuth(db, mailer);
   // Hocuspocus builds actor-scoped services per connection from the db.
   const hocuspocus = createHocuspocus(db, auth);
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+  const app = Fastify({
+    logger: { level: process.env.LOG_LEVEL ?? "info" },
+    // tRPC batches procedures into one path segment; the 100-char default
+    // 404s any page that batches more than a handful of queries.
+    maxParamLength: 5000,
+  });
 
   await app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
@@ -180,7 +185,9 @@ export async function buildHttpServer(
   };
   const sendWebResponse = async (reply: FastifyReply, response: Response) => {
     reply.status(response.status);
-    response.headers.forEach((value, key) => reply.header(key, value));
+    response.headers.forEach((value, key) => {
+      reply.header(key, value);
+    });
     return reply.send(response.body ? await response.text() : null);
   };
 

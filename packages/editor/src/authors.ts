@@ -55,7 +55,9 @@ export function stampAuthor(doc: Y.Doc, clientId: number, author: AuthorInfo): v
 /** All known session authors of a doc, keyed by clientID. */
 export function getAuthors(doc: Y.Doc): Map<number, AuthorInfo> {
   const out = new Map<number, AuthorInfo>();
-  authorsMap(doc).forEach((info, key) => out.set(Number(key), info));
+  authorsMap(doc).forEach((info, key) => {
+    out.set(Number(key), info);
+  });
   return out;
 }
 

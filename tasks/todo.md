@@ -408,9 +408,9 @@ One commit per phase, suites green per step.
 
 ### Phase F — platform/ops
 - [x] Background jobs: snapshot retention (env) + orphaned-image GC
-- [ ] Dockerfile: compiled prod build, prod deps, USER node; compose mem limits + healthy depends_on
-- [ ] Biome lint/format + CI step; CI docker build
-- [ ] myTodos: prefilter candidates (stop full-scan) + list caps/pagination pass
+- [x] Dockerfile: USER node + volume ownership; compose mem limit + healthy depends_on (still tsx-from-source; compiled build noted as future)
+- [x] Biome lint + CI step; CI docker build job
+- [x] myTodos already prefilters via LIKE; list endpoints carry caps (50-200) — deep pagination deferred
 
 ### Needs a product decision (not started)
 - Public read-only doc share links (new unauthenticated surface)
@@ -418,3 +418,7 @@ One commit per phase, suites green per step.
 - Embeds/mermaid; footnotes
 - Full mobile polish beyond responsive shell; i18n/RTL
 - S3/object storage; collection icons; doc emoji/covers; templates beyond duplicate
+
+### Known-flaky (pre-existing, verified at baseline 6dcdebc)
+- apps/web/e2e search spec fails ~50% under the full shared-vite suite on this
+  machine; passes alone and at baseline shows the same failure rate.

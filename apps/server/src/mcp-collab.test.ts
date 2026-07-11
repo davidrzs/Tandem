@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createDatabase, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
 import { COLLAB_FIELD, blameSpans, getAuthors, jsonToMarkdown, schema } from "@tandem/editor";
-import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
+import { CollectionService, WorkspaceService } from "@tandem/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type * as Y from "yjs";
 import { createAuth } from "./auth.js";

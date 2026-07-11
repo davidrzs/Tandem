@@ -430,6 +430,9 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
     await wikiRow.hover();
     await page.getByTitle("New document").first().click();
     await expect(page).not.toHaveURL(before);
+    // The editor is keyed by docId: wait for the NEW (empty) title input to
+    // replace the old doc's before typing, or the fill renames the old doc.
+    await expect(page.locator(".title-input")).toHaveValue("");
     await page.locator(".title-input").fill(title);
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
     return page.url();
@@ -451,6 +454,7 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   await expect(page).toHaveURL(urlB);
 
   // Rename the target -> the reference shows the new title (live, no edit).
+  await expect(page.locator(".title-input")).toHaveValue("Beta results");
   await page.locator(".title-input").fill("Beta results v2");
   await page.waitForTimeout(800); // title save debounce
   await page.locator(".doc-row", { hasText: "Alpha notes" }).click();

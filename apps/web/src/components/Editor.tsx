@@ -639,7 +639,7 @@ export function Editor({
             <div className="bubble-group">
               {canEdit && !editor.isActive("codeBlock") && (
                 <>
-                  <button
+                  <button type="button"
                     className={"bubble-btn" + (editor.isActive("bold") ? " active" : "")}
                     title="Bold (Mod+B)"
                     aria-label="Bold"
@@ -647,7 +647,7 @@ export function Editor({
                   >
                     <strong>B</strong>
                   </button>
-                  <button
+                  <button type="button"
                     className={"bubble-btn" + (editor.isActive("italic") ? " active" : "")}
                     title="Italic (Mod+I)"
                     aria-label="Italic"
@@ -655,7 +655,7 @@ export function Editor({
                   >
                     <em>I</em>
                   </button>
-                  <button
+                  <button type="button"
                     className={"bubble-btn" + (editor.isActive("strike") ? " active" : "")}
                     title="Strikethrough"
                     aria-label="Strikethrough"
@@ -663,7 +663,7 @@ export function Editor({
                   >
                     <s>S</s>
                   </button>
-                  <button
+                  <button type="button"
                     className={"bubble-btn" + (editor.isActive("code") ? " active" : "")}
                     title="Inline code"
                     aria-label="Inline code"
@@ -671,7 +671,7 @@ export function Editor({
                   >
                     <code>{"<>"}</code>
                   </button>
-                  <button
+                  <button type="button"
                     className={"bubble-btn" + (editor.isActive("link") ? " active" : "")}
                     title={editor.isActive("link") ? "Edit link" : "Add link"}
                     aria-label={editor.isActive("link") ? "Edit link" : "Add link"}
@@ -686,7 +686,7 @@ export function Editor({
               {!editor.state.selection.empty && (
                 <>
                   {canEdit && <span className="bubble-divider" />}
-                  <button className="bubble-btn" onClick={startComment}>
+                  <button type="button" className="bubble-btn" onClick={startComment}>
                     <Icon name="comment" size={13} />
                     Comment
                   </button>
@@ -704,11 +704,11 @@ export function Editor({
           shouldShow={({ editor }) => previewId === null && editor.isActive("table")}
         >
           <div className="bubble-group">
-            <button className="bubble-btn" title="Insert row below" onClick={() => editor.chain().focus().addRowAfter().run()}>+ Row</button>
-            <button className="bubble-btn" title="Insert column right" onClick={() => editor.chain().focus().addColumnAfter().run()}>+ Col</button>
-            <button className="bubble-btn" title="Delete row" onClick={() => editor.chain().focus().deleteRow().run()}>− Row</button>
-            <button className="bubble-btn" title="Delete column" onClick={() => editor.chain().focus().deleteColumn().run()}>− Col</button>
-            <button className="bubble-btn danger" title="Delete table" onClick={() => editor.chain().focus().deleteTable().run()}>Delete</button>
+            <button type="button" className="bubble-btn" title="Insert row below" onClick={() => editor.chain().focus().addRowAfter().run()}>+ Row</button>
+            <button type="button" className="bubble-btn" title="Insert column right" onClick={() => editor.chain().focus().addColumnAfter().run()}>+ Col</button>
+            <button type="button" className="bubble-btn" title="Delete row" onClick={() => editor.chain().focus().deleteRow().run()}>− Row</button>
+            <button type="button" className="bubble-btn" title="Delete column" onClick={() => editor.chain().focus().deleteColumn().run()}>− Col</button>
+            <button type="button" className="bubble-btn danger" title="Delete table" onClick={() => editor.chain().focus().deleteTable().run()}>Delete</button>
           </div>
         </BubbleMenu>
       )}
@@ -728,7 +728,7 @@ export function Editor({
         <span className={`save-state status-${status.tone}`}>
           <span className="status-dot" /> {status.label}
         </span>
-        <button
+        <button type="button"
           className={"tool-btn" + (rail === "comments" ? " active" : "")}
           title="Show comments"
           onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
@@ -736,7 +736,7 @@ export function Editor({
           <Icon name="comment" size={15} />
           Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
         </button>
-        <button
+        <button type="button"
           className={"tool-btn" + (findOpen ? " active" : "")}
           title="Find in document (Mod+F)"
           onClick={() => setFindOpen((f) => !f)}
@@ -744,14 +744,14 @@ export function Editor({
           <Icon name="search" size={15} />
           Find
         </button>
-        <button
+        <button type="button"
           className={"tool-btn" + (wide ? " active" : "")}
           title="Toggle full-width layout"
           onClick={() => setWide((w) => !w)}
         >
           Full width
         </button>
-        <button
+        <button type="button"
           className={"tool-btn" + (blameOn ? " active" : "")}
           title="Edit history: who wrote each part, and when"
           onClick={() => {
@@ -850,7 +850,7 @@ export function Editor({
           </span>
           <span className="preview-actions">
             {canEdit && (
-              <button
+              <button type="button"
                 className="btn primary"
                 disabled={restore.isPending || !preview.data}
                 onClick={() => restore.mutate({ id: previewId })}
@@ -858,7 +858,7 @@ export function Editor({
                 {restore.isPending ? "Restoring…" : "Restore this version"}
               </button>
             )}
-            <button className="btn" onClick={() => setPreviewId(null)}>
+            <button type="button" className="btn" onClick={() => setPreviewId(null)}>
               Back to now
             </button>
           </span>
@@ -866,6 +866,7 @@ export function Editor({
       )}
       {/* Keep the live editor mounted (its collaboration binding survives) but
           hidden while previewing a version. */}
+      {/* biome-ignore lint/a11y/useKeyWithMouseEvents: the blame hover card is a pointer affordance; keyboard users read authorship in the History rail */}
       <div
         className={previewId !== null ? "hidden-editor" : ""}
         onMouseOver={onMouseOver}

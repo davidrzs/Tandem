@@ -471,7 +471,9 @@ const serializer = new MarkdownSerializer(
       const rows: string[][] = [];
       node.forEach((row) => {
         const cells: string[] = [];
-        row.forEach((cell) => cells.push(cellToInline(cell)));
+        row.forEach((cell) => {
+          cells.push(cellToInline(cell));
+        });
         rows.push(cells);
       });
       if (rows.length === 0) {

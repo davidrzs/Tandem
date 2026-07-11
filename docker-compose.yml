@@ -8,6 +8,9 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # A runaway process degrades, not takes down, the host. Hocuspocus holds
+    # open documents in memory — raise this if your instance is very busy.
+    mem_limit: 1g
     expose:
       - "3001"
     environment:
@@ -43,7 +46,8 @@ services:
     image: caddy:2
     restart: unless-stopped
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"

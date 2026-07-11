@@ -180,7 +180,7 @@ test("a <br> outside a table also becomes a hard break (not silently dropped)", 
 test("an empty table cell round-trips as an empty column", () => {
   const md = "| A | B |\n| --- | --- |\n| x |  |";
   const out = normalizeMarkdown(md);
-  assert.match(out, /\| x \|  \|/, "empty cell preserved");
+  assert.match(out, /\| x \| {2}\|/, "empty cell preserved");
   assert.equal(normalizeMarkdown(out), out, "idempotent");
 });
 

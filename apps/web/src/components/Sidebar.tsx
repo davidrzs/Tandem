@@ -160,24 +160,24 @@ export function Sidebar({
           <Icon name="home" />
           Home
         </Link>
-        <button className="nav-row" onClick={onOpenSearch}>
+        <button type="button" className="nav-row" onClick={onOpenSearch}>
           <Icon name="search" />
           Search
           <kbd>⌘K</kbd>
         </button>
         <InboxNavRow onOpen={onOpenInbox} />
         {workspaceId && (
-          <button className="nav-row" onClick={onOpenPeople}>
+          <button type="button" className="nav-row" onClick={onOpenPeople}>
             <Icon name="users" />
             People &amp; groups
           </button>
         )}
-        <button className="nav-row" onClick={onOpenSettings}>
+        <button type="button" className="nav-row" onClick={onOpenSettings}>
           <Icon name="settings" />
           Settings
         </button>
         {user?.role === "admin" && (
-          <button className="nav-row" onClick={onOpenAdmin}>
+          <button type="button" className="nav-row" onClick={onOpenAdmin}>
             <Icon name="settings" />
             Admin
           </button>
@@ -189,7 +189,7 @@ export function Sidebar({
       <div className="section">
         <div className="section-title">
           <span>Collections</span>
-          <button className="row-action" title="New collection" aria-label="New collection" onClick={newCollection}>
+          <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={newCollection}>
             <Icon name="plus" />
           </button>
         </div>
@@ -232,7 +232,7 @@ export function Sidebar({
             <span className="user-email">{user.email}</span>
           </span>
           <ThemeToggle />
-          <button
+          <button type="button"
             className="row-action"
             title="Sign out" aria-label="Sign out"
             onClick={() => void authClient.signOut()}
@@ -264,7 +264,7 @@ function WorkspaceSwitcher({
     <div className="ws-switcher">
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
-          <button className="ws-button">
+          <button type="button" className="ws-button">
             <span className="ws-mark">{(active?.name ?? "…").slice(0, 1).toUpperCase()}</span>
             <span className="ws-name">{active?.name ?? "Select a workspace"}</span>
             <Icon name="chevron" className="ws-chevron" />
@@ -308,7 +308,7 @@ function InboxNavRow({ onOpen }: { onOpen: () => void }) {
   });
   const count = unread.data ?? 0;
   return (
-    <button className="nav-row" onClick={onOpen}>
+    <button type="button" className="nav-row" onClick={onOpen}>
       <Icon name="bell" />
       Inbox
       {count > 0 && <span className="nav-badge">{count > 99 ? "99+" : count}</span>}
@@ -322,7 +322,7 @@ function ThemeToggle() {
   const [theme, setThemeState] = useState<ThemeChoice>(() => effectiveTheme());
   const next = theme === "dark" ? "light" : "dark";
   return (
-    <button
+    <button type="button"
       className="row-action"
       title={`Switch to ${next} mode`}
       aria-label={`Switch to ${next} mode`}
@@ -490,13 +490,13 @@ function CollectionSection({
   return (
     <div className="collection">
       <div className={"collection-row" + (expanded ? " open" : "")}>
-        <button className="collection-name" onClick={onToggle}>
+        <button type="button" className="collection-name" onClick={onToggle}>
           <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
           <span className="collection-label">{collection.name}</span>
         </button>
         <span className="row-actions">
           {collection.writable && (
-            <button className="row-action" title="New document" aria-label="New document" onClick={() => void newDoc()}>
+            <button type="button" className="row-action" title="New document" aria-label="New document" onClick={() => void newDoc()}>
               <Icon name="plus" />
             </button>
           )}
@@ -508,7 +508,7 @@ function CollectionSection({
           {tree.error && (
             <div className="side-note">
               Couldn't load documents.{" "}
-              <button className="side-link" onClick={() => void tree.refetch()}>
+              <button type="button" className="side-link" onClick={() => void tree.refetch()}>
                 Retry
               </button>
             </div>
@@ -532,7 +532,7 @@ function CollectionSection({
           </div>
           {(archived.data?.length ?? 0) > 0 && (
             <>
-              <button
+              <button type="button"
                 className="archived-toggle"
                 onClick={() => setShowArchived((s) => !s)}
               >
@@ -696,7 +696,7 @@ function DocRow({
         <span className="doc-title">{node.title || "Untitled"}</span>
         {writable && (
           <span className="row-actions">
-            <button
+            <button type="button"
               className="row-action"
               title="New sub-document" aria-label="New sub-document"
               onClick={(e) => {
@@ -792,7 +792,7 @@ function ArchivedRow({
       </Link>
       {writable && (
         <span className="row-actions">
-          <button
+          <button type="button"
             className="row-action"
             title="Restore" aria-label="Restore"
             onClick={() =>
@@ -804,7 +804,7 @@ function ArchivedRow({
           >
             <Icon name="restore" />
           </button>
-          <button
+          <button type="button"
             className="row-action"
             title="Delete permanently" aria-label="Delete permanently"
             onClick={() =>

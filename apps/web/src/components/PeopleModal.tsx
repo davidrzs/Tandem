@@ -73,7 +73,7 @@ export function PeopleModal({
           <option value="14">Expires in 14 days</option>
           <option value="">Never expires</option>
         </select>
-        <button
+        <button type="button"
           className="btn"
           disabled={createInvite.isPending}
           onClick={() =>
@@ -122,7 +122,7 @@ export function PeopleModal({
           value={newGroup}
           onChange={(e) => setNewGroup(e.target.value)}
         />
-        <button
+        <button type="button"
           className="btn"
           disabled={!newGroup.trim() || createGroup.isPending}
           onClick={() =>
@@ -183,7 +183,7 @@ function GroupRow({
   return (
     <div className="group-row">
       <div className="group-head">
-        <button className="group-name" onClick={() => setExpanded((e) => !e)}>
+        <button type="button" className="group-name" onClick={() => setExpanded((e) => !e)}>
           <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
           {name}
         </button>
@@ -212,7 +212,7 @@ function GroupRow({
           {(groupMembers.data ?? []).map((userId) => (
             <div key={userId} className="group-member">
               <span>{memberName(userId)}</span>
-              <button
+              <button type="button"
                 className="row-action"
                 title="Remove from group" aria-label="Remove from group"
                 onClick={() => void run(() => removeMember.mutateAsync({ groupId, userId }))}

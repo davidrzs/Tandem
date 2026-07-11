@@ -15,6 +15,10 @@ FROM base AS runtime
 ENV NODE_ENV=production
 ENV PORT=3001
 COPY --from=build /app /app
+# Never root: the app writes only UPLOADS_DIR. Creating it here (owned by
+# node) also seeds the named volume's ownership on first mount.
+RUN mkdir -p /data/uploads && chown -R node:node /data /app
+USER node
 EXPOSE 3001
 # Migrations run as a separate release step (see docker-compose `migrate`
 # service / DEPLOY.md), not on start — safe for multiple instances.

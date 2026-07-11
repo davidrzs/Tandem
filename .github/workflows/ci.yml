@@ -34,6 +34,9 @@ jobs:
           secret="$(openssl rand -base64 32)"
           sed -i "s|^BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=${secret}|" .env
 
+      - name: Lint
+        run: pnpm lint
+
       - name: Typecheck
         run: pnpm -r typecheck
 
@@ -65,3 +68,12 @@ jobs:
             /tmp/rt-vite.log
             /tmp/rt-migrate.log
           if-no-files-found: ignore
+
+  docker:
+    # The image self-hosters run: prove it still builds on every change.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t tandem:ci .

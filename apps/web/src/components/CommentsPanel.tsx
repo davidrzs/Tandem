@@ -60,7 +60,7 @@ export function CommentsPanel({
     <aside className="comments-panel">
       <div className="comments-head">
         <h2>Comments</h2>
-        <button className="row-action" title="Close comments" aria-label="Close comments" onClick={onClose}>
+        <button type="button" className="row-action" title="Close comments" aria-label="Close comments" onClick={onClose}>
           <Icon name="close" />
         </button>
       </div>
@@ -101,7 +101,7 @@ export function CommentsPanel({
       ))}
 
       {resolved.length > 0 && (
-        <button className="home-toggle" onClick={() => setShowResolved((s) => !s)}>
+        <button type="button" className="home-toggle" onClick={() => setShowResolved((s) => !s)}>
           {showResolved ? "Hide" : "Show"} {resolved.length} resolved
         </button>
       )}
@@ -158,7 +158,7 @@ function Thread({
     >
       <CommentBody comment={thread} mine={thread.authorId === meId} onDelete={onDelete}>
         {canResolve && (
-          <button
+          <button type="button"
             className="row-action"
             title={resolvedState ? "Reopen" : "Resolve"}
             aria-label={resolvedState ? "Reopen comment" : "Resolve comment"}
@@ -189,7 +189,7 @@ function Thread({
             onCancel={() => setReplying(false)}
           />
         ) : (
-          <button
+          <button type="button"
             className="comment-reply-btn"
             onClick={(e) => {
               e.stopPropagation();
@@ -228,7 +228,7 @@ function CommentBody({
         <span className="comment-actions">
           {children}
           {mine && (
-            <button
+            <button type="button"
               className="row-action"
               title="Delete comment" aria-label="Delete comment"
               onClick={(e) => {
@@ -284,10 +284,10 @@ function Composer({
         }}
       />
       <div className="dialog-actions">
-        <button className="btn" onClick={onCancel}>
+        <button type="button" className="btn" onClick={onCancel}>
           Cancel
         </button>
-        <button className="btn primary" disabled={!body.trim()} onClick={submit}>
+        <button type="button" className="btn primary" disabled={!body.trim()} onClick={submit}>
           {submitLabel}
         </button>
       </div>

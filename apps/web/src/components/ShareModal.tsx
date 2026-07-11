@@ -99,7 +99,7 @@ export function ShareModal({
                 <span className="grant-role">
                   {p.role === "read_write" ? "can edit" : "can view"}
                 </span>
-                <button
+                <button type="button"
                   className="row-action"
                   title="Revoke" aria-label="Revoke"
                   onClick={() =>
@@ -139,7 +139,7 @@ export function ShareModal({
               <option value="read">Can view</option>
               <option value="read_write">Can edit</option>
             </select>
-            <button
+            <button type="button"
               className="btn primary"
               disabled={!principal || grant.isPending}
               onClick={() => {

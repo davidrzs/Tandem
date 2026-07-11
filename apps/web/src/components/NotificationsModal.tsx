@@ -36,7 +36,7 @@ export function NotificationsModal({ onClose }: { onClose: () => void }) {
     onSuccess: () => utils.notifications.unreadCount.invalidate(),
   });
   useEffect(() => {
-    if (list.data && list.data.some((n) => !n.readAt)) markAll.mutate();
+    if (list.data?.some((n) => !n.readAt)) markAll.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.data]);
 

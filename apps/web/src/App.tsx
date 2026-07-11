@@ -95,7 +95,7 @@ export function App() {
       <div className="error-panel">
         <h2>Couldn't load your workspace</h2>
         <p className="error-detail">{friendlyError(failed.error, "Please try again.")}</p>
-        <button className="btn" onClick={() => void failed.refetch()}>
+        <button type="button" className="btn" onClick={() => void failed.refetch()}>
           Retry
         </button>
       </div>
@@ -115,7 +115,7 @@ export function App() {
 
   return (
     <div className="app">
-      <button
+      <button type="button"
         className="hamburger"
         aria-label="Open menu"
         onClick={() => setSidebarOpen(true)}

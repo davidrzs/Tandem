@@ -75,7 +75,7 @@ export function Home() {
       {todos.error && (
         <div className="error-panel inline">
           <p className="error-detail">{friendlyError(todos.error, "Couldn't load your tasks. Try again.")}</p>
-          <button className="btn" onClick={() => void todos.refetch()}>
+          <button type="button" className="btn" onClick={() => void todos.refetch()}>
             Retry
           </button>
         </div>
@@ -86,7 +86,7 @@ export function Home() {
       ))}
 
       {doneCount > 0 && (
-        <button className="home-toggle" onClick={() => setShowDone((s) => !s)}>
+        <button type="button" className="home-toggle" onClick={() => setShowDone((s) => !s)}>
           {showDone ? "Hide" : "Show"} {doneCount} completed
         </button>
       )}

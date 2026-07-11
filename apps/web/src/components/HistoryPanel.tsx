@@ -50,7 +50,7 @@ export function HistoryPanel({
     <aside className="comments-panel history-panel">
       <div className="comments-head">
         <h2>History</h2>
-        <button className="row-action" title="Close history" aria-label="Close history" onClick={onClose}>
+        <button type="button" className="row-action" title="Close history" aria-label="Close history" onClick={onClose}>
           <Icon name="close" />
         </button>
       </div>
@@ -60,7 +60,7 @@ export function HistoryPanel({
         <p className="comments-empty">No edits recorded yet.</p>
       ) : (
         <>
-          <button
+          <button type="button"
             className={"history-item" + (only === null ? " active" : "")}
             onClick={() => onSelect(null)}
           >
@@ -68,7 +68,7 @@ export function HistoryPanel({
             All sessions
           </button>
           {sessions.map((session) => (
-            <button
+            <button type="button"
               key={session.clientId}
               className={"history-item" + (only === session.clientId ? " active" : "")}
               onClick={() => onSelect(only === session.clientId ? null : session.clientId)}
@@ -90,7 +90,7 @@ export function HistoryPanel({
         </p>
       ) : (
         versions.map((v) => (
-          <button
+          <button type="button"
             key={v.id}
             className={"history-item version" + (previewingId === v.id ? " active" : "")}
             onClick={() => onPreview(v.id)}

@@ -111,10 +111,10 @@ export function TwoFactorSection() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <button className="btn" disabled={busy || !password} onClick={regenerate}>
+            <button type="button" className="btn" disabled={busy || !password} onClick={regenerate}>
               New backup codes
             </button>
-            <button className="btn danger" disabled={busy || !password} onClick={disable}>
+            <button type="button" className="btn danger" disabled={busy || !password} onClick={disable}>
               Turn off 2FA
             </button>
           </div>
@@ -132,7 +132,7 @@ export function TwoFactorSection() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <button className="btn" disabled={busy || !password} onClick={start}>
+            <button type="button" className="btn" disabled={busy || !password} onClick={start}>
               Set up 2FA
             </button>
           </div>
@@ -163,7 +163,7 @@ export function TwoFactorSection() {
               value={verifyCode}
               onChange={(e) => setVerifyCode(e.target.value)}
             />
-            <button className="btn primary" disabled={busy || !verifyCode.trim()} onClick={verify}>
+            <button type="button" className="btn primary" disabled={busy || !verifyCode.trim()} onClick={verify}>
               Confirm & enable
             </button>
           </div>

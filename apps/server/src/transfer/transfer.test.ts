@@ -92,7 +92,7 @@ test("export: Outline layout, front matter only when tagged, round-trips", async
   assert.ok(paths.some((p) => /Handbook\/uploads\/.*\/image\./.test(p)), "attachment beside the doc");
 
   const onboarding = strFromU8(entries["Handbook/Onboarding.md"]!);
-  assert.match(onboarding, /^---\ntags:\n  - intro\n---/, "tags emitted as front matter");
+  assert.match(onboarding, /^---\ntags:\n {2}- intro\n---/, "tags emitted as front matter");
   assert.match(onboarding, /# Onboarding/, "title as H1");
   assert.match(onboarding, /\]\(\.\/Onboarding\/Laptop%20setup\.md\)/, "internal link relative + encoded");
   assert.match(onboarding, /!\[pic\]\(uploads\/.*\/image\.png\)/, "image link relative");

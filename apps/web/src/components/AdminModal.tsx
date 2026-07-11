@@ -37,7 +37,7 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
     <Modal title="Server administration" onClose={onClose} wide>
       <ServerSettings onError={setError} />
       <Users onError={setError} run={run} />
-      <Invites onError={setError} run={run} />
+      <Invites run={run} />
       <AdminActivity />
       {error && <div className="modal-error">{error}</div>}
     </Modal>
@@ -117,7 +117,7 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
         Members can create additional workspaces
       </label>
       <div className="dialog-actions">
-        <button className="btn primary" disabled={!dirty || update.isPending} onClick={save}>
+        <button type="button" className="btn primary" disabled={!dirty || update.isPending} onClick={save}>
           {update.isPending ? "Saving…" : "Save settings"}
         </button>
       </div>
@@ -265,7 +265,7 @@ function CreateUser({
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
-      <button
+      <button type="button"
         className="btn"
         disabled={busy || !name.trim() || !email.trim() || password.length < 8}
         onClick={() => void create()}
@@ -304,10 +304,8 @@ function AdminActivity() {
 }
 
 function Invites({
-  onError,
   run,
 }: {
-  onError: (m: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const utils = trpc.useUtils();
@@ -341,7 +339,7 @@ function Invites({
           <option value="14">Expires in 14 days</option>
           <option value="">Never expires</option>
         </select>
-        <button
+        <button type="button"
           className="btn"
           disabled={create.isPending}
           onClick={() =>

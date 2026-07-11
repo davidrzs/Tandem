@@ -109,7 +109,7 @@ export function AccountSection() {
           aria-label="Display name"
           onChange={(e) => setName(e.target.value)}
         />
-        <button
+        <button type="button"
           className="btn"
           disabled={busy || !name.trim() || name.trim() === session.data?.user.name}
           onClick={() => void saveName()}
@@ -133,7 +133,7 @@ export function AccountSection() {
           value={newPw}
           onChange={(e) => setNewPw(e.target.value)}
         />
-        <button
+        <button type="button"
           className="btn"
           disabled={busy || !currentPw || newPw.length < 8}
           onClick={() => void changePassword()}
@@ -158,7 +158,7 @@ export function AccountSection() {
                     : `Signed in ${timeAgo(new Date(s.createdAt))}`}
                 </span>
                 {s.token !== currentToken && (
-                  <button className="btn" onClick={() => void revoke(s.token)}>
+                  <button type="button" className="btn" onClick={() => void revoke(s.token)}>
                     Sign out
                   </button>
                 )}

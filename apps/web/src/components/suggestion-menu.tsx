@@ -55,7 +55,7 @@ const SuggestionMenu = forwardRef(function SuggestionMenu<T>(
   return (
     <div className="slash-menu">
       {items.map((item, i) => (
-        <button
+        <button type="button"
           key={itemKey(item)}
           className={"slash-item" + (i === selected ? " selected" : "")}
           onMouseEnter={() => setSelected(i)}

@@ -36,11 +36,11 @@ export function TagBar({
     <div className="tag-bar">
       {tags.map((tag) => (
         <span key={tag} className="tag-chip">
-          <button className="tag-label" onClick={() => onTagClick(tag)} title={`Find #${tag}`}>
+          <button type="button" className="tag-label" onClick={() => onTagClick(tag)} title={`Find #${tag}`}>
             {tag}
           </button>
           {canEdit && (
-            <button
+            <button type="button"
               className="tag-remove"
               title="Remove tag" aria-label="Remove tag"
               onClick={() => onChange(tags.filter((t) => t !== tag))}
@@ -79,7 +79,7 @@ export function TagBar({
             </datalist>
           </>
         ) : (
-          <button className="tag-add" onClick={() => setAdding(true)}>
+          <button type="button" className="tag-add" onClick={() => setAdding(true)}>
             <Icon name="plus" size={14} />
             Add tag
           </button>
