@@ -219,13 +219,21 @@ test.describe.serial("wiki journey", () => {
     await page.getByRole("button", { name: "Settings" }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
     await expect(dialog.getByText("Allow AI agents to act as me")).toBeVisible();
-    await expect(dialog.locator("code.copyable")).toContainText("/mcp");
+    await expect(dialog.locator(".copyable")).toContainText("/mcp");
     await expect(dialog.getByText("No activity recorded yet.")).toBeVisible();
     const toggle = dialog.getByRole("switch", { name: "Allow AI agents to act as me" });
     // The switch is disabled until settings.get resolves.
     await expect(toggle).toBeEnabled();
-    await toggle.click();
-    await expect(toggle).not.toBeChecked();
+    // Radix modal dialogs disable body pointer-events during the open
+    // transition; a click dispatched inside that window is dropped. Retry the
+    // click+assert pair rather than sleeping an arbitrary amount.
+    await expect(async () => {
+      await toggle.click({ timeout: 1000 });
+      await expect(toggle).not.toBeChecked({ timeout: 1000 });
+    }).toPass({ timeout: 10_000 });
+    // The flip renders instantly from local state; the switch re-enables only
+    // once the save round-trips — wait for that before reloading.
+    await expect(toggle).toBeEnabled();
     // The choice persists across a reload.
     await page.reload();
     await page.getByRole("button", { name: "Settings" }).click();

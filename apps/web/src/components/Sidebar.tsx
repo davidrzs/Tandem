@@ -7,6 +7,7 @@ import { trpc } from "../trpc.js";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "./Modal.js";
+import { useToast } from "./toast.js";
 
 interface Workspace {
   id: string;
@@ -550,9 +551,11 @@ function DocRow({
   setDialog: (node: ReactNode) => void;
 }) {
   const navigate = useNavigate();
+  const toast = useToast();
   const move = trpc.documents.move.useMutation();
   const archive = trpc.documents.archive.useMutation();
   const softDelete = trpc.documents.delete.useMutation();
+  const duplicate = trpc.documents.duplicate.useMutation();
   const [dropMode, setDropMode] = useState<DropMode | null>(null);
 
   // Where a sibling drop lands: midway between this node and its neighbour.
@@ -628,11 +631,22 @@ function DocRow({
             <RowMenu
               items={[
                 {
+                  label: "Duplicate",
+                  icon: "page",
+                  onClick: () =>
+                    void run(async () => {
+                      const created = await duplicate.mutateAsync({ id: node.id });
+                      toast("Duplicated");
+                      navigate(`/d/${created.id}`);
+                    }),
+                },
+                {
                   label: "Archive",
                   icon: "archive",
                   onClick: () =>
                     void run(async () => {
                       await archive.mutateAsync({ id: node.id });
+                      toast(`Archived "${node.title || "Untitled"}" — restorable below`);
                       if (node.id === activeDocId) navigate("/");
                     }),
                 },
@@ -650,6 +664,7 @@ function DocRow({
                         onConfirm={() =>
                           void run(async () => {
                             await softDelete.mutateAsync({ id: node.id });
+                            toast("Deleted");
                             if (node.id === activeDocId) navigate("/");
                           })
                         }
@@ -691,6 +706,7 @@ function ArchivedRow({
 }) {
   const restore = trpc.documents.restore.useMutation();
   const softDelete = trpc.documents.delete.useMutation();
+  const toast = useToast();
   return (
     <div className="doc-row archived-row">
       <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
@@ -701,7 +717,12 @@ function ArchivedRow({
           <button
             className="row-action"
             title="Restore" aria-label="Restore"
-            onClick={() => void run(() => restore.mutateAsync({ id: doc.id }))}
+            onClick={() =>
+              void run(async () => {
+                await restore.mutateAsync({ id: doc.id });
+                toast(`Restored "${doc.title || "Untitled"}"`);
+              })
+            }
           >
             <Icon name="restore" />
           </button>

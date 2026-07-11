@@ -364,6 +364,20 @@ export const appRouter = t.router({
         if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
       }),
 
+    duplicate: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.documents.duplicate(input.id)),
+
+    // Single-document markdown, for the per-document download. The body
+    // otherwise only travels over the Yjs channel.
+    getMarkdown: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(async ({ ctx, input }) => {
+        const doc = await ctx.services.documents.get(input.id);
+        if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found." });
+        return { title: doc.title, markdown: ctx.services.documents.toMarkdown(doc) };
+      }),
+
     listArchived: protectedProcedure
       .input(z.object({ collectionId: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.listArchived(input.collectionId)),

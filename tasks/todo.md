@@ -395,11 +395,11 @@ One commit per phase, suites green per step.
 ### Phase D addenda (found while verifying)
 - [x] Modal entrance keyframe dropped translateX(-50%): every dialog slid in ~290px (jank + missed clicks)
 - [x] MCP kill switch: controlled-checkbox revert window dropped clicks; now a role=switch button with local state
-- [ ] Residual rare flake in "second account" e2e (~1/7): switch briefly disabled+reverted right after modal open — suspect session-flash remount or server stall; revisit with myTodos fix
+- [x] (resolved) Residual rare flake in "second account" e2e (~1/7): switch briefly disabled+reverted right after modal open — root causes found: (1) modal entrance keyframe dropped translateX(-50%) so dialogs slid ~290px (clicks missed), (2) instant local-state flip let the test reload before the save round-tripped (in-flight request aborted). Switch disables while pending; suite green 8/8
 
 ### Phase E — app shell
-- [ ] Toast system + wire copy/mutation feedback
-- [ ] Doc header: copy link, breadcrumbs; duplicate document; per-doc markdown export + print CSS
+- [x] Toast system + wire copy/mutation feedback
+- [x] Doc header: copy link, breadcrumbs; duplicate document; per-doc markdown export + print CSS
 - [ ] Favorites (migration) + recents (local) on Home/sidebar
 - [ ] Profile: display name + password change; active sessions list/revoke
 - [ ] Dark mode (tokens + toggle + prefers-color-scheme)

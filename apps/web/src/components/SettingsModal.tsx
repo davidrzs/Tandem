@@ -4,6 +4,7 @@ import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
 import { timeAgo } from "./time.js";
+import { useToast } from "./toast.js";
 import { TwoFactorSection } from "./TwoFactorSection.js";
 
 /**
@@ -19,6 +20,7 @@ export function SettingsModal({
   onClose: () => void;
 }) {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const settings = trpc.settings.get.useQuery();
   const audit = trpc.settings.audit.useQuery(
@@ -88,7 +90,9 @@ export function SettingsModal({
           role="switch"
           aria-checked={enabled}
           className="switch-btn"
-          disabled={settings.isLoading}
+          // Disabled while the save is in flight: the flip is instant (local
+          // state), so this is the only signal that it has actually persisted.
+          disabled={settings.isLoading || setMcp.isPending}
           aria-label="Allow AI agents to act as me"
           onClick={() => {
             const next = !enabled;
@@ -111,13 +115,16 @@ export function SettingsModal({
       <ol className="connect-steps">
         <li>
           Point any MCP client at{" "}
-          <code
+          <button
+            type="button"
             className="copyable"
-            title="Click to copy"
-            onClick={() => void navigator.clipboard.writeText(endpoint)}
+            title="Copy MCP endpoint"
+            onClick={() =>
+              void navigator.clipboard.writeText(endpoint).then(() => toast("Copied"))
+            }
           >
-            {endpoint}
-          </code>
+            <code>{endpoint}</code>
+          </button>
         </li>
         <li>Sign in when the browser opens — the agent gets your permissions, nothing more.</li>
       </ol>

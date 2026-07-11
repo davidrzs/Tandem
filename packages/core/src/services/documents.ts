@@ -233,6 +233,21 @@ export class DocumentService {
     });
   }
 
+  /** Copy a document's current content into a new sibling ("Title (copy)"),
+   * created as — and fully attributed to — the acting user. Children are not
+   * copied; the RLS write check on create() authorizes the whole operation. */
+  async duplicate(id: string): Promise<Document> {
+    const doc = await this.get(id);
+    if (!doc) throw new NotFoundError("document not found");
+    return this.create({
+      collectionId: doc.collectionId,
+      parentDocumentId: doc.parentDocumentId,
+      title: `${doc.title || "Untitled"} (copy)`,
+      markdown: this.toMarkdown(doc),
+      tags: doc.tags ?? undefined,
+    });
+  }
+
   /** Whether the actor may write this document (its collection is writable). */
   async canWrite(id: string): Promise<boolean> {
     if (this.actor.kind !== "user") return true; // system bypasses RLS

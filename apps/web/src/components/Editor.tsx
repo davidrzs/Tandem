@@ -20,6 +20,9 @@ import * as Y from "yjs";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
 import { authorLabel, blamePluginKey, createBlameExtension } from "./blame.js";
+import { Breadcrumbs } from "./Breadcrumbs.js";
+import { RowMenu } from "./Modal.js";
+import { useToast } from "./toast.js";
 import {
   anchorRange,
   commentsPluginKey,
@@ -206,6 +209,36 @@ export function Editor({
   );
 
   const navigate = useNavigate();
+  const toast = useToast();
+
+  // --- document actions (the "…" menu) ---
+  const duplicate = trpc.documents.duplicate.useMutation({
+    onSuccess: (created) => {
+      void utils.documents.tree.invalidate();
+      toast("Duplicated");
+      navigate(`/d/${created.id}`);
+    },
+    onError: (e) => toast(friendlyError(e, "Couldn't duplicate this document."), "danger"),
+  });
+  const copyDocLink = () => {
+    void navigator.clipboard
+      .writeText(`${window.location.origin}/d/${docId}`)
+      .then(() => toast("Link copied"));
+  };
+  const downloadMarkdown = async () => {
+    try {
+      const { title: t, markdown } = await utils.documents.getMarkdown.fetch({ id: docId });
+      const blob = new Blob([markdown], { type: "text/markdown" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(t || "untitled").replace(/[^\w.-]+/g, "_")}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast("Couldn't export this document.", "danger");
+    }
+  };
+
   // "@" can link other pages: search titles/bodies as the user types.
   const searchDocs = useCallback(
     (query: string) =>
@@ -715,6 +748,27 @@ export function Editor({
           <Icon name="restore" size={15} />
           History
         </button>
+        <RowMenu
+          title="Document actions"
+          items={[
+            { label: "Copy link", icon: "share" as const, onClick: copyDocLink },
+            ...(canEdit
+              ? [
+                  {
+                    label: "Duplicate",
+                    icon: "page" as const,
+                    onClick: () => duplicate.mutate({ id: docId }),
+                  },
+                ]
+              : []),
+            {
+              label: "Download markdown",
+              icon: "download" as const,
+              onClick: () => void downloadMarkdown(),
+            },
+            { label: "Print", icon: "page" as const, onClick: () => window.print() },
+          ]}
+        />
         {peers.length > 0 && (
           <>
             <span className="tool-divider" />
@@ -739,6 +793,7 @@ export function Editor({
           </>
         )}
       </div>
+      <Breadcrumbs docId={docId} collectionId={doc.data.collectionId} />
       <input
         ref={titleInputRef}
         className="title-input"

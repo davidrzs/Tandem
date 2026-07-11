@@ -9,6 +9,7 @@ import { ConsentScreen } from "./components/ConsentScreen.js";
 import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
 import { SetupWizard } from "./components/SetupWizard.js";
+import { ToastProvider } from "./components/toast.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
 import { trpc } from "./trpc.js";
 import "@fontsource-variable/hanken-grotesk";
@@ -91,7 +92,9 @@ function Root() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <Bootstrap />
+        <ToastProvider>
+          <Bootstrap />
+        </ToastProvider>
       </QueryClientProvider>
     </trpc.Provider>
   );
