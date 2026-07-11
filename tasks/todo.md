@@ -402,7 +402,7 @@ One commit per phase, suites green per step.
 - [x] Doc header: copy link, breadcrumbs; duplicate document; per-doc markdown export + print CSS
 - [x] Favorites (migration) + recents (local) on Home/sidebar
 - [x] Profile: display name + password change; active sessions list/revoke
-- [ ] Dark mode (tokens + toggle + prefers-color-scheme)
+- [x] Dark mode (tokens + toggle + prefers-color-scheme)
 - [ ] Responsive shell: collapsible sidebar drawer under ~900px
 - [ ] In-app notifications: comments on your threads + task assignment (inbox + badge)
 

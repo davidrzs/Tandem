@@ -7,6 +7,7 @@ import { trpc } from "../trpc.js";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "./Modal.js";
+import { effectiveTheme, setTheme, type ThemeChoice } from "../theme.js";
 import { useToast } from "./toast.js";
 
 interface Workspace {
@@ -224,6 +225,7 @@ export function Sidebar({
             <span className="user-name">{user.name}</span>
             <span className="user-email">{user.email}</span>
           </span>
+          <ThemeToggle />
           <button
             className="row-action"
             title="Sign out" aria-label="Sign out"
@@ -289,6 +291,26 @@ function WorkspaceSwitcher({
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     </div>
+  );
+}
+
+/** Light/dark toggle: flips to the opposite of what's currently effective and
+ * stores the choice (until then the app follows the system preference). */
+function ThemeToggle() {
+  const [theme, setThemeState] = useState<ThemeChoice>(() => effectiveTheme());
+  const next = theme === "dark" ? "light" : "dark";
+  return (
+    <button
+      className="row-action"
+      title={`Switch to ${next} mode`}
+      aria-label={`Switch to ${next} mode`}
+      onClick={() => {
+        setTheme(next);
+        setThemeState(next);
+      }}
+    >
+      <Icon name={theme === "dark" ? "sun" : "moon"} />
+    </button>
   );
 }
 

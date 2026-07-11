@@ -5,6 +5,9 @@
  * loud thing in the app is supposed to be the authorship layer. */
 
 :root {
+  --tree-parent: #1f3327;
+  --tree-leaf: #3a4a41;
+  --tools-veil: rgba(255, 255, 255, 0.85);
   --paper: #ffffff;
   --surface: #ffffff;
   --sunken: #f6f8f6;
@@ -298,7 +301,7 @@ button {
   background: none;
   font-size: 13.5px;
   font-weight: 600;
-  color: #1f3327; /* tree parent — handoff pine-ink */
+  color: var(--tree-parent); /* handoff pine-ink */
   cursor: pointer;
   padding: 6px 0 6px 6px;
   text-align: left;
@@ -368,7 +371,7 @@ button {
   padding: 6px 10px;
   border-radius: var(--radius-leaf);
   font-size: 13px;
-  color: #3a4a41; /* tree leaf — handoff */
+  color: var(--tree-leaf); /* handoff */
   text-decoration: none;
 }
 
@@ -609,7 +612,7 @@ button {
 }
 
 .tool-btn:hover {
-  color: #1f3327;
+  color: var(--tree-parent);
   background: var(--hover-strong);
 }
 
@@ -642,7 +645,7 @@ button {
   gap: 4px;
   margin: -20px -40px 0;
   padding: 16px 28px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--tools-veil);
   backdrop-filter: blur(6px);
   white-space: nowrap;
 }
@@ -3052,4 +3055,98 @@ select.code-lang:hover {
 .recent-chip svg {
   flex: none;
   color: var(--ink-3);
+}
+
+/* --- Dark theme (stamped on <html> by theme.ts; follows the system until
+   the user picks explicitly). Same pine identity, inverted paper. --- */
+[data-theme="dark"] {
+  --tree-parent: #d3ded6;
+  --tree-leaf: #b3c0b7;
+  --tools-veil: rgba(17, 22, 20, 0.85);
+  --paper: #111614;
+  --surface: #171d1a;
+  --sunken: #0d1210;
+  --ink: #e8eeea;
+  --ink-body: #c7d2ca;
+  --ink-2: #93a297;
+  --ink-3: #647169;
+  --line: #232b26;
+  --line-strong: #2c352f;
+  --border-side: #212a24;
+  --accent: #4ea981;
+  --accent-ink: #74c29c;
+  --accent-wash: rgba(78, 169, 129, 0.14);
+  --mention-wash: rgba(78, 169, 129, 0.1);
+  --hover: #1e2621;
+  --hover-strong: #232c26;
+  --tag-bg: #1d2621;
+  --tag-hover: #26302a;
+  --live: #43b374;
+  --live-glow: rgba(67, 179, 116, 0.25);
+  --danger: #e0736a;
+  --danger-wash: rgba(224, 115, 106, 0.14);
+  --ok: #5cad74;
+  --warn: #c9a44a;
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] body {
+  color-scheme: dark;
+}
+
+/* Ink-chip surfaces read wrong once --ink flips light; pin them. */
+[data-theme="dark"] .bubble-btn,
+[data-theme="dark"] .bubble-group,
+[data-theme="dark"] .toast {
+  background: #26312b;
+  color: #e8eeea;
+}
+
+[data-theme="dark"] .bubble-btn:hover {
+  background: #313d36;
+}
+
+[data-theme="dark"] .bubble-btn.active {
+  background: var(--accent);
+  color: #0d1210;
+}
+
+[data-theme="dark"] .toast-danger {
+  background: var(--danger);
+  color: #16100f;
+}
+
+[data-theme="dark"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+[data-theme="dark"] .ProseMirror pre {
+  background: #0d1512;
+  border: 1px solid var(--line);
+}
+
+/* Dark-mode pins for the remaining literal-colored chrome. */
+[data-theme="dark"] ::selection {
+  background: #2c4a3c;
+}
+
+[data-theme="dark"] .blame-card {
+  background: #26312b;
+  color: #e8eeea;
+}
+
+[data-theme="dark"] .archived-banner {
+  background: #2b2413;
+  border-bottom-color: #3d3419;
+  color: #d8b968;
+}
+
+[data-theme="dark"] .comment-span {
+  background: rgba(226, 168, 43, 0.22);
+}
+
+[data-theme="dark"] .find-match {
+  background: rgba(226, 168, 43, 0.3);
+  color: inherit;
 }

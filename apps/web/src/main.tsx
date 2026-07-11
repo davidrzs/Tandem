@@ -11,7 +11,10 @@ import { InviteAccept } from "./components/InviteAccept.js";
 import { SetupWizard } from "./components/SetupWizard.js";
 import { ToastProvider } from "./components/toast.js";
 import { authorizeResumeQuery, consentContext } from "./oauth.js";
+import { initTheme } from "./theme.js";
 import { trpc } from "./trpc.js";
+
+initTheme();
 import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 
