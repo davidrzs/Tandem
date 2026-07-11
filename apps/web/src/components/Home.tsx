@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { authClient } from "../auth-client.js";
+import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
+import { Icon } from "./Icon.js";
+import { listRecents } from "./recents.js";
 
 interface TodoGroup {
   documentId: string;
@@ -14,8 +17,16 @@ interface TodoGroup {
  * back to its source document. */
 export function Home() {
   const session = authClient.useSession();
+  const { workspaceId } = useAppContext();
   const todos = trpc.documents.myTodos.useQuery();
   const [showDone, setShowDone] = useState(false);
+  const recents = useMemo(
+    () =>
+      listRecents()
+        .filter((r) => r.workspaceId === workspaceId)
+        .slice(0, 8),
+    [workspaceId],
+  );
 
   const { open, done } = useMemo(() => {
     const groups = new Map<string, TodoGroup>();
@@ -46,6 +57,20 @@ export function Home() {
             ? "No open tasks are assigned to you."
             : `${openCount} open task${openCount === 1 ? "" : "s"} assigned to you.`}
       </p>
+
+      {recents.length > 0 && (
+        <>
+          <h2 className="home-h2">Recently viewed</h2>
+          <div className="recent-row">
+            {recents.map((r) => (
+              <Link key={r.id} className="recent-chip" to={`/d/${r.id}`}>
+                <Icon name="page" size={13} />
+                {r.title || "Untitled"}
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
 
       {todos.error && (
         <div className="error-panel inline">

@@ -11,6 +11,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { CollectionService } from "./services/collections.js";
 import { DocumentService, normalizeTags } from "./services/documents.js";
+import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
 import { WorkspaceService } from "./services/workspaces.js";
@@ -577,4 +578,34 @@ test("snapshots: byte-dedupe, interval gating, RLS reads, and no client writes",
       ),
     /permission denied/i,
   );
+});
+
+test("favorites: star, list (RLS-filtered), unstar; foreign docs are invisible", async () => {
+  const collections = new CollectionService(db, user("u1"));
+  const documents = new DocumentService(db, user("u1"));
+  const favorites = new FavoriteService(db, user("u1"));
+
+  const col = await collections.create({ name: "Starred", slug: "starred" });
+  const doc = await documents.create({ collectionId: col.id, title: "Keep handy" });
+
+  await favorites.add(doc.id);
+  await favorites.add(doc.id); // idempotent
+  let list = await favorites.list();
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.id, doc.id);
+  assert.equal(list[0]!.title, "Keep handy");
+
+  // An outsider can't star what they can't read — and their list stays empty.
+  // (u2 and u3 both join u1's workspace in earlier tests; use a fresh user.)
+  await new WorkspaceService(db, SYSTEM).provisionForUser("u-fav-outsider", {
+    name: "Outsider",
+    slug: "fav-outsider",
+  });
+  const other = new FavoriteService(db, user("u-fav-outsider"));
+  await assert.rejects(() => other.add(doc.id), /not found/);
+  assert.deepEqual(await other.list(), []);
+
+  await favorites.remove(doc.id);
+  list = await favorites.list();
+  assert.equal(list.length, 0);
 });

@@ -539,6 +539,16 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => ctx.services.settings.auditTrail(input.workspaceId)),
   }),
 
+  favorites: t.router({
+    list: protectedProcedure.query(({ ctx }) => ctx.services.favorites.list()),
+    add: protectedProcedure
+      .input(z.object({ documentId: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.favorites.add(input.documentId)),
+    remove: protectedProcedure
+      .input(z.object({ documentId: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.favorites.remove(input.documentId)),
+  }),
+
   comments: t.router({
     list: protectedProcedure
       .input(z.object({ documentId: uuid }))

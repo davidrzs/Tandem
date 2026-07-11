@@ -125,7 +125,7 @@ export class DocumentService {
   }
 
   /** Columns safe to ship to clients — excludes content_md/json, ydoc_state, search_vector. */
-  private static readonly metaColumns = {
+  static readonly metaColumns = {
     id: documents.id,
     workspaceId: documents.workspaceId,
     collectionId: documents.collectionId,

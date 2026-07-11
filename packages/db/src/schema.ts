@@ -278,6 +278,21 @@ export const userSettings = pgTable("user_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** A user's starred documents. System-managed like user_settings (no
+ * app_user grant): the service checks document readability actor-scoped,
+ * then writes system-side; listing re-filters through RLS reads. */
+export const documentFavorites = pgTable(
+  "document_favorites",
+  {
+    userId: text("user_id").notNull(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.documentId] })],
+);
+
 /** Append-only audit of agent (MCP) actions and sensitive human actions
  * (sharing changes, invites, import/export), for workspace transparency.
  * Written system-side only; members read their workspaces' entries. */

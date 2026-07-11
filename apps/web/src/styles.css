@@ -2998,3 +2998,58 @@ select.code-lang:hover {
     color: #222;
   }
 }
+
+/* --- Favorites + recents --- */
+.favorite-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+}
+
+.favorite-row svg {
+  flex: none;
+  color: var(--warn);
+}
+
+.home-h2 {
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin: 22px 0 8px;
+}
+
+.recent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-body);
+  font-size: 13px;
+  text-decoration: none;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-chip:hover {
+  background: var(--hover);
+  border-color: var(--line-strong);
+}
+
+.recent-chip svg {
+  flex: none;
+  color: var(--ink-3);
+}

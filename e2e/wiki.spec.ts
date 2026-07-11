@@ -164,7 +164,7 @@ test.describe.serial("wiki journey", () => {
     await expect(page.getByText("1 open task assigned to you.")).toBeVisible();
     await expect(page.getByText("@alice review the handbook")).toBeVisible();
     // The todo card's link (the sidebar also has one).
-    await page.getByRole("main").getByRole("link", { name: "Onboarding" }).click();
+    await page.locator(".todo-doc", { hasText: "Onboarding" }).click();
     await expect(page).toHaveURL(docUrl);
 
     // --- search finds the document by body text ---
@@ -185,7 +185,7 @@ test.describe.serial("wiki journey", () => {
     await expect(page.getByText("No open tasks are assigned to you.")).toBeVisible();
 
     await page.getByRole("button", { name: /Archived \(1\)/ }).click();
-    await page.getByRole("link", { name: "Onboarding" }).click();
+    await page.locator(".archived-title", { hasText: "Onboarding" }).click();
     await expect(page.getByText("This document is archived")).toBeVisible();
     // The archived sidebar row has a Restore icon too; use the banner's.
     await page.locator(".archived-banner").getByRole("button", { name: "Restore" }).click();

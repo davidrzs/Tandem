@@ -4,6 +4,7 @@ import {
   CollectionService,
   CommentService,
   DocumentService,
+  FavoriteService,
   GroupService,
   ImageService,
   InstanceService,
@@ -19,6 +20,7 @@ export interface Services {
   documents: DocumentService;
   collections: CollectionService;
   comments: CommentService;
+  favorites: FavoriteService;
   groups: GroupService;
   images: ImageService;
   instance: InstanceService;
@@ -44,6 +46,7 @@ export function createServices(
     documents: new DocumentService(db, actor, author),
     collections: new CollectionService(db, actor),
     comments: new CommentService(db, actor),
+    favorites: new FavoriteService(db, actor),
     groups: new GroupService(db, actor),
     images: new ImageService(db, actor),
     instance: new InstanceService(db, actor),

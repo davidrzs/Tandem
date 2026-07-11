@@ -400,7 +400,7 @@ One commit per phase, suites green per step.
 ### Phase E — app shell
 - [x] Toast system + wire copy/mutation feedback
 - [x] Doc header: copy link, breadcrumbs; duplicate document; per-doc markdown export + print CSS
-- [ ] Favorites (migration) + recents (local) on Home/sidebar
+- [x] Favorites (migration) + recents (local) on Home/sidebar
 - [ ] Profile: display name + password change; active sessions list/revoke
 - [ ] Dark mode (tokens + toggle + prefers-color-scheme)
 - [ ] Responsive shell: collapsible sidebar drawer under ~900px

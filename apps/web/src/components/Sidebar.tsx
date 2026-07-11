@@ -177,6 +177,8 @@ export function Sidebar({
         )}
       </nav>
 
+      <FavoritesSection workspaceId={workspaceId} activeDocId={activeDocId} />
+
       <div className="section">
         <div className="section-title">
           <span>Collections</span>
@@ -286,6 +288,38 @@ function WorkspaceSwitcher({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+    </div>
+  );
+}
+
+/** Starred documents in the current workspace — hidden when there are none. */
+function FavoritesSection({
+  workspaceId,
+  activeDocId,
+}: {
+  workspaceId: string | null;
+  activeDocId: string | null;
+}) {
+  const favorites = trpc.favorites.list.useQuery();
+  const mine = (favorites.data ?? []).filter(
+    (f) => f.workspaceId === workspaceId && !f.archivedAt,
+  );
+  if (mine.length === 0) return null;
+  return (
+    <div className="section">
+      <div className="section-title">
+        <span>Favorites</span>
+      </div>
+      {mine.map((f) => (
+        <Link
+          key={f.id}
+          to={`/d/${f.id}`}
+          className={"doc-row favorite-row" + (f.id === activeDocId ? " active" : "")}
+        >
+          <Icon name="star" size={12} />
+          <span className="doc-title">{f.title || "Untitled"}</span>
+        </Link>
+      ))}
     </div>
   );
 }

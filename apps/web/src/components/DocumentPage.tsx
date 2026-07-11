@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Editor } from "./Editor.js";
+import { recordRecent } from "./recents.js";
 
 export function DocumentPage() {
   const { docId } = useParams<{ docId: string }>();
@@ -10,6 +12,12 @@ export function DocumentPage() {
   const utils = trpc.useUtils();
   const navigate = useNavigate();
   const meta = trpc.documents.getMeta.useQuery({ id: docId! }, { enabled: !!docId });
+
+  // "Recently viewed" on the start page is local — reading leaves no trace
+  // anywhere but this browser.
+  useEffect(() => {
+    if (meta.data) recordRecent(meta.data);
+  }, [meta.data]);
   const restore = trpc.documents.restore.useMutation({
     onSuccess: async () => {
       await Promise.all([

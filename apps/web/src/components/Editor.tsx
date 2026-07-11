@@ -212,6 +212,20 @@ export function Editor({
   const toast = useToast();
 
   // --- document actions (the "…" menu) ---
+  const favorites = trpc.favorites.list.useQuery();
+  const isFavorite = (favorites.data ?? []).some((f) => f.id === docId);
+  const favAdd = trpc.favorites.add.useMutation({
+    onSuccess: () => {
+      void utils.favorites.list.invalidate();
+      toast("Added to favorites");
+    },
+  });
+  const favRemove = trpc.favorites.remove.useMutation({
+    onSuccess: () => {
+      void utils.favorites.list.invalidate();
+      toast("Removed from favorites");
+    },
+  });
   const duplicate = trpc.documents.duplicate.useMutation({
     onSuccess: (created) => {
       void utils.documents.tree.invalidate();
@@ -751,6 +765,14 @@ export function Editor({
         <RowMenu
           title="Document actions"
           items={[
+            {
+              label: isFavorite ? "Remove from favorites" : "Add to favorites",
+              icon: "star" as const,
+              onClick: () =>
+                isFavorite
+                  ? favRemove.mutate({ documentId: docId })
+                  : favAdd.mutate({ documentId: docId }),
+            },
             { label: "Copy link", icon: "share" as const, onClick: copyDocLink },
             ...(canEdit
               ? [
