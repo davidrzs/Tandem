@@ -336,6 +336,7 @@ export async function buildHttpServer(
           .catch((err) => app.log.error({ err }, "audit write failed"));
       },
       notifyDocument,
+      author,
     );
     reply.raw.on("close", () => {
       transport.close();

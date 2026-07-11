@@ -6,6 +6,7 @@ import {
   jsonToMarkdown,
   markdownToJSON,
   sanitizeClientAuthorsWrites,
+  scanTaskItems,
   seedAttributedDoc,
   stampMissingFromUpdate,
   UNKNOWN_AUTHOR,
@@ -116,10 +117,13 @@ export function createHocuspocus(
       );
       const state = Y.encodeStateAsUpdate(document);
       const services = servicesFor(lastContext.userId);
+      // The pre-store row: its markdown is the baseline for the new-task diff.
+      const before = await services.documents.get(documentName);
+      const contentMd = jsonToMarkdown(json);
       const saved = await services.documents.saveCollabSnapshot(documentName, {
         ydocState: state,
         contentJson: json,
-        contentMd: jsonToMarkdown(json),
+        contentMd,
       });
       // Long-session version capture (fire-and-forget; deduped + rate-limited).
       if (saved) {
@@ -131,6 +135,22 @@ export function createHocuspocus(
             sessions: [...getAuthors(document).values()],
           })
           .catch((e) => console.error("snapshot interval capture failed", e));
+        // Newly-written `- [ ] @handle` tasks land in the assignee's inbox.
+        void services.notifications
+          .onDocumentStored({
+            documentId: documentName,
+            workspaceId: saved.workspaceId,
+            documentTitle: before?.title ?? "",
+            oldMarkdown: before?.contentMd ?? null,
+            newMarkdown: contentMd,
+            actor: {
+              userId: lastContext.userId as string,
+              name: (lastContext.userName as string) ?? "",
+              ai: false,
+            },
+            scan: scanTaskItems,
+          })
+          .catch((e) => console.error("task notification failed", e));
       }
     },
   });

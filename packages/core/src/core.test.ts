@@ -6,10 +6,14 @@ import {
   migrateDatabase,
   runAsActor,
   SYSTEM,
+  user as userTable,
+  workspaceMembers,
   type Actor,
 } from "@tandem/db";
 import { eq, sql } from "drizzle-orm";
 import { CollectionService } from "./services/collections.js";
+import { CommentService } from "./services/comments.js";
+import { NotificationService } from "./services/notifications.js";
 import { DocumentService, normalizeTags } from "./services/documents.js";
 import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
@@ -608,4 +612,119 @@ test("favorites: star, list (RLS-filtered), unstar; foreign docs are invisible",
   await favorites.remove(doc.id);
   list = await favorites.list();
   assert.equal(list.length, 0);
+});
+
+test("notifications: replies, mentions, resolves, new-task assignment, inbox", async () => {
+  // Self-contained pair of users sharing one workspace.
+  await runAsActor(db, SYSTEM, async (d) => {
+    await d
+      .insert(userTable)
+      .values([
+        { id: "na", name: "Nia", email: "nia@acme.com" },
+        { id: "nb", name: "Ben", email: "ben@acme.com" },
+      ]);
+  });
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("na", {
+    name: "Notify",
+    slug: "notify",
+  });
+  await runAsActor(db, SYSTEM, async (d) => {
+    await d
+      .insert(workspaceMembers)
+      .values({ workspaceId: ws.id, userId: "nb", role: "member" });
+  });
+
+  const docs = new DocumentService(db, user("na"));
+  const col = await new CollectionService(db, user("na")).create({
+    name: "Notify",
+    slug: "notify-col",
+    workspaceId: ws.id,
+  });
+  const doc = await docs.create({ collectionId: col.id, title: "Plans" });
+
+  const commentsNa = new CommentService(db, user("na"));
+  const commentsNb = new CommentService(db, user("nb"));
+  const notify = new NotificationService(db, SYSTEM);
+
+  // Reply: Ben replies to Nia's thread -> Nia hears about it.
+  const top = await commentsNa.create({ documentId: doc.id, body: "Thoughts?" });
+  const reply = await commentsNb.create({
+    documentId: doc.id,
+    body: "Looks good",
+    parentId: top.id,
+  });
+  await notify.onCommentCreated({
+    comment: reply,
+    workspaceId: ws.id,
+    documentTitle: "Plans",
+    actor: { userId: "nb", name: "Ben", ai: false },
+  });
+
+  // Mention: Nia mentions @ben in a top-level comment -> Ben hears about it.
+  const mention = await commentsNa.create({ documentId: doc.id, body: "cc @ben" });
+  await notify.onCommentCreated({
+    comment: mention,
+    workspaceId: ws.id,
+    documentTitle: "Plans",
+    actor: { userId: "na", name: "Nia", ai: false },
+  });
+
+  // Resolve: Ben resolves Nia's thread -> Nia hears about it.
+  await notify.onCommentResolved({
+    comment: { id: top.id, documentId: doc.id, authorId: "na", body: top.body },
+    workspaceId: ws.id,
+    documentTitle: "Plans",
+    actor: { userId: "nb", name: "Ben", ai: true },
+  });
+
+  // Task assignment: a NEW `- [ ] @ben` task notifies Ben; a re-store of the
+  // same markdown does not re-notify; self-assignment never notifies.
+  const { scanTaskItems } = await import("@tandem/editor");
+  const md = "# Plans\n\n- [ ] @ben draft the intro\n- [ ] @nia self task";
+  await notify.onDocumentStored({
+    documentId: doc.id,
+    workspaceId: ws.id,
+    documentTitle: "Plans",
+    oldMarkdown: null,
+    newMarkdown: md,
+    actor: { userId: "na", name: "Nia", ai: false },
+    scan: scanTaskItems,
+  });
+  await notify.onDocumentStored({
+    documentId: doc.id,
+    workspaceId: ws.id,
+    documentTitle: "Plans",
+    oldMarkdown: md,
+    newMarkdown: md + "\n\nmore prose",
+    actor: { userId: "na", name: "Nia", ai: false },
+    scan: scanTaskItems,
+  });
+
+  const inboxNa = new NotificationService(db, user("na"));
+  const inboxNb = new NotificationService(db, user("nb"));
+
+  const naList = await inboxNa.listMine();
+  assert.deepEqual(
+    naList.map((n) => n.kind).sort(),
+    ["comment_reply", "comment_resolved"],
+    "Nia: reply + resolve (never her own actions)",
+  );
+  assert.ok(naList.every((n) => n.documentTitle === "Plans"));
+  assert.ok(
+    naList.some((n) => n.kind === "comment_resolved" && n.ai),
+    "AI actor flagged",
+  );
+
+  const nbList = await inboxNb.listMine();
+  assert.deepEqual(
+    nbList.map((n) => n.kind).sort(),
+    ["comment_mention", "task_assigned"],
+    "Ben: mention + one task assignment (no duplicate on re-store)",
+  );
+  assert.match(nbList.find((n) => n.kind === "task_assigned")!.snippet, /draft the intro/);
+
+  assert.equal(await inboxNb.unreadCount(), 2);
+  await inboxNb.markAllRead();
+  assert.equal(await inboxNb.unreadCount(), 0);
+  assert.equal(await inboxNa.unreadCount(), 2, "Nia's inbox untouched");
 });

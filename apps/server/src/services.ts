@@ -8,6 +8,7 @@ import {
   GroupService,
   ImageService,
   InstanceService,
+  NotificationService,
   SettingsService,
   SnapshotService,
   WorkspaceService,
@@ -24,6 +25,7 @@ export interface Services {
   groups: GroupService;
   images: ImageService;
   instance: InstanceService;
+  notifications: NotificationService;
   settings: SettingsService;
   snapshots: SnapshotService;
 }
@@ -50,6 +52,7 @@ export function createServices(
     groups: new GroupService(db, actor),
     images: new ImageService(db, actor),
     instance: new InstanceService(db, actor),
+    notifications: new NotificationService(db, actor),
     settings: new SettingsService(db, actor),
     snapshots: new SnapshotService(db, actor),
   };

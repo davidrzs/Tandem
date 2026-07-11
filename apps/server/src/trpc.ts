@@ -539,6 +539,16 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => ctx.services.settings.auditTrail(input.workspaceId)),
   }),
 
+  notifications: t.router({
+    list: protectedProcedure.query(({ ctx }) => ctx.services.notifications.listMine()),
+    unreadCount: protectedProcedure.query(({ ctx }) =>
+      ctx.services.notifications.unreadCount(),
+    ),
+    markAllRead: protectedProcedure.mutation(({ ctx }) =>
+      ctx.services.notifications.markAllRead(),
+    ),
+  }),
+
   favorites: t.router({
     list: protectedProcedure.query(({ ctx }) => ctx.services.favorites.list()),
     add: protectedProcedure
@@ -566,6 +576,20 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const comment = await ctx.services.comments.create(input);
         ctx.notifyDocument?.(input.documentId, "comments");
+        // Inbox entries for thread participants + @mentions. Best-effort.
+        void ctx.services.documents
+          .getMeta(input.documentId)
+          .then((meta) =>
+            meta
+              ? ctx.services.notifications.onCommentCreated({
+                  comment,
+                  workspaceId: meta.workspaceId,
+                  documentTitle: meta.title,
+                  actor: { userId: ctx.user.id, name: ctx.user.name, ai: false },
+                })
+              : undefined,
+          )
+          .catch((err) => console.error("comment notification failed", err));
         return comment;
       }),
     setResolved: protectedProcedure
@@ -573,6 +597,21 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const comment = await ctx.services.comments.setResolved(input.id, input.resolved);
         ctx.notifyDocument?.(comment.documentId, "comments");
+        if (input.resolved && comment.authorId !== ctx.user.id) {
+          void ctx.services.documents
+            .getMeta(comment.documentId)
+            .then((meta) =>
+              meta
+                ? ctx.services.notifications.onCommentResolved({
+                    comment,
+                    workspaceId: meta.workspaceId,
+                    documentTitle: meta.title,
+                    actor: { userId: ctx.user.id, name: ctx.user.name, ai: false },
+                  })
+                : undefined,
+            )
+            .catch((err) => console.error("resolve notification failed", err));
+        }
         return comment;
       }),
     delete: protectedProcedure

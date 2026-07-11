@@ -39,6 +39,7 @@ interface Props {
   open?: boolean;
   onSelectWorkspace: (id: string) => void;
   onOpenSearch: () => void;
+  onOpenInbox: () => void;
   onOpenPeople: () => void;
   onOpenSettings: () => void;
   onOpenAdmin: () => void;
@@ -63,6 +64,7 @@ export function Sidebar({
   open,
   onSelectWorkspace,
   onOpenSearch,
+  onOpenInbox,
   onOpenPeople,
   onOpenSettings,
   onOpenAdmin,
@@ -163,6 +165,7 @@ export function Sidebar({
           Search
           <kbd>⌘K</kbd>
         </button>
+        <InboxNavRow onOpen={onOpenInbox} />
         {workspaceId && (
           <button className="nav-row" onClick={onOpenPeople}>
             <Icon name="users" />
@@ -294,6 +297,22 @@ function WorkspaceSwitcher({
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     </div>
+  );
+}
+
+/** Inbox nav entry with a live unread badge (polled — notifications have no
+ * push channel; the count also refreshes on window focus). */
+function InboxNavRow({ onOpen }: { onOpen: () => void }) {
+  const unread = trpc.notifications.unreadCount.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
+  const count = unread.data ?? 0;
+  return (
+    <button className="nav-row" onClick={onOpen}>
+      <Icon name="bell" />
+      Inbox
+      {count > 0 && <span className="nav-badge">{count > 99 ? "99+" : count}</span>}
+    </button>
   );
 }
 

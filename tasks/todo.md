@@ -404,7 +404,7 @@ One commit per phase, suites green per step.
 - [x] Profile: display name + password change; active sessions list/revoke
 - [x] Dark mode (tokens + toggle + prefers-color-scheme)
 - [x] Responsive shell: collapsible sidebar drawer under ~900px
-- [ ] In-app notifications: comments on your threads + task assignment (inbox + badge)
+- [x] In-app notifications: comment replies/mentions/resolves + task assignment (inbox + badge)
 
 ### Phase F — platform/ops
 - [ ] Background jobs: snapshot retention (env) + orphaned-image GC

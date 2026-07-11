@@ -293,6 +293,35 @@ export const documentFavorites = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.documentId] })],
 );
 
+/** In-app notifications (comment replies/mentions/resolves, task assignment).
+ * System-managed like user_settings: produced by trusted server code, read
+ * back only for the owning user. The document title is snapshotted so an
+ * entry stays renderable even after access to the document is revoked. */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Recipient. */
+    userId: text("user_id").notNull(),
+    workspaceId: uuid("workspace_id").references(() => workspaces.id, {
+      onDelete: "cascade",
+    }),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "cascade",
+    }),
+    documentTitle: text("document_title").notNull().default(""),
+    /** comment_reply | comment_mention | comment_resolved | task_assigned */
+    kind: text("kind").notNull(),
+    actorName: text("actor_name").notNull().default(""),
+    /** True when the acting side was an AI agent. */
+    ai: boolean("ai").notNull().default(false),
+    snippet: text("snippet").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [index("notifications_user_idx").on(t.userId, t.createdAt)],
+);
+
 /** Append-only audit of agent (MCP) actions and sensitive human actions
  * (sharing changes, invites, import/export), for workspace transparency.
  * Written system-side only; members read their workspaces' entries. */

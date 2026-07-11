@@ -69,6 +69,8 @@ export function createMcpServer(
   writer?: CollabWriter,
   audit?: AuditHook,
   notify?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void,
+  /** Who the agent acts for — used for inbox notifications it produces. */
+  identity?: { userId: string; name: string; ai: boolean },
 ): McpServer {
   const { documents, collections, comments, workspaces, snapshots } = services;
   const server = new McpServer({ name: "tandem", version: "0.1.0" });
@@ -455,6 +457,16 @@ export function createMcpServer(
       const comment = await comments.create({ documentId, body, parentId });
       logAudit("add_comment", doc);
       notify?.(documentId, "comments");
+      if (identity) {
+        void services.notifications
+          .onCommentCreated({
+            comment,
+            workspaceId: doc.workspaceId,
+            documentTitle: doc.title,
+            actor: identity,
+          })
+          .catch((err) => console.error("comment notification failed", err));
+      }
       return json(comment);
     },
   );
@@ -472,6 +484,16 @@ export function createMcpServer(
       const doc = await documents.get(comment.documentId);
       logAudit(resolved === false ? "reopen_comment" : "resolve_comment", doc);
       notify?.(comment.documentId, "comments");
+      if (identity && resolved !== false && doc && comment.authorId !== identity.userId) {
+        void services.notifications
+          .onCommentResolved({
+            comment,
+            workspaceId: doc.workspaceId,
+            documentTitle: doc.title,
+            actor: identity,
+          })
+          .catch((err) => console.error("resolve notification failed", err));
+      }
       return json(comment);
     },
   );

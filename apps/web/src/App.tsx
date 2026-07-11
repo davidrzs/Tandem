@@ -2,6 +2,7 @@ import { Suspense, useEffect, useState } from "react";
 import { Outlet, useLocation, useMatch, useOutletContext } from "react-router-dom";
 import { AdminModal } from "./components/AdminModal.js";
 import { Icon } from "./components/Icon.js";
+import { NotificationsModal } from "./components/NotificationsModal.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { friendlyError } from "./errors.js";
 import { PeopleModal } from "./components/PeopleModal.js";
@@ -70,6 +71,7 @@ export function App() {
 
   // null = closed; a string (possibly empty) = open, prefilled with that query.
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [inboxOpen, setInboxOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -133,6 +135,7 @@ export function App() {
         activeCollectionId={activeMeta.data?.collectionId ?? null}
         onSelectWorkspace={setWorkspaceId}
         onOpenSearch={() => setSearchQuery("")}
+        onOpenInbox={() => setInboxOpen(true)}
         onOpenPeople={() => setPeopleOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAdmin={() => setAdminOpen(true)}
@@ -150,6 +153,7 @@ export function App() {
       {searchQuery !== null && (
         <SearchModal initialQuery={searchQuery} onClose={() => setSearchQuery(null)} />
       )}
+      {inboxOpen && <NotificationsModal onClose={() => setInboxOpen(false)} />}
       {settingsOpen && (
         <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
       )}
