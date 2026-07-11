@@ -348,7 +348,8 @@ export const auditLog = pgTable(
 /** Point-in-time copies of a document's Yjs state, for version history and
  * restore. Full state (not a Yjs snapshot) so no gc:false is required. Written
  * system-side only (capture at session boundaries / intervals / pre-restore);
- * members read their readable documents' versions. No retention policy yet. */
+ * members read their readable documents' versions. Old rows are pruned by
+ * the daily maintenance job (SNAPSHOT_RETENTION_DAYS, newest kept). */
 export const documentSnapshots = pgTable(
   "document_snapshots",
   {

@@ -407,7 +407,7 @@ One commit per phase, suites green per step.
 - [x] In-app notifications: comment replies/mentions/resolves + task assignment (inbox + badge)
 
 ### Phase F — platform/ops
-- [ ] Background jobs: snapshot retention (env) + orphaned-image GC
+- [x] Background jobs: snapshot retention (env) + orphaned-image GC
 - [ ] Dockerfile: compiled prod build, prod deps, USER node; compose mem limits + healthy depends_on
 - [ ] Biome lint/format + CI step; CI docker build
 - [ ] myTodos: prefilter candidates (stop full-scan) + list caps/pagination pass

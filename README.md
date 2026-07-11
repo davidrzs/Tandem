@@ -126,15 +126,9 @@ its edits are blamed to your AI). The agent has colleague-level access:
   session and periodically during long ones. Open **History → Versions** to
   preview a past version and **Restore** it; the restore is a normal attributed
   edit, so only the reverted spans are blamed on you and the pre-restore state
-  is itself captured (nothing is lost). Snapshots are kept indefinitely — there
-  is no retention/pruning policy yet.
-
-## Import and export
-
-Export any collection (its `…` menu) or your whole workspace (Settings → Data)
-as a markdown zip in Outline's layout — collection folders, child documents
-nested in a same-named folder, attachments under `uploads/`, tags as YAML front
-matter. You can only export what you can read.
+  is itself captured (nothing is lost). Old snapshots are pruned daily after
+  `SNAPSHOT_RETENTION_DAYS` (default 180); the newest ten versions of every
+  document are always kept. You can only export what you can read.
 
 Import (Settings → Data) accepts that same layout, so **Outline backups** and
 **Obsidian-style vaults** both work: folders become collections and nested
