@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
+import { AccountSection } from "./AccountSection.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
 import { timeAgo } from "./time.js";
@@ -80,6 +81,8 @@ export function SettingsModal({
 
   return (
     <Modal title="Settings" onClose={onClose} wide>
+      <AccountSection />
+
       <h3>AI access (MCP)</h3>
       <div className="switch-row">
         {/* A button-backed switch: unlike a controlled checkbox, a button has
