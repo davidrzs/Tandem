@@ -35,6 +35,8 @@ interface Props {
   collections: Collection[];
   activeDocId: string | null;
   activeCollectionId: string | null;
+  /** Narrow screens: the sidebar is an off-canvas drawer; this opens it. */
+  open?: boolean;
   onSelectWorkspace: (id: string) => void;
   onOpenSearch: () => void;
   onOpenPeople: () => void;
@@ -58,6 +60,7 @@ export function Sidebar({
   collections,
   activeDocId,
   activeCollectionId,
+  open,
   onSelectWorkspace,
   onOpenSearch,
   onOpenPeople,
@@ -139,7 +142,7 @@ export function Sidebar({
   const user = session.data?.user;
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" data-open={open || undefined}>
       <WorkspaceSwitcher
         workspaces={workspaces}
         workspaceId={workspaceId}

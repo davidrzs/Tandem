@@ -3150,3 +3150,74 @@ select.code-lang:hover {
   background: rgba(226, 168, 43, 0.3);
   color: inherit;
 }
+
+/* --- Responsive shell: below 900px the sidebar is an off-canvas drawer --- */
+.hamburger {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 84vw);
+    z-index: 220;
+    transform: translateX(-100%);
+    /* visibility waits for the slide-out, flips instantly on open */
+    transition: transform 170ms ease, visibility 0s linear 170ms;
+    visibility: hidden;
+  }
+
+  .sidebar[data-open] {
+    transform: none;
+    visibility: visible;
+    transition-delay: 0s;
+    box-shadow: var(--shadow-modal);
+  }
+
+  .sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 210;
+  }
+
+  .hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 200;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+    color: var(--ink-2);
+    cursor: pointer;
+    box-shadow: var(--shadow-pop);
+  }
+
+  /* Leave room for the hamburger over the doc toolbar. */
+  .editor-tools {
+    padding-left: 48px;
+  }
+
+  .home {
+    padding-left: 56px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}

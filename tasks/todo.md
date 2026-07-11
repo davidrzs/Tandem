@@ -403,7 +403,7 @@ One commit per phase, suites green per step.
 - [x] Favorites (migration) + recents (local) on Home/sidebar
 - [x] Profile: display name + password change; active sessions list/revoke
 - [x] Dark mode (tokens + toggle + prefers-color-scheme)
-- [ ] Responsive shell: collapsible sidebar drawer under ~900px
+- [x] Responsive shell: collapsible sidebar drawer under ~900px
 - [ ] In-app notifications: comments on your threads + task assignment (inbox + badge)
 
 ### Phase F — platform/ops

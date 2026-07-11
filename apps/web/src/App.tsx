@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState } from "react";
-import { Outlet, useMatch, useOutletContext } from "react-router-dom";
+import { Outlet, useLocation, useMatch, useOutletContext } from "react-router-dom";
 import { AdminModal } from "./components/AdminModal.js";
+import { Icon } from "./components/Icon.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { friendlyError } from "./errors.js";
 import { PeopleModal } from "./components/PeopleModal.js";
@@ -62,6 +63,11 @@ export function App() {
     if (ws && ws !== workspaceId) setWorkspaceId(ws);
   }, [activeMeta.data?.workspaceId, workspaceId]);
 
+  // Narrow screens: the sidebar becomes an off-canvas drawer.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  useEffect(() => setSidebarOpen(false), [location.pathname]);
+
   // null = closed; a string (possibly empty) = open, prefilled with that query.
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [peopleOpen, setPeopleOpen] = useState(false);
@@ -107,7 +113,18 @@ export function App() {
 
   return (
     <div className="app">
+      <button
+        className="hamburger"
+        aria-label="Open menu"
+        onClick={() => setSidebarOpen(true)}
+      >
+        <Icon name="menu" size={17} />
+      </button>
+      {sidebarOpen && (
+        <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
+      )}
       <Sidebar
+        open={sidebarOpen}
         loading={workspaces.isLoading || collections.isLoading}
         workspaces={workspaces.data ?? []}
         workspaceId={workspaceId}
