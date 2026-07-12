@@ -132,7 +132,13 @@ export async function buildHttpServer(
   // Rate limiting (in-memory). Not global — the high-frequency tRPC/collab
   // traffic is left alone; only the abusable/expensive endpoints opt in below
   // (MCP, image upload, zip import) via each route's `config.rateLimit`.
-  await app.register(rateLimit, { global: false });
+  // E2E harnesses sign up dozens of users per minute from one IP and set
+  // DISABLE_RATE_LIMITS=1; the allowList here becomes the default for every
+  // route-level limit, so production behaviour is otherwise untouched.
+  await app.register(rateLimit, {
+    global: false,
+    allowList: () => process.env.DISABLE_RATE_LIMITS === "1",
+  });
 
   // OAuth token requests are form-encoded; parse them so /api/auth/* accepts them.
   await app.register(formbody);

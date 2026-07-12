@@ -47,7 +47,7 @@ try {
   await b.waitForSelector(".sidebar");
   await b.locator(".ws-button").click();
   await b.getByRole("menuitem", { name: "Alice workspace" }).click();
-  await b.getByText(collectionName, { exact: true }).click();
+  await b.locator(".collection-row").getByText(collectionName, { exact: true }).click();
   await b.getByText(title, { exact: true }).click();
   await b.waitForSelector(".ProseMirror");
 

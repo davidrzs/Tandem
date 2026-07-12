@@ -25,7 +25,8 @@ try {
   await page.waitForURL((u) => !u.pathname.startsWith("/d/"));
 
   // It's gone from the active tree.
-  await page.getByText(c, { exact: true }).click(); // ensure the collection is expanded
+  // Scoped to the sidebar: the doc-page breadcrumb also shows the name.
+  await page.locator(".collection-row").getByText(c, { exact: true }).click(); // ensure expanded
   if ((await page.locator(".doc-row", { hasText: "Archive Me" }).count()) !== 0) {
     throw new Error("archived doc still in the active tree");
   }

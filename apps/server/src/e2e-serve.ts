@@ -5,6 +5,8 @@ import { buildHttpServer } from "./http.js";
 
 process.env.BETTER_AUTH_SECRET ??= "e2e-secret-not-for-production-use";
 process.env.PORT ??= "3799";
+// Specs sign up many users per minute from one IP; keep prod limits out of tests.
+process.env.DISABLE_RATE_LIMITS ??= "1";
 process.env.BETTER_AUTH_URL ??= `http://localhost:${process.env.PORT}`;
 process.env.WEB_ORIGIN ??= `http://localhost:${process.env.PORT}`;
 

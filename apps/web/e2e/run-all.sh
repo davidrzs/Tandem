@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 set -a; . ./.env; set +a
 
+export DISABLE_RATE_LIMITS=1  # 19 specs x fresh signups would trip the 10/min limit
 export DATABASE_URL="pglite://.pglite-e2e"
 rm -rf "$ROOT/.pglite-e2e"
 pnpm --filter @tandem/db exec node --import tsx src/migrate-run.ts >/tmp/rt-migrate.log 2>&1

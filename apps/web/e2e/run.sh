@@ -8,6 +8,7 @@ set -a; . ./.env; set +a
 
 # Dedicated e2e database, wiped each run. Exported so all children inherit it;
 # we invoke node directly (not the *:env-file* scripts) so .env can't override.
+export DISABLE_RATE_LIMITS=1  # 19 specs x fresh signups would trip the 10/min limit
 export DATABASE_URL="pglite://.pglite-e2e"
 rm -rf "$ROOT/.pglite-e2e"
 pnpm --filter @tandem/db exec node --import tsx src/migrate-run.ts >/tmp/rt-migrate.log 2>&1

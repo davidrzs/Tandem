@@ -96,3 +96,13 @@ value first (`toHaveValue("")` for a new doc).
 core.test.ts shares one PGlite db; "u2"/"u3" join u1's workspace in earlier
 tests. A later test needing an outsider must provision a FRESH user id, or
 RLS assertions pass/fail depending on test order (and -g isolation lies).
+
+## "Flaky on fast machines" can be a rate limit
+The web e2e suite failed a rotating spec ~50% of the time on a fast machine,
+always in the back half of the alphabetical order. Root cause: 19 specs each
+sign up fresh users from 127.0.0.1 and the sign-up limit is 10/min — the 11th
+signup inside a minute got 429 and the spec hung at the auth screen. Speeding
+the suite up (the maxParamLength fix) made it WORSE. Diagnose by logging page
+`response` events (the 429 was invisible in assertions); fix with an explicit
+DISABLE_RATE_LIMITS=1 escape hatch in the harnesses, never by weakening the
+production limit.

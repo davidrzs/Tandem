@@ -419,9 +419,12 @@ One commit per phase, suites green per step.
 - Full mobile polish beyond responsive shell; i18n/RTL
 - S3/object storage; collection icons; doc emoji/covers; templates beyond duplicate
 
-### Known-flaky (pre-existing, verified at baseline 6dcdebc)
-- apps/web/e2e search spec fails ~50% under the full shared-vite suite on this
-  machine; passes alone and at baseline shows the same failure rate.
+### Known-flaky — RESOLVED 2026-07-12
+- The rotating web-e2e flake was the sign-up rate limit (10/min/IP) throttling
+  the suite's fresh signups; harnesses now set DISABLE_RATE_LIMITS=1. Also
+  fixed on the way: search spec re-queries by remounting the modal (react-query
+  caches identical keys), breadcrumb made collection-name locators ambiguous
+  in three specs. 5/5 full-suite runs green.
 
 ### Review — gap-closing build-out (2026-07-11)
 Twelve commits, suites green at every step (unit/integration 136 tests, both
