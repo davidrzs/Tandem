@@ -13,6 +13,12 @@ import { createServices, type Services } from "./services.js";
 const MAX_BYTES = 25 * 1024 * 1024;
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
+/** SVG is a script container, not a picture — served same-origin it could run
+ * in the app's session. Raster formats only. */
+export function isAllowedImageMime(mime: string): boolean {
+  return mime.startsWith("image/") && mime !== "image/svg+xml";
+}
+
 /** Local disk dir for image bytes (UPLOADS_DIR; a mounted volume in prod). */
 export function uploadsDir(): string {
   const dir = process.env.UPLOADS_DIR ?? ".uploads";
@@ -75,9 +81,7 @@ export async function registerImageRoutes(app: FastifyInstance, db: Database, au
 
     const file = await req.file({ limits: { fileSize: MAX_BYTES } });
     if (!file) return reply.code(400).send({ error: "no file" });
-    // SVG is a script container, not a picture — served same-origin it could
-    // run in the app's session. Raster formats only.
-    if (!file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
+    if (!isAllowedImageMime(file.mimetype)) {
       return reply.code(415).send({ error: "not a supported image type" });
     }
 

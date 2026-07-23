@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -6,8 +10,9 @@ import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
 import { getAuthors } from "@tandem/editor";
 import * as Y from "yjs";
+import { readImageBytes } from "./images.js";
 import { createServices } from "./services.js";
-import { createMcpServer } from "./mcp.js";
+import { createMcpServer, MCP_IMAGE_MAX_BYTES } from "./mcp.js";
 
 // Self-contained: in-memory PGlite, migrated fresh. The MCP server acts as a
 // user (with a provisioned workspace) so RLS-scoped writes work. No writer is
@@ -27,7 +32,11 @@ function payload(res: any): any {
   return JSON.parse(res.content[0].text);
 }
 
+let uploadsTmp: string;
+
 before(async () => {
+  uploadsTmp = await mkdtemp(join(tmpdir(), "tandem-mcp-"));
+  process.env.UPLOADS_DIR = uploadsTmp;
   await migrateDatabase(db);
   // A real auth user row: members/my_tasks join the user table for name/email.
   await db.insert(user).values({ id: "u1", name: "User One", email: "alice@acme.com" });
@@ -43,6 +52,7 @@ before(async () => {
 after(async () => {
   await client.close();
   await db.$dispose();
+  await rm(uploadsTmp, { recursive: true, force: true });
 });
 
 test("tools are advertised", async () => {
@@ -74,6 +84,7 @@ test("tools are advertised", async () => {
     "restore_document",
     "search_documents",
     "update_document",
+    "upload_image",
   ]);
 });
 
@@ -393,6 +404,83 @@ test("colleague parity: comments, tasks, members, versions, blame, archive round
   assert.equal(restoredDoc.archivedAt, null);
 });
 
+// 1x1 PNG — the smallest well-formed raster image.
+const PNG_1PX =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+test("upload_image stores bytes and returns an embeddable snippet", async () => {
+  const img = payload(
+    await client.callTool({
+      name: "upload_image",
+      arguments: { data: PNG_1PX, mime: "image/png", alt: "diagram" },
+    }),
+  );
+  assert.equal(img.url, `/api/images/${img.id}`);
+  assert.equal(img.markdown, `![diagram](/api/images/${img.id})`);
+  assert.equal(img.mime, "image/png");
+  assert.equal(img.size, Buffer.from(PNG_1PX, "base64").length);
+
+  assert.deepEqual(await readImageBytes(img.id), Buffer.from(PNG_1PX, "base64"));
+  const row = await services.images.get(img.id);
+  assert.equal(row?.uploadedBy, "u1");
+  const [ws] = await services.workspaces.listMine();
+  assert.equal(row?.workspaceId, ws!.id);
+
+  // The snippet survives the markdown round-trip through document content.
+  const col = payload(
+    await client.callTool({
+      name: "create_collection",
+      arguments: { name: "Media", slug: "media" },
+    }),
+  );
+  const doc = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: { collectionId: col.id, title: "Pics", markdown: `Intro.\n\n${img.markdown}` },
+    }),
+  );
+  const fetched = payload(
+    await client.callTool({ name: "get_document", arguments: { id: doc.id } }),
+  );
+  assert.ok(fetched.markdown.includes(`![diagram](/api/images/${img.id})`));
+});
+
+test("upload_image tolerates a data: URL prefix", async () => {
+  const img = payload(
+    await client.callTool({
+      name: "upload_image",
+      arguments: { data: `data:image/png;base64,${PNG_1PX}`, mime: "image/png" },
+    }),
+  );
+  assert.deepEqual(await readImageBytes(img.id), Buffer.from(PNG_1PX, "base64"));
+});
+
+test("upload_image rejects bad mime, bad data, oversize, and foreign workspaces", async () => {
+  const errorOf = async (args: Record<string, unknown>) => {
+    const res: any = await client.callTool({ name: "upload_image", arguments: args });
+    assert.equal(res.isError, true);
+    return res.content[0].text as string;
+  };
+
+  assert.match(
+    await errorOf({ data: PNG_1PX, mime: "image/svg+xml" }),
+    /not a supported image type/,
+  );
+  assert.match(await errorOf({ data: PNG_1PX, mime: "text/plain" }), /not a supported image type/);
+  assert.match(await errorOf({ data: "not-base64!!!", mime: "image/png" }), /valid base64/);
+  assert.match(
+    await errorOf({
+      data: Buffer.alloc(MCP_IMAGE_MAX_BYTES + 3).toString("base64"),
+      mime: "image/png",
+    }),
+    /exceeds 8MB/,
+  );
+  assert.match(
+    await errorOf({ data: PNG_1PX, mime: "image/png", workspaceId: randomUUID() }),
+    /workspace not found/,
+  );
+});
+
 // Must run last: every earlier test relies on u1 having exactly one workspace.
 test("create_collection without workspaceId is ambiguous once the actor has two workspaces", async () => {
   await new WorkspaceService(db, SYSTEM).provisionForUser("u1", {
@@ -405,4 +493,11 @@ test("create_collection without workspaceId is ambiguous once the actor has two 
   });
   assert.equal(res.isError, true);
   assert.match(res.content[0].text, /more than one workspace/);
+
+  const upload: any = await client.callTool({
+    name: "upload_image",
+    arguments: { data: PNG_1PX, mime: "image/png" },
+  });
+  assert.equal(upload.isError, true);
+  assert.match(upload.content[0].text, /more than one workspace/);
 });

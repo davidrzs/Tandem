@@ -107,3 +107,42 @@ test("mcpAccessError: missing, banned, and switched-off accounts are refused", a
     await db.$dispose();
   }
 });
+
+test("/mcp body limit fits base64 image uploads but caps runaway payloads", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const app = await buildHttpServer(db);
+  try {
+    await app.ready();
+    const rpc = (filler: number) =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "upload_image",
+          arguments: { data: "A".repeat(filler), mime: "image/png" },
+        },
+      });
+    // 2MiB: over Fastify's 1MiB default (lifted for this route), so the
+    // parser accepts it and auth is what rejects the request.
+    const parsed = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { "content-type": "application/json" },
+      payload: rpc(2 * 1024 * 1024),
+    });
+    assert.equal(parsed.statusCode, 401);
+    // Over the MCP body limit: refused before anything else runs.
+    const oversized = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { "content-type": "application/json" },
+      payload: rpc(13 * 1024 * 1024),
+    });
+    assert.equal(oversized.statusCode, 413);
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});

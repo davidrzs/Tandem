@@ -17,7 +17,13 @@ import {
   UNKNOWN_AUTHOR,
 } from "@tandem/editor";
 import type { CollabWriter } from "./collab-writer.js";
+import { isAllowedImageMime, saveImageBytes } from "./images.js";
 import type { Services } from "./services.js";
+
+/** Decoded-bytes cap for MCP uploads (REST allows 25MB; agents send small images). */
+export const MCP_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+/** JSON-RPC body ceiling for POST /mcp: base64 of the cap (~4/3) + envelope headroom. */
+export const MCP_BODY_LIMIT = 12 * 1024 * 1024;
 
 /** Compact, machine-friendly document shape (drops binary/search internals). */
 function publicDoc(d: DocumentMeta & { rank?: number }) {
@@ -214,6 +220,70 @@ export function createMcpServer(
       const doc = await documents.create(args);
       logAudit("create_document", doc);
       return json(publicDoc(doc));
+    },
+  );
+
+  server.registerTool(
+    "upload_image",
+    {
+      title: "Upload image",
+      description:
+        "Upload an image (base64) and get back a markdown snippet " +
+        "`![alt](/api/images/<id>)` to embed with create_document or the edit " +
+        "tools. Images are private to workspace members. Raster formats only " +
+        "(no SVG); max 8MB decoded. workspaceId is required when you belong " +
+        "to more than one workspace.",
+      inputSchema: {
+        data: z.string().min(1),
+        mime: z.string().min(1),
+        alt: z.string().max(500).optional(),
+        workspaceId: z.string().uuid().optional(),
+      },
+    },
+    async ({ data, mime, alt, workspaceId }) => {
+      const actor = services.actor;
+      if (actor.kind !== "user") return toolError("image upload requires a user identity");
+      if (!isAllowedImageMime(mime)) {
+        return toolError("not a supported image type (raster image/* only, no SVG)");
+      }
+      // Node's base64 decoder silently skips invalid characters, so vet the
+      // input strictly first — otherwise garbage would decode to garbage bytes.
+      const b64 = data.replace(/^data:[^;,]+;base64,/, "").replace(/\s+/g, "");
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0) {
+        return toolError("data is not valid base64");
+      }
+      const bytes = Buffer.from(b64, "base64");
+      if (bytes.length === 0) return toolError("image data is empty");
+      if (bytes.length > MCP_IMAGE_MAX_BYTES) {
+        return toolError("image exceeds 8MB — use the web app to upload larger images");
+      }
+      const mine = await workspaces.listMine();
+      if (workspaceId && !mine.some((w) => w.id === workspaceId)) {
+        return notFound("workspace");
+      }
+      if (!workspaceId) {
+        if (mine.length === 0) return toolError("no workspace available");
+        if (mine.length > 1) {
+          return toolError("workspaceId is required: you belong to more than one workspace");
+        }
+        workspaceId = mine[0]!.id;
+      }
+      const id = await saveImageBytes(services, {
+        workspaceId,
+        uploadedBy: actor.userId,
+        mime,
+        bytes,
+      });
+      logAudit("upload_image", { workspaceId, title: null }, `${mime}, ${bytes.length} bytes`);
+      const url = `/api/images/${id}`;
+      return json({
+        id,
+        url,
+        // Square brackets would break the snippet's markdown; drop them.
+        markdown: `![${(alt ?? "").replace(/[[\]]/g, "")}](${url})`,
+        mime,
+        size: bytes.length,
+      });
     },
   );
 

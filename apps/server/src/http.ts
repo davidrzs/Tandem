@@ -26,7 +26,7 @@ import { createHocuspocus } from "./collab.js";
 import { registerImageRoutes } from "./images.js";
 import { registerSetupRoutes } from "./setup-routes.js";
 import { registerTransferRoutes } from "./transfer/routes.js";
-import { createMcpServer } from "./mcp.js";
+import { createMcpServer, MCP_BODY_LIMIT } from "./mcp.js";
 import { createServices } from "./services.js";
 import { appRouter } from "./trpc.js";
 
@@ -291,7 +291,9 @@ export async function buildHttpServer(
   // write path. Gated by Better Auth's MCP OAuth (bearer access token); the
   // 401 carries the resource-metadata challenge MCP clients follow.
   // A well-behaved agent makes well under this; higher is a runaway loop.
-  app.post("/mcp", { config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (req, reply) => {
+  // Base64 image uploads exceed Fastify's 1MiB default body cap; bounded by
+  // the upload tool's own decoded-size limit.
+  app.post("/mcp", { bodyLimit: MCP_BODY_LIMIT, config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (req, reply) => {
     const token = await auth.api.getMcpSession({
       headers: fromNodeHeaders(req.headers),
     });
