@@ -4,13 +4,16 @@ import { useEffect, useState } from "react";
 interface Heading {
   level: number;
   text: string;
+  /** Stable render key: heading text, disambiguated when texts repeat. */
+  key: string;
 }
 
 /**
  * An Outline-style contents rail in the document's left gutter. It's a pure view
  * of the current headings — no node, no markdown, no blame. It tracks the section
  * you're reading (scroll-spy) and scrolls to a heading on click. The parent hides
- * it when a right rail is open, in full-width mode, or on a narrow viewport.
+ * it when a right rail is open; CSS hides it on viewports too narrow to fit it
+ * beside the centered document column.
  */
 export function TocRail({ editor, hidden }: { editor: Editor | null; hidden: boolean }) {
   const [headings, setHeadings] = useState<Heading[]>([]);
@@ -21,9 +24,13 @@ export function TocRail({ editor, hidden }: { editor: Editor | null; hidden: boo
     if (!editor) return;
     const compute = () => {
       const hs: Heading[] = [];
+      const seen = new Map<string, number>();
       editor.state.doc.descendants((node) => {
         if (node.type.name === "heading") {
-          hs.push({ level: Number(node.attrs.level) || 1, text: node.textContent || "Untitled" });
+          const text = node.textContent || "Untitled";
+          const n = seen.get(text) ?? 0;
+          seen.set(text, n + 1);
+          hs.push({ level: Number(node.attrs.level) || 1, text, key: n === 0 ? text : `${text}#${n}` });
         }
       });
       setHeadings(hs);
@@ -65,7 +72,7 @@ export function TocRail({ editor, hidden }: { editor: Editor | null; hidden: boo
       <div className="toc-title">On this page</div>
       {headings.map((h, i) => (
         <button
-          key={i}
+          key={h.key}
           type="button"
           className={`toc-entry toc-l${Math.min(h.level, 3)}` + (i === active ? " active" : "")}
           onClick={() => scrollTo(i)}

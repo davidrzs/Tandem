@@ -433,12 +433,6 @@ export function Editor({
 
   const openThreadCount = commentItems.filter((c) => !c.parentId && !c.resolvedAt).length;
 
-  // --- reading width preference ---
-  const [wide, setWide] = useState(() => localStorage.getItem("tandem.wide") === "1");
-  useEffect(() => {
-    localStorage.setItem("tandem.wide", wide ? "1" : "0");
-  }, [wide]);
-
   // --- history / blame view ---
   const blameOn = rail === "history";
   const [onlySession, setOnlySession] = useState<number | null>(null);
@@ -712,8 +706,8 @@ export function Editor({
           </div>
         </BubbleMenu>
       )}
-      <TocRail editor={editor} hidden={rail !== null || previewId !== null || wide} />
-      <div className={"editor" + (wide ? " wide" : "")}>
+      <TocRail editor={editor} hidden={rail !== null || previewId !== null} />
+      <div className="editor">
       {findOpen && editor && (
         <FindBar
           editor={editor}
@@ -743,13 +737,6 @@ export function Editor({
         >
           <Icon name="search" size={15} />
           Find
-        </button>
-        <button type="button"
-          className={"tool-btn" + (wide ? " active" : "")}
-          title="Toggle full-width layout"
-          onClick={() => setWide((w) => !w)}
-        >
-          Full width
         </button>
         <button type="button"
           className={"tool-btn" + (blameOn ? " active" : "")}

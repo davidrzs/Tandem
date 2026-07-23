@@ -1,31 +1,31 @@
-/* Tandem — pine.
- * A calm collaborative workspace: white paper, green-black ink, one pine accent,
- * neutrals warmed with a green cast. One typeface (Hanken Grotesk) carries the
- * whole product; code stays monospaced and math keeps KaTeX's own fonts. The only
- * loud thing in the app is supposed to be the authorship layer. */
+/* Tandem — quiet slate.
+ * A calm collaborative workspace: white paper, near-black ink, cool neutral
+ * grays, and one restrained blue accent. One typeface (Hanken Grotesk) carries
+ * the whole product; code stays monospaced and math keeps KaTeX's own fonts. The
+ * only loud thing in the app is supposed to be the authorship layer. */
 
 :root {
-  --tree-parent: #1f3327;
-  --tree-leaf: #3a4a41;
+  --tree-parent: #272c33;
+  --tree-leaf: #4d5560;
   --tools-veil: rgba(255, 255, 255, 0.85);
   --paper: #ffffff;
   --surface: #ffffff;
-  --sunken: #f6f8f6;
-  --ink: #132019;
-  --ink-body: #33443a;
-  --ink-2: #5a6f63;
-  --ink-3: #9aab9f;
-  --line: #eef2ee;
-  --line-strong: #e2e9e3;
-  --border-side: #e6ece7;
-  --accent: #1f6b4f;
-  --accent-ink: #1a5a42;
-  --accent-wash: rgba(31, 107, 79, 0.08);
-  --mention-wash: #f0f7f2;
-  --hover: #eaf0ea;
-  --hover-strong: #eef2ee;
-  --tag-bg: #f0f4f1;
-  --tag-hover: #e6ede8;
+  --sunken: #f4f6f8;
+  --ink: #191d23;
+  --ink-body: #363c45;
+  --ink-2: #68717c;
+  --ink-3: #9aa2ad;
+  --line: #edeff2;
+  --line-strong: #e2e5e9;
+  --border-side: #e6e8ec;
+  --accent: #1f66d6;
+  --accent-ink: #1a56b5;
+  --accent-wash: rgba(31, 102, 214, 0.08);
+  --mention-wash: #eef4fd;
+  --hover: #edf0f3;
+  --hover-strong: #e8ebef;
+  --tag-bg: #f0f2f5;
+  --tag-hover: #e6e9ee;
   --live: #2f9e63;
   --live-glow: rgba(47, 158, 99, 0.18);
   --danger: #b3271e;
@@ -36,8 +36,8 @@
   --radius-leaf: 7px;
   --radius-m: 10px;
   --radius-l: 14px;
-  --shadow-pop: 0 4px 16px rgba(19, 32, 25, 0.1), 0 1px 3px rgba(19, 32, 25, 0.08);
-  --shadow-modal: 0 24px 64px rgba(19, 32, 25, 0.22), 0 4px 12px rgba(19, 32, 25, 0.1);
+  --shadow-pop: 0 4px 16px rgba(15, 20, 28, 0.1), 0 1px 3px rgba(15, 20, 28, 0.08);
+  --shadow-modal: 0 24px 64px rgba(15, 20, 28, 0.22), 0 4px 12px rgba(15, 20, 28, 0.1);
   --font-ui: "Hanken Grotesk Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-prose: "Hanken Grotesk Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
@@ -72,7 +72,7 @@ button {
 }
 
 ::selection {
-  background: #cfe3d8;
+  background: #d3e2f8;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -242,14 +242,6 @@ button {
   padding: 0 9px 6px;
 }
 
-.section-title .row-action {
-  opacity: 0;
-}
-
-.section:hover .section-title .row-action {
-  opacity: 1;
-}
-
 .side-note {
   padding: 4px 8px;
   font-size: 12.5px;
@@ -301,7 +293,7 @@ button {
   background: none;
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--tree-parent); /* handoff pine-ink */
+  color: var(--tree-parent);
   cursor: pointer;
   padding: 6px 0 6px 6px;
   text-align: left;
@@ -357,6 +349,15 @@ button {
   color: var(--ink);
 }
 
+/* Section-title actions only surface on hover of their section. */
+.section-title .row-action {
+  opacity: 0;
+}
+
+.section:hover .section-title .row-action {
+  opacity: 1;
+}
+
 /* Tree-branch line down the collection's document leaves (handoff). */
 .doc-branch {
   margin-left: 6px;
@@ -371,7 +372,7 @@ button {
   padding: 6px 10px;
   border-radius: var(--radius-leaf);
   font-size: 13px;
-  color: var(--tree-leaf); /* handoff */
+  color: var(--tree-leaf);
   text-decoration: none;
 }
 
@@ -624,15 +625,9 @@ button {
 /* ---------- editor ---------- */
 
 .editor {
-  max-width: 720px;
+  max-width: 850px;
   margin: 0 auto;
   padding: 20px 40px 96px;
-}
-
-.editor.wide {
-  max-width: none;
-  padding-left: 56px;
-  padding-right: 56px;
 }
 
 .editor-tools {
@@ -648,11 +643,6 @@ button {
   background: var(--tools-veil);
   backdrop-filter: blur(6px);
   white-space: nowrap;
-}
-
-.editor.wide .editor-tools {
-  margin-left: -56px;
-  margin-right: -56px;
 }
 
 .tool-divider {
@@ -835,7 +825,7 @@ button {
 
 .tag-remove:hover {
   opacity: 1;
-  background: rgba(23, 101, 109, 0.14);
+  background: rgba(31, 102, 214, 0.14);
 }
 
 .tag-add {
@@ -993,16 +983,18 @@ button {
   display: none;
 }
 
-/* ---------- table-of-contents rail (Outline-style, left gutter) ---------- */
+/* ---------- table-of-contents rail (left gutter) ---------- */
 
+/* Fixed in the gutter between sidebar and document so it never displaces the
+ * centered column; hidden below the width where both fit side by side. */
 .toc-rail {
-  flex: 0 0 200px;
-  align-self: flex-start;
-  position: sticky;
-  top: 24px;
-  max-height: calc(100vh - 48px);
+  position: fixed;
+  left: 280px;
+  top: 96px;
+  width: 204px;
+  max-height: calc(100vh - 120px);
   overflow-y: auto;
-  padding: 8px 14px 40px 8px;
+  padding: 8px 14px 24px 8px;
   font-family: var(--font-ui);
 }
 
@@ -1054,9 +1046,21 @@ button {
   scroll-margin-top: 84px;
 }
 
+/* Mid widths can't fit the rail beside a centered column — reserve a gutter
+ * and accept the shift. Narrower still, drop the rail entirely. */
+@media (max-width: 1580px) {
+  .doc-shell:has(.toc-rail) {
+    padding-left: 224px;
+  }
+}
+
 @media (max-width: 1220px) {
   .toc-rail {
     display: none;
+  }
+
+  .doc-shell:has(.toc-rail) {
+    padding-left: 0;
   }
 }
 
@@ -1107,7 +1111,7 @@ button {
 
 .ProseMirror a {
   color: var(--accent-ink);
-  text-decoration-color: rgba(23, 101, 109, 0.4);
+  text-decoration-color: rgba(31, 102, 214, 0.4);
   text-underline-offset: 2px;
 }
 
@@ -1364,7 +1368,7 @@ button {
 }
 
 .blame-ai {
-  border-bottom: 1px dotted rgba(19, 32, 25, 0.5);
+  border-bottom: 1px dotted rgba(15, 20, 28, 0.5);
 }
 
 .blame-legend {
@@ -1404,7 +1408,7 @@ button {
   position: fixed;
   z-index: 60;
   background: var(--ink);
-  color: #f2f6f3;
+  color: #f3f5f7;
   border-radius: var(--radius-s);
   box-shadow: var(--shadow-pop);
   padding: 6px 10px;
@@ -1416,7 +1420,7 @@ button {
 }
 
 .blame-when {
-  color: #a6b4aa;
+  color: #a7aeb7;
 }
 
 .collaboration-cursor__caret {
@@ -1447,7 +1451,7 @@ button {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(19, 32, 25, 0.4);
+  background: rgba(15, 20, 28, 0.4);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: flex-start;
@@ -1788,7 +1792,7 @@ button {
 }
 
 .search-snippet mark {
-  background: rgba(23, 101, 109, 0.14);
+  background: rgba(31, 102, 214, 0.14);
   color: var(--accent-ink);
   border-radius: 2px;
 }
@@ -1850,7 +1854,7 @@ button {
   background: var(--surface);
   padding: 14px 18px;
   margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(19, 32, 25, 0.04);
+  box-shadow: 0 1px 2px rgba(15, 20, 28, 0.04);
 }
 
 .todo-doc {
@@ -2112,7 +2116,7 @@ button {
 }
 
 .doc-shell .editor {
-  flex: 1 1 720px;
+  flex: 1 1 850px;
   min-width: 0;
 }
 
@@ -2133,7 +2137,7 @@ button {
   border: none;
   border-radius: var(--radius-s);
   background: var(--ink);
-  color: #f2f6f3;
+  color: #f3f5f7;
   font-size: 12.5px;
   font-weight: 500;
   padding: 6px 11px;
@@ -2142,7 +2146,7 @@ button {
 }
 
 .bubble-btn:hover {
-  background: #24382c;
+  background: #2a2f37;
 }
 
 .bubble-group {
@@ -2329,7 +2333,7 @@ button {
   color: var(--accent);
   font-weight: 500;
   text-decoration: none;
-  border-bottom: 1px solid rgba(31, 107, 79, 0.3);
+  border-bottom: 1px solid rgba(31, 102, 214, 0.3);
   padding-bottom: 1px;
   cursor: pointer;
   white-space: nowrap;
@@ -2543,7 +2547,7 @@ button {
   height: 14px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(19, 32, 25, 0.25);
+  box-shadow: 0 1px 2px rgba(15, 20, 28, 0.25);
   transition: transform 120ms ease;
 }
 
@@ -2705,7 +2709,7 @@ button {
   border: none;
   border-radius: var(--radius-s);
   background: rgba(255, 255, 255, 0.12);
-  color: #f2f6f3;
+  color: #f3f5f7;
   font-size: 12.5px;
   padding: 6px 10px;
   width: 220px;
@@ -2713,7 +2717,7 @@ button {
 }
 
 .bubble-input::placeholder {
-  color: rgba(242, 246, 243, 0.55);
+  color: rgba(243, 245, 247, 0.55);
 }
 
 .bubble-input:focus {
@@ -2905,7 +2909,7 @@ select.code-lang:hover {
 
 .toast {
   background: var(--ink);
-  color: #f2f6f3;
+  color: #f3f5f7;
   font-size: 13px;
   padding: 8px 14px;
   border-radius: var(--radius-m);
@@ -2975,7 +2979,7 @@ select.code-lang:hover {
   .tag-bar,
   .img-resize-handle,
   .img-alt-input,
-  .code-head {
+  .code-block .code-head {
     display: none !important;
   }
 
@@ -3058,29 +3062,29 @@ select.code-lang:hover {
 }
 
 /* --- Dark theme (stamped on <html> by theme.ts; follows the system until
-   the user picks explicitly). Same pine identity, inverted paper. --- */
+   the user picks explicitly). Same identity, inverted paper. --- */
 [data-theme="dark"] {
-  --tree-parent: #d3ded6;
-  --tree-leaf: #b3c0b7;
-  --tools-veil: rgba(17, 22, 20, 0.85);
-  --paper: #111614;
-  --surface: #171d1a;
-  --sunken: #0d1210;
-  --ink: #e8eeea;
-  --ink-body: #c7d2ca;
-  --ink-2: #93a297;
-  --ink-3: #647169;
-  --line: #232b26;
-  --line-strong: #2c352f;
-  --border-side: #212a24;
-  --accent: #4ea981;
-  --accent-ink: #74c29c;
-  --accent-wash: rgba(78, 169, 129, 0.14);
-  --mention-wash: rgba(78, 169, 129, 0.1);
-  --hover: #1e2621;
-  --hover-strong: #232c26;
-  --tag-bg: #1d2621;
-  --tag-hover: #26302a;
+  --tree-parent: #d5d9de;
+  --tree-leaf: #b2b8c1;
+  --tools-veil: rgba(25, 28, 33, 0.85);
+  --paper: #14161a;
+  --surface: #191c21;
+  --sunken: #101216;
+  --ink: #e8eaee;
+  --ink-body: #c6cbd2;
+  --ink-2: #939aa4;
+  --ink-3: #656c76;
+  --line: #24272d;
+  --line-strong: #2e323a;
+  --border-side: #22252b;
+  --accent: #5c94ee;
+  --accent-ink: #85b0f5;
+  --accent-wash: rgba(92, 148, 238, 0.14);
+  --mention-wash: rgba(92, 148, 238, 0.1);
+  --hover: #1f2228;
+  --hover-strong: #24282f;
+  --tag-bg: #1e2126;
+  --tag-hover: #272b31;
   --live: #43b374;
   --live-glow: rgba(67, 179, 116, 0.25);
   --danger: #e0736a;
@@ -3099,17 +3103,17 @@ select.code-lang:hover {
 [data-theme="dark"] .bubble-btn,
 [data-theme="dark"] .bubble-group,
 [data-theme="dark"] .toast {
-  background: #26312b;
-  color: #e8eeea;
+  background: #262a31;
+  color: #e8eaee;
 }
 
 [data-theme="dark"] .bubble-btn:hover {
-  background: #313d36;
+  background: #30353d;
 }
 
 [data-theme="dark"] .bubble-btn.active {
   background: var(--accent);
-  color: #0d1210;
+  color: #101318;
 }
 
 [data-theme="dark"] .toast-danger {
@@ -3122,18 +3126,18 @@ select.code-lang:hover {
 }
 
 [data-theme="dark"] .ProseMirror pre {
-  background: #0d1512;
+  background: #10141a;
   border: 1px solid var(--line);
 }
 
 /* Dark-mode pins for the remaining literal-colored chrome. */
 [data-theme="dark"] ::selection {
-  background: #2c4a3c;
+  background: #2b4269;
 }
 
 [data-theme="dark"] .blame-card {
-  background: #26312b;
-  color: #e8eeea;
+  background: #262a31;
+  color: #e8eaee;
 }
 
 [data-theme="dark"] .archived-banner {
