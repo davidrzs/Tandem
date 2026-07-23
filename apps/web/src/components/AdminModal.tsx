@@ -91,35 +91,49 @@ function ServerSettings({ onError }: { onError: (m: string) => void }) {
   return (
     <>
       <h3>Server settings</h3>
-      <label className="setup-label">Server name</label>
-      <input value={name} onChange={(e) => edit(setName)(e.target.value)} />
+      <div className="dialog-form">
+        <label className="field">
+          <span>Server name</span>
+          <input value={name} onChange={(e) => edit(setName)(e.target.value)} />
+        </label>
 
-      <label className="setup-label">Who can sign up?</label>
-      <select value={mode} onChange={(e) => edit<Mode>(setMode)(e.target.value as Mode)}>
-        <option value="invite">Invite only</option>
-        <option value="open">Open</option>
-        <option value="domain">Specific email domains</option>
-        <option value="closed">Closed (admin creates accounts)</option>
-      </select>
-      {mode === "domain" && (
-        <input
-          placeholder="Allowed domains, comma-separated (e.g. acme.com)"
-          value={domains}
-          onChange={(e) => edit(setDomains)(e.target.value)}
-        />
-      )}
-      <label className="switch-row">
-        <input
-          type="checkbox"
-          checked={allowWorkspaces}
-          onChange={(e) => edit(setAllowWorkspaces)(e.target.checked)}
-        />
-        Members can create additional workspaces
-      </label>
-      <div className="dialog-actions">
-        <button type="button" className="btn primary" disabled={!dirty || update.isPending} onClick={save}>
-          {update.isPending ? "Saving…" : "Save settings"}
-        </button>
+        <label className="field">
+          <span>Who can sign up?</span>
+          <select value={mode} onChange={(e) => edit<Mode>(setMode)(e.target.value as Mode)}>
+            <option value="invite">Invite only</option>
+            <option value="open">Open</option>
+            <option value="domain">Specific email domains</option>
+            <option value="closed">Closed (admin creates accounts)</option>
+          </select>
+        </label>
+        {mode === "domain" && (
+          <label className="field">
+            <span>Allowed email domains</span>
+            <input
+              placeholder="Comma-separated (e.g. acme.com)"
+              value={domains}
+              onChange={(e) => edit(setDomains)(e.target.value)}
+            />
+          </label>
+        )}
+        <div className="switch-row">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={allowWorkspaces}
+            className="switch-btn"
+            aria-label="Members can create additional workspaces"
+            onClick={() => edit(setAllowWorkspaces)(!allowWorkspaces)}
+          >
+            <span className="switch-thumb" />
+          </button>
+          <span>Members can create additional workspaces</span>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="btn primary" disabled={!dirty || update.isPending} onClick={save}>
+            {update.isPending ? "Saving…" : "Save settings"}
+          </button>
+        </div>
       </div>
     </>
   );
