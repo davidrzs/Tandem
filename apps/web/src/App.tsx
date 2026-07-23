@@ -18,6 +18,7 @@ export interface CollectionInfo {
   workspaceId: string;
   defaultRole: string;
   writable: boolean;
+  position: number;
 }
 
 export interface AppContext {

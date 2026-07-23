@@ -84,10 +84,17 @@ export class CollectionService {
         workspaceId = rows[0]!.id;
       }
       const { workspaceId: _omit, ...rest } = input;
+      // New collections land at the end of the sidebar. The max is computed
+      // over RLS-visible rows only, so a tie with a hidden sibling is possible
+      // — harmless, the name tiebreak keeps the order stable.
+      const [agg] = await db
+        .select({ max: sql<number>`coalesce(max(${collections.position}), 0)` })
+        .from(collections)
+        .where(eq(collections.workspaceId, workspaceId));
       try {
         const [row] = await db
           .insert(collections)
-          .values({ ...rest, workspaceId })
+          .values({ ...rest, workspaceId, position: (agg?.max ?? 0) + 1 })
           .returning();
         return row!;
       } catch (err) {
@@ -111,8 +118,20 @@ export class CollectionService {
         })
         .from(collections)
         .where(isNull(collections.deletedAt))
-        .orderBy(collections.name),
+        .orderBy(collections.position, collections.name),
     );
+  }
+
+  /** Reorder within the sidebar. RLS-scoped: only writable collections move. */
+  async move(id: string, position: number): Promise<Collection | null> {
+    return this.exec(async (db) => {
+      const [row] = await db
+        .update(collections)
+        .set({ position, updatedAt: new Date() })
+        .where(and(eq(collections.id, id), isNull(collections.deletedAt)))
+        .returning();
+      return row ?? null;
+    });
   }
 
   async update(

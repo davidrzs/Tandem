@@ -89,6 +89,9 @@ button {
 .app {
   display: grid;
   grid-template-columns: 264px 1fr;
+  /* Pin the single row to the viewport: the sidebar is no longer a scroll
+   * container, and an auto row would otherwise grow to its content. */
+  grid-template-rows: 100vh;
   height: 100vh;
 }
 
@@ -109,9 +112,19 @@ button {
   flex-direction: column;
   background: var(--sunken);
   border-right: 1px solid var(--border-side);
-  overflow-y: auto;
   padding: 14px 12px;
   gap: 2px;
+}
+
+/* Only the middle region (favorites + collections) scrolls; the nav above and
+ * the account footer below stay pinned. The negative margin puts the scrollbar
+ * at the sidebar's edge rather than 12px inside it. */
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -12px;
+  padding: 0 12px;
 }
 
 .ws-switcher {
@@ -222,11 +235,6 @@ button {
   border-radius: 5px;
   padding: 1px 6px;
   background: var(--hover);
-}
-
-.section {
-  flex: 1;
-  min-height: 0;
 }
 
 .section-title {
@@ -399,11 +407,13 @@ button {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-.doc-row.drop-before {
+.doc-row.drop-before,
+.collection-row.drop-before {
   box-shadow: 0 -2px 0 var(--accent);
 }
 
-.doc-row.drop-after {
+.doc-row.drop-after,
+.collection-row.drop-after {
   box-shadow: 0 2px 0 var(--accent);
 }
 
@@ -625,7 +635,7 @@ button {
 /* ---------- editor ---------- */
 
 .editor {
-  max-width: 850px;
+  max-width: 780px;
   margin: 0 auto;
   padding: 20px 40px 96px;
 }
@@ -740,7 +750,7 @@ button {
   outline: none;
   margin-top: 14px;
   font-family: var(--font-prose);
-  font-size: 40px;
+  font-size: 34px;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.02em;
@@ -991,7 +1001,7 @@ button {
   position: fixed;
   left: 280px;
   top: 96px;
-  width: 184px;
+  width: 172px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
   padding: 6px 12px 20px 6px;
@@ -1046,21 +1056,12 @@ button {
   scroll-margin-top: 84px;
 }
 
-/* Mid widths can't fit the rail beside a centered column — reserve a gutter
- * and accept the shift. Narrower still, drop the rail entirely. */
-@media (max-width: 1580px) {
-  .doc-shell:has(.toc-rail) {
-    padding-left: 224px;
-  }
-}
-
-@media (max-width: 1220px) {
+/* The rail never displaces the column: below the width where it fits in the
+ * gutter beside the centered document, it simply disappears. The column sits
+ * in the same place whether or not a document has a contents rail. */
+@media (max-width: 1450px) {
   .toc-rail {
     display: none;
-  }
-
-  .doc-shell:has(.toc-rail) {
-    padding-left: 0;
   }
 }
 
@@ -1078,8 +1079,8 @@ button {
 .ProseMirror {
   outline: none;
   font-family: var(--font-prose);
-  font-size: 17px;
-  line-height: 1.75;
+  font-size: 15.5px;
+  line-height: 1.7;
   min-height: 60vh;
   color: var(--ink);
 }
@@ -1313,8 +1314,8 @@ button {
 
 .ProseMirror ul[data-type="taskList"] li > label {
   flex: 0 0 auto;
-  /* Centre the 15px box on the first text line (line-height 1.75 × 17px). */
-  margin-top: calc((1.75em - 15px) / 2);
+  /* Centre the 15px box on the first text line (line-height 1.7 × 15.5px). */
+  margin-top: calc((1.7em - 15px) / 2);
   user-select: none;
 }
 
@@ -1807,7 +1808,7 @@ button {
 
 .home h1 {
   font-family: var(--font-prose);
-  font-size: 34px;
+  font-size: 30px;
   font-weight: 650;
   letter-spacing: -0.01em;
   margin: 0 0 6px;
@@ -2116,7 +2117,7 @@ button {
 }
 
 .doc-shell .editor {
-  flex: 1 1 850px;
+  flex: 1 1 780px;
   min-width: 0;
 }
 

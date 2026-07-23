@@ -144,6 +144,8 @@ export const collections = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     // Baseline access for workspace members without an explicit grant.
     defaultRole: text("default_role").notNull().default("read_write"), // none|read|read_write
+    // Sidebar ordering within the workspace (sparse; new collections go at max+1).
+    position: doublePrecision("position").notNull().default(0),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),

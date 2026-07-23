@@ -20,6 +20,7 @@ interface Collection {
   workspaceId: string;
   defaultRole: string;
   writable: boolean;
+  position: number;
 }
 interface DocNode {
   id: string;
@@ -54,6 +55,18 @@ function slugify(name: string) {
   );
 }
 
+/** Which collections are unfolded, remembered across reloads. */
+const EXPANDED_KEY = "tandem.sidebar.expanded";
+
+function loadExpanded(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((v) => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
 export function Sidebar({
   loading,
   workspaces,
@@ -78,7 +91,11 @@ export function Sidebar({
 
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ReactNode>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(loadExpanded);
+
+  useEffect(() => {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expanded]));
+  }, [expanded]);
 
   // The open document's collection is always expanded.
   useEffect(() => {
@@ -184,39 +201,43 @@ export function Sidebar({
         )}
       </nav>
 
-      <FavoritesSection workspaceId={workspaceId} activeDocId={activeDocId} />
+      <div className="sidebar-scroll">
+        <FavoritesSection workspaceId={workspaceId} activeDocId={activeDocId} />
 
-      <div className="section">
-        <div className="section-title">
-          <span>Collections</span>
-          <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={newCollection}>
-            <Icon name="plus" />
-          </button>
+        <div className="section">
+          <div className="section-title">
+            <span>Collections</span>
+            <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={newCollection}>
+              <Icon name="plus" />
+            </button>
+          </div>
+          {loading && <div className="side-note">Loading…</div>}
+          {!loading && collections.length === 0 && (
+            <div className="side-note">No collections yet — create one.</div>
+          )}
+          {collections.map((c, i) => (
+            <CollectionSection
+              key={c.id}
+              collection={c}
+              siblings={collections}
+              index={i}
+              expanded={expanded.has(c.id)}
+              activeDocId={activeDocId}
+              onToggle={() =>
+                setExpanded((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(c.id)) next.delete(c.id);
+                  else next.add(c.id);
+                  return next;
+                })
+              }
+              onShare={() => onShareCollection(c.id)}
+              onError={setError}
+              setDialog={setDialog}
+            />
+          ))}
+          {error && <div className="sidebar-error">{error}</div>}
         </div>
-        {loading && <div className="side-note">Loading…</div>}
-        {!loading && collections.length === 0 && (
-          <div className="side-note">No collections yet — create one.</div>
-        )}
-        {collections.map((c) => (
-          <CollectionSection
-            key={c.id}
-            collection={c}
-            expanded={expanded.has(c.id)}
-            activeDocId={activeDocId}
-            onToggle={() =>
-              setExpanded((prev) => {
-                const next = new Set(prev);
-                if (next.has(c.id)) next.delete(c.id);
-                else next.add(c.id);
-                return next;
-              })
-            }
-            onShare={() => onShareCollection(c.id)}
-            onError={setError}
-            setDialog={setDialog}
-          />
-        ))}
-        {error && <div className="sidebar-error">{error}</div>}
       </div>
 
       {user && (
@@ -368,8 +389,13 @@ function FavoritesSection({
   );
 }
 
+/** Drag payload type for collection rows (documents use their own). */
+const COLLECTION_MIME = "application/x-tandem-collection";
+
 function CollectionSection({
   collection,
+  siblings,
+  index,
   expanded,
   activeDocId,
   onToggle,
@@ -378,6 +404,8 @@ function CollectionSection({
   setDialog,
 }: {
   collection: Collection;
+  siblings: Collection[];
+  index: number;
   expanded: boolean;
   activeDocId: string | null;
   onToggle: () => void;
@@ -398,7 +426,38 @@ function CollectionSection({
   const createDoc = trpc.documents.create.useMutation();
   const renameCollection = trpc.collections.update.useMutation();
   const deleteCollection = trpc.collections.delete.useMutation();
+  const moveCollection = trpc.collections.move.useMutation();
   const [showArchived, setShowArchived] = useState(false);
+  const [dropMode, setDropMode] = useState<"before" | "after" | null>(null);
+
+  // Where a dropped sibling lands: midway between this collection and its
+  // neighbour (same sparse-position scheme as document rows).
+  const positionFor = (mode: "before" | "after"): number => {
+    if (mode === "before") {
+      const prev = siblings[index - 1];
+      return prev ? (prev.position + collection.position) / 2 : collection.position - 1;
+    }
+    const next = siblings[index + 1];
+    return next ? (collection.position + next.position) / 2 : collection.position + 1;
+  };
+
+  const onDropCollection = (e: React.DragEvent) => {
+    e.preventDefault();
+    const payload = e.dataTransfer.getData(COLLECTION_MIME);
+    const mode = dropMode;
+    setDropMode(null);
+    if (!payload || !mode) return;
+    const dragged = JSON.parse(payload) as { id: string };
+    if (dragged.id === collection.id) return;
+    void (async () => {
+      try {
+        await moveCollection.mutateAsync({ id: dragged.id, position: positionFor(mode) });
+        await utils.collections.list.invalidate();
+      } catch (err) {
+        onError(friendlyError(err));
+      }
+    })();
+  };
 
   const refresh = () =>
     Promise.all([
@@ -489,7 +548,25 @@ function CollectionSection({
 
   return (
     <div className="collection">
-      <div className={"collection-row" + (expanded ? " open" : "")}>
+      <div
+        className={
+          "collection-row" +
+          (expanded ? " open" : "") +
+          (dropMode ? ` drop-${dropMode}` : "")
+        }
+        draggable={collection.writable}
+        onDragStart={(e) => {
+          e.dataTransfer.setData(COLLECTION_MIME, JSON.stringify({ id: collection.id }));
+        }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(COLLECTION_MIME)) return;
+          e.preventDefault();
+          const rect = e.currentTarget.getBoundingClientRect();
+          setDropMode(e.clientY - rect.top < rect.height / 2 ? "before" : "after");
+        }}
+        onDragLeave={() => setDropMode(null)}
+        onDrop={onDropCollection}
+      >
         <button type="button" className="collection-name" onClick={onToggle}>
           <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
           <span className="collection-label">{collection.name}</span>
@@ -684,7 +761,7 @@ function DocRow({
           );
         }}
         onDragOver={(e) => {
-          if (!writable) return;
+          if (!writable || !e.dataTransfer.types.includes("application/x-tandem-doc")) return;
           e.preventDefault();
           const rect = e.currentTarget.getBoundingClientRect();
           const y = (e.clientY - rect.top) / rect.height;

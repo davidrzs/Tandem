@@ -134,6 +134,13 @@
       "when": 1783779564498,
       "tag": "0018_lean_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784843812465,
+      "tag": "0019_parched_randall",
+      "breakpoints": true
     }
   ]
 }

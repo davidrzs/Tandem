@@ -224,6 +224,14 @@ export const appRouter = t.router({
         const { id, ...patch } = input;
         return ctx.services.collections.update(id, patch);
       }),
+    move: protectedProcedure
+      .input(z.object({ id: uuid, position: z.number().finite() }))
+      .mutation(async ({ ctx, input }) => {
+        const col = await ctx.services.collections.move(input.id, input.position);
+        // A null row on an RLS-scoped write means denied, not "not found".
+        if (!col) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot reorder this collection." });
+        return col;
+      }),
     delete: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(({ ctx, input }) => ctx.services.collections.softDelete(input.id)),
