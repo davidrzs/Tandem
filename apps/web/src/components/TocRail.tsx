@@ -9,7 +9,7 @@ interface Heading {
 }
 
 /**
- * An Outline-style contents rail in the document's left gutter. It's a pure view
+ * A contents rail in the document's left gutter. It's a pure view
  * of the current headings — no node, no markdown, no blame. It tracks the section
  * you're reading (scroll-spy) and scrolls to a heading on click. The parent hides
  * it when a right rail is open; CSS hides it on viewports too narrow to fit it

@@ -16,3 +16,6 @@ coverage/
 # Playwright
 test-results/
 playwright-report/
+
+# Local working notes
+tasks/

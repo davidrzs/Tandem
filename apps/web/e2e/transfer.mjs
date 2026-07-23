@@ -1,4 +1,4 @@
-// Verifies markdown-zip import (Outline-shaped fixture) and workspace export.
+// Verifies markdown-zip import (nested-wiki fixture) and workspace export.
 // Needs web+api (run.sh).
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -37,7 +37,7 @@ try {
   if (!fname.endsWith("-export.zip")) throw new Error(`unexpected download: "${fname}"`);
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("TRANSFER PASS — imported an Outline zip and exported the workspace");
+  console.log("TRANSFER PASS — imported a wiki zip and exported the workspace");
 } finally {
   await browser.close();
 }

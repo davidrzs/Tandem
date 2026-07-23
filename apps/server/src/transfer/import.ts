@@ -55,7 +55,7 @@ function collectImageRefs(md: string): string[] {
 }
 
 /**
- * Import a markdown zip (Outline export or Obsidian-style vault) into a
+ * Import a markdown zip (a nested wiki export or Obsidian-style vault) into a
  * workspace. Two passes so links resolve and blame stays clean: create every
  * document title-only, then write each body as a single attributed edit by the
  * importer, rewriting relative links/images to Tandem's in-app forms. Not

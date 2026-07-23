@@ -30,7 +30,7 @@ export const Image = ImageBase.extend({
 });
 
 /**
- * A first-class reference to another document (Outline-style mention). The
+ * A first-class reference to another document (a live mention chip). The
  * binding is the document ID — moving/reparenting the target never breaks it.
  * `title` is only a snapshot for the derived markdown ("[title](/d/id)"); the
  * editor renders the target's CURRENT title, so renames propagate on view

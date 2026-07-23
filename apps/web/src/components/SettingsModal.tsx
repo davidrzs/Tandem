@@ -190,7 +190,7 @@ export function SettingsModal({
           </div>
           <p className="switch-hint">
             Export downloads every document you can read as markdown. Import
-            accepts Outline backups and Obsidian-style vaults.
+            accepts markdown-zip wiki exports and Obsidian-style vaults.
           </p>
           {importResult && (
             <div className="import-summary">

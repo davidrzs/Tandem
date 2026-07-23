@@ -73,16 +73,16 @@ test("rewriteExportLinks makes doc + image links relative (balanced parens)", ()
   assert.match(out, /!\[x\]\(uploads\/img\/image\.png\)/);
 });
 
-test("classifyImportEntries handles Outline, Obsidian, and loose shapes", () => {
-  // Outline: top folders are collections; a doc's children sit in its folder.
-  const outline = classifyImportEntries(
+test("classifyImportEntries handles nested-wiki, Obsidian, and loose shapes", () => {
+  // Nested wiki: top folders are collections; a doc's children sit in its folder.
+  const wiki = classifyImportEntries(
     ["Handbook/Onboarding.md", "Handbook/Onboarding/Laptop.md", "__MACOSX/x", ".DS_Store"],
     "Imported",
   );
-  assert.equal(outline.collections.length, 1);
-  assert.equal(outline.collections[0]!.name, "Handbook");
-  assert.equal(outline.collections[0]!.docs[0]!.title, "Onboarding");
-  assert.equal(outline.collections[0]!.docs[0]!.children[0]!.title, "Laptop");
+  assert.equal(wiki.collections.length, 1);
+  assert.equal(wiki.collections[0]!.name, "Handbook");
+  assert.equal(wiki.collections[0]!.docs[0]!.title, "Onboarding");
+  assert.equal(wiki.collections[0]!.docs[0]!.children[0]!.title, "Laptop");
 
   // Obsidian: a folder without a sibling .md becomes a placeholder doc.
   const vault = classifyImportEntries(["Vault/note.md", "Vault/sub/child.md"], "Imported");

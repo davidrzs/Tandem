@@ -1,4 +1,4 @@
-// The Outline-style contents rail: it lists the document's headings, scrolls to
+// The contents rail: it lists the document's headings, scrolls to
 // one on click, and yields to a right rail when History/Comments opens. Needs
 // web+api (run.sh).
 import { chromium } from "playwright";

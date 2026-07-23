@@ -34,8 +34,9 @@ export interface ExportResult {
 }
 
 /**
- * Build a markdown zip for one collection or a whole workspace, in Outline's
- * layout (so it re-imports into Outline or Tandem). RLS-scoped: the caller can
+ * Build a markdown zip for one collection or a whole workspace, in a conventional
+ * nested-wiki layout — folders of markdown (so it re-imports into Tandem and
+ * similar tools). RLS-scoped: the caller can
  * only export what they can read. Missing/foreign images are skipped with a
  * warning rather than failing the export.
  */

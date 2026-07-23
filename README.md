@@ -19,18 +19,18 @@ you should always be able to see, calmly and truthfully, **who wrote what**.
 - **Cross-references.** Type `@` to link another page as a live chip: the
   reference is bound to the document's ID, so moving it never breaks a link
   and renaming updates every mention. Each page lists what links to it.
-- **Inline comments.** Select any text and start a thread, Outline-style —
+- **Inline comments.** Select any text and start a thread —
   anchors ride the CRDT, so discussions follow the text through edits. Reply,
   resolve, reopen; commenting needs only read access.
 - **Rich content.** GitHub-flavored tables, syntax-highlighted code blocks,
   inline math (`$E=mc^2$`, rendered with KaTeX), callouts and collapsible
   toggles, alongside the usual headings, lists, quotes, and images. Long
-  documents get an Outline-style contents rail that tracks where you're reading.
+  documents get a contents rail that tracks where you're reading.
 - **Tags and version history.** Label documents and filter by them (`#tag` in
   search); every document keeps point-in-time versions you can preview and
   restore, with the restore itself attributed like any other edit.
-- **Bring your own notes.** Import an Outline backup or an Obsidian-style vault
-  (markdown zip), and export any collection or your whole workspace back out.
+- **Bring your own notes.** Import a markdown-zip wiki export or an Obsidian-style
+  vault, and export any collection or your whole workspace back out.
 - **The usual wiki bones.** Nested documents in collections, full-text search
   (⌘K), archive/restore, drag-to-reorganize, per-collection sharing with
   users/groups, invites — all enforced by Postgres row-level security.
@@ -117,7 +117,7 @@ its edits are blamed to your AI). The agent has colleague-level access:
   they carry blame and stay agent-editable, and an Obsidian vault's callouts
   import as-is. Folding a section is a local view only; it never edits the
   document, so reading one leaves no trace in blame or history.
-- **Contents rail.** A document with two or more headings shows an Outline-style
+- **Contents rail.** A document with two or more headings shows a
   table of contents in the left margin that highlights the section you're reading
   and jumps to a heading on click. It's a live view of the headings — nothing is
   stored in the document. (It steps aside when the comments/history rail is open
@@ -133,7 +133,7 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `SNAPSHOT_RETENTION_DAYS` (default 180); the newest ten versions of every
   document are always kept. You can only export what you can read.
 
-Import (Settings → Data) accepts that same layout, so **Outline backups** and
+Import (Settings → Data) accepts that same layout, so **markdown wiki backups** and
 **Obsidian-style vaults** both work: folders become collections and nested
 documents, relative `[links](other.md)` and `[[wikilinks]]` become live
 cross-references, and images are uploaded and re-pointed. Everything is created

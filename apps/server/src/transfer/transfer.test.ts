@@ -31,9 +31,9 @@ after(async () => {
   await db.$dispose();
 });
 
-/** An Outline-shaped zip: a collection, a tagged doc that links a child + an
+/** A nested-wiki-shaped zip: a collection, a tagged doc that links a child + an
  * image, the child doc, and the referenced attachment. */
-function outlineZip(): Buffer {
+function wikiZip(): Buffer {
   return Buffer.from(
     zipSync({
       "Handbook/Onboarding.md": strToU8(
@@ -46,12 +46,12 @@ function outlineZip(): Buffer {
   );
 }
 
-test("import: Outline zip → tree, tags, rewritten links, uploaded image, importer blame", async () => {
+test("import: wiki zip → tree, tags, rewritten links, uploaded image, importer blame", async () => {
   const summary = await importZip(services, {
     workspaceId,
     uid: "u1",
     zipName: "backup.zip",
-    buffer: outlineZip(),
+    buffer: wikiZip(),
   });
   assert.equal(summary.collections, 1);
   assert.equal(summary.documents, 2);
@@ -81,7 +81,7 @@ test("import: Outline zip → tree, tags, rewritten links, uploaded image, impor
   }
 });
 
-test("export: Outline layout, front matter only when tagged, round-trips", async () => {
+test("export: nested-wiki layout, front matter only when tagged, round-trips", async () => {
   const col = (await services.collections.list()).find((c) => c.name === "Handbook")!;
   const { buffer } = await buildExportZip(services, { collectionId: col.id }, "Handbook");
   const entries = unzipSync(buffer);
