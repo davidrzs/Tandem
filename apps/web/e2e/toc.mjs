@@ -1,11 +1,13 @@
 // The contents rail: it lists the document's headings, scrolls to
-// one on click, and yields to a right rail when History/Comments opens. Needs
-// web+api (run.sh).
+// one on click, hides (instead of displacing the column) when the viewport
+// can't fit it beside the centered document, and yields to a right rail when
+// History/Comments opens. Needs web+api (run.sh).
 import { chromium } from "playwright";
 import { signUp, createCollection, newDocument } from "./_helpers.mjs";
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1360, height: 640 } });
+// Wide enough for the rail to fit in the gutter (it hides below 1450px).
+const page = await browser.newPage({ viewport: { width: 1600, height: 640 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
@@ -43,6 +45,12 @@ try {
     return h ? h.getBoundingClientRect().top : 9999;
   });
   if (top > 140) throw new Error(`clicking a TOC entry did not scroll to it (top=${top})`);
+
+  // Mid widths: the rail hides rather than displacing the centered column.
+  await page.setViewportSize({ width: 1360, height: 640 });
+  await page.waitForSelector(".toc-rail", { state: "hidden" });
+  await page.setViewportSize({ width: 1600, height: 640 });
+  await page.waitForSelector(".toc-rail", { state: "visible" });
 
   // Opening a right rail hides the TOC (avoids cramming four columns).
   await page.getByRole("button", { name: "History" }).click();
