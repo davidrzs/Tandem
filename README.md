@@ -90,9 +90,12 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `insert_after_heading`, `replace_section`, `append_section`. There is
   deliberately no full-body-rewrite tool: it would re-attribute the whole
   document to the agent and destroy human blame.
-- **Images**: `upload_image` (base64 in, a private workspace image out —
-  embed the returned `![alt](/api/images/<id>)` snippet with the edit tools;
-  8MB cap, raster formats only).
+- **Images**: `request_image_upload` (a short-lived signed bearer token — the
+  agent POSTs the file bytes directly, e.g. with curl, instead of inlining
+  base64; alt text is given up front so it can't be lost in transit; 25MB cap)
+  and `upload_image` (base64 in, for small images; 8MB cap). Both yield a
+  private workspace image and a `![alt](/api/images/<id>)` snippet to embed
+  with the edit tools; raster formats only.
 - **Collaboration**: `list_comments`, `add_comment` (reply via `parentId`),
   `resolve_comment` — comment threads sync live into open editors;
   `my_tasks` (to-dos assigned to the human the agent acts for);

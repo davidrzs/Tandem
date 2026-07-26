@@ -103,6 +103,7 @@ export async function buildHttpServer(
   // in prod) that's pinned to our own host; dev falls back to any ws host
   // (Vite serves the page, so this CSP mostly doesn't apply there anyway).
   const publicUrl = process.env.BETTER_AUTH_URL;
+  const appUrl = publicUrl ?? process.env.WEB_ORIGIN ?? "http://localhost:5173";
   const wsOrigin = publicUrl
     ? `${new URL(publicUrl).protocol === "https:" ? "wss" : "ws"}://${new URL(publicUrl).host}`
     : "ws: wss:";
@@ -144,7 +145,10 @@ export async function buildHttpServer(
   await app.register(formbody);
   await app.register(multipart);
   await app.register(websocket);
-  await registerImageRoutes(app, db, auth);
+  await registerImageRoutes(app, db, auth, {
+    secret,
+    mcpGate: (userId) => mcpAccessError(db, userId),
+  });
   await registerTransferRoutes(app, db, auth);
   await registerSetupRoutes(app, db, auth, { emailEnabled: !!mailer });
 
@@ -270,7 +274,7 @@ export async function buildHttpServer(
           collabWriter,
           user: session?.user ?? null,
           mailer,
-          appUrl: publicUrl ?? process.env.WEB_ORIGIN ?? "http://localhost:5173",
+          appUrl,
           notifyDocument,
           // Remaining 2FA backup codes (server-only Better Auth endpoint);
           // null when the user isn't enrolled.
@@ -339,20 +343,20 @@ export async function buildHttpServer(
       enableJsonResponse: true,
     });
     const services = createServices(db, actor, author);
-    const server = createMcpServer(
-      services,
-      createCollabWriter(hocuspocus, services.documents, author),
+    const server = createMcpServer(services, {
+      writer: createCollabWriter(hocuspocus, services.documents, author),
       // Audit trail: every successful agent write, attributed to the human
       // whose token acted. Fire-and-forget; an audit hiccup must not fail
       // the tool call.
-      (action, detail, workspaceId) => {
+      audit: (action, detail, workspaceId) => {
         void services.settings
           .recordAudit({ workspaceId, userId: token.userId, ai: true, action, detail })
           .catch((err) => app.log.error({ err }, "audit write failed"));
       },
-      notifyDocument,
-      author,
-    );
+      notify: notifyDocument,
+      identity: author,
+      uploads: { secret, publicUrl: appUrl },
+    });
     reply.raw.on("close", () => {
       transport.close();
       void server.close();

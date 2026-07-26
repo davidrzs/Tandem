@@ -17,7 +17,12 @@ import {
   UNKNOWN_AUTHOR,
 } from "@tandem/editor";
 import type { CollabWriter } from "./collab-writer.js";
-import { isAllowedImageMime, saveImageBytes } from "./images.js";
+import {
+  imageMarkdown,
+  isAllowedImageMime,
+  mintImageUploadToken,
+  saveImageBytes,
+} from "./images.js";
 import type { Services } from "./services.js";
 
 /** Decoded-bytes cap for MCP uploads (REST allows 25MB; agents send small images). */
@@ -70,13 +75,19 @@ export type AuditHook = (
   workspaceId: string | null,
 ) => void;
 
+export type McpServerOptions = {
+  writer?: CollabWriter;
+  audit?: AuditHook;
+  notify?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void;
+  /** Who the agent acts for — used for inbox notifications it produces. */
+  identity?: { userId: string; name: string; ai: boolean };
+  /** Enables request_image_upload: token secret + the instance's public URL. */
+  uploads?: { secret: string; publicUrl: string };
+};
+
 export function createMcpServer(
   services: Services,
-  writer?: CollabWriter,
-  audit?: AuditHook,
-  notify?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void,
-  /** Who the agent acts for — used for inbox notifications it produces. */
-  identity?: { userId: string; name: string; ai: boolean },
+  { writer, audit, notify, identity, uploads }: McpServerOptions = {},
 ): McpServer {
   const { documents, collections, comments, workspaces, snapshots } = services;
   const server = new McpServer({ name: "tandem", version: "0.1.0" });
@@ -124,6 +135,26 @@ export function createMcpServer(
   async function writeResult(id: string, row: DocumentMeta | null) {
     if (row) return json(publicDoc(row));
     return (await documents.get(id)) ? toolError(READ_ONLY_MESSAGE) : notFound("document");
+  }
+
+  /** Resolve the upload target workspace: validate a given id against the
+   * actor's memberships, or default when they belong to exactly one. */
+  async function resolveWorkspace(
+    workspaceId: string | undefined,
+  ): Promise<{ id: string } | { error: ReturnType<typeof toolError> }> {
+    const mine = await workspaces.listMine();
+    if (workspaceId) {
+      return mine.some((w) => w.id === workspaceId)
+        ? { id: workspaceId }
+        : { error: notFound("workspace") };
+    }
+    if (mine.length === 0) return { error: toolError("no workspace available") };
+    if (mine.length > 1) {
+      return {
+        error: toolError("workspaceId is required: you belong to more than one workspace"),
+      };
+    }
+    return { id: mine[0]!.id };
   }
 
   server.registerTool(
@@ -228,11 +259,13 @@ export function createMcpServer(
     {
       title: "Upload image",
       description:
-        "Upload an image (base64) and get back a markdown snippet " +
+        "Upload a SMALL image (base64) and get back a markdown snippet " +
         "`![alt](/api/images/<id>)` to embed with create_document or the edit " +
         "tools. Images are private to workspace members. Raster formats only " +
         "(no SVG); max 8MB decoded. workspaceId is required when you belong " +
-        "to more than one workspace.",
+        "to more than one workspace. For anything beyond a small icon — or a " +
+        "file already on disk — use request_image_upload instead of inlining " +
+        "base64.",
       inputSchema: {
         data: z.string().min(1),
         mime: z.string().min(1),
@@ -255,37 +288,72 @@ export function createMcpServer(
       const bytes = Buffer.from(b64, "base64");
       if (bytes.length === 0) return toolError("image data is empty");
       if (bytes.length > MCP_IMAGE_MAX_BYTES) {
-        return toolError("image exceeds 8MB — use the web app to upload larger images");
+        return toolError("image exceeds 8MB — use request_image_upload for large files");
       }
-      const mine = await workspaces.listMine();
-      if (workspaceId && !mine.some((w) => w.id === workspaceId)) {
-        return notFound("workspace");
-      }
-      if (!workspaceId) {
-        if (mine.length === 0) return toolError("no workspace available");
-        if (mine.length > 1) {
-          return toolError("workspaceId is required: you belong to more than one workspace");
-        }
-        workspaceId = mine[0]!.id;
-      }
+      const ws = await resolveWorkspace(workspaceId);
+      if ("error" in ws) return ws.error;
       const id = await saveImageBytes(services, {
-        workspaceId,
+        workspaceId: ws.id,
         uploadedBy: actor.userId,
         mime,
         bytes,
       });
-      logAudit("upload_image", { workspaceId, title: null }, `${mime}, ${bytes.length} bytes`);
+      logAudit("upload_image", { workspaceId: ws.id, title: null }, `${mime}, ${bytes.length} bytes`);
       const url = `/api/images/${id}`;
       return json({
         id,
         url,
-        // Square brackets would break the snippet's markdown; drop them.
-        markdown: `![${(alt ?? "").replace(/[[\]]/g, "")}](${url})`,
+        markdown: imageMarkdown(alt, url),
         mime,
         size: bytes.length,
       });
     },
   );
+
+  // Only advertised when the host wired up token minting (the HTTP server
+  // does); otherwise the tool would be listed but always fail.
+  if (uploads) {
+    server.registerTool(
+      "request_image_upload",
+      {
+        title: "Request an image upload URL",
+        description:
+          "Get a short-lived URL for uploading an image WITHOUT inlining " +
+          "base64 — prefer this over upload_image whenever the file lives on " +
+          "disk or is bigger than a small icon. Give the alt text HERE, not in " +
+          "the upload; then POST the bytes within 15 minutes as multipart " +
+          "field `file`, passing the returned token as a bearer header: " +
+          '`curl -sf -H "Authorization: Bearer <token>" -F "file=@shot.png" ' +
+          '"<uploadUrl>"` (the `example` field comes ready to run). The ' +
+          "upload's JSON response matches upload_image ({ id, url, markdown }); " +
+          "embed the markdown with the edit tools. Request one URL per image. " +
+          "Raster formats only (no SVG); max 25MB. workspaceId is required " +
+          "when you belong to more than one workspace.",
+        inputSchema: {
+          alt: z.string().max(500).optional(),
+          workspaceId: z.string().uuid().optional(),
+        },
+      },
+      async ({ alt, workspaceId }) => {
+        const actor = services.actor;
+        if (actor.kind !== "user") return toolError("image upload requires a user identity");
+        const ws = await resolveWorkspace(workspaceId);
+        if ("error" in ws) return ws.error;
+        const { token, expiresAt } = mintImageUploadToken(uploads.secret, {
+          userId: actor.userId,
+          workspaceId: ws.id,
+          alt,
+        });
+        const uploadUrl = new URL("/api/images/upload", uploads.publicUrl).toString();
+        return json({
+          uploadUrl,
+          token,
+          expiresAt,
+          example: `curl -sf -H "Authorization: Bearer ${token}" -F "file=@<path>" "${uploadUrl}"`,
+        });
+      },
+    );
+  }
 
   server.registerTool(
     "update_document",

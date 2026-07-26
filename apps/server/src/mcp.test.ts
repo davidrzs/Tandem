@@ -10,7 +10,7 @@ import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
 import { getAuthors } from "@tandem/editor";
 import * as Y from "yjs";
-import { readImageBytes } from "./images.js";
+import { readImageBytes, verifyImageUploadToken } from "./images.js";
 import { createServices } from "./services.js";
 import { createMcpServer, MCP_IMAGE_MAX_BYTES } from "./mcp.js";
 
@@ -45,7 +45,12 @@ before(async () => {
     slug: "u1",
   });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(services).connect(serverT);
+  await createMcpServer(services, {
+    uploads: {
+      secret: "test-secret-value-at-least-16-chars-long",
+      publicUrl: "http://app.test",
+    },
+  }).connect(serverT);
   await client.connect(clientT);
 });
 
@@ -80,6 +85,7 @@ test("tools are advertised", async () => {
     "my_tasks",
     "read_version",
     "replace_section",
+    "request_image_upload",
     "resolve_comment",
     "restore_document",
     "search_documents",
@@ -479,6 +485,39 @@ test("upload_image rejects bad mime, bad data, oversize, and foreign workspaces"
     await errorOf({ data: PNG_1PX, mime: "image/png", workspaceId: randomUUID() }),
     /workspace not found/,
   );
+});
+
+test("request_image_upload mints a verifiable short-lived token carrying the alt", async () => {
+  const res = payload(
+    await client.callTool({
+      name: "request_image_upload",
+      arguments: { alt: "a [bracketed] caption" },
+    }),
+  );
+  const url = new URL(res.uploadUrl);
+  assert.equal(url.origin, "http://app.test");
+  assert.equal(url.pathname, "/api/images/upload");
+  // The token must not ride in the URL — it would land in access logs.
+  assert.equal(url.search, "");
+  assert.ok(new Date(res.expiresAt).getTime() > Date.now());
+  assert.match(res.example, /Authorization: Bearer /);
+
+  const grant = verifyImageUploadToken("test-secret-value-at-least-16-chars-long", res.token);
+  const [ws] = await services.workspaces.listMine();
+  assert.deepEqual(grant, {
+    userId: "u1",
+    workspaceId: ws!.id,
+    alt: "a [bracketed] caption",
+  });
+  // A different secret (or a tampered token) never verifies.
+  assert.equal(verifyImageUploadToken("another-secret-not-the-right-one", res.token), null);
+
+  const foreign: any = await client.callTool({
+    name: "request_image_upload",
+    arguments: { workspaceId: randomUUID() },
+  });
+  assert.equal(foreign.isError, true);
+  assert.match(foreign.content[0].text, /workspace not found/);
 });
 
 // Must run last: every earlier test relies on u1 having exactly one workspace.
