@@ -414,6 +414,10 @@ export class DocumentService {
     column: "archived_at" | "deleted_at",
     value: Date | null,
   ): Promise<void> {
+    // Raw-SQL params skip drizzle's column mapping, and postgres-js won't
+    // serialize a Date it gets that way (PGlite does — tests alone won't catch
+    // it). Bind ISO text; Postgres casts it against the column type.
+    const stamp = value ? value.toISOString() : null;
     await db.execute(sql`
       WITH RECURSIVE subtree AS (
         SELECT id FROM documents WHERE id = ${id}
@@ -421,7 +425,7 @@ export class DocumentService {
         SELECT d.id FROM documents d JOIN subtree s ON d.parent_document_id = s.id
       )
       UPDATE documents
-      SET ${sql.raw(column)} = ${value}, updated_at = now()
+      SET ${sql.raw(column)} = ${stamp}, updated_at = now()
       WHERE id IN (SELECT id FROM subtree) AND deleted_at IS NULL
     `);
   }
