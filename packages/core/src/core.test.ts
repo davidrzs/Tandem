@@ -529,6 +529,48 @@ test("settings: MCP kill switch and workspace audit trail", async () => {
   );
 });
 
+test("settings: sidebar fold state (per-id merge, inverted doc semantics)", async () => {
+  const { SettingsService } = await import("./services/settings.js");
+  const s1 = new SettingsService(db, user("u1"));
+  const colId = "11111111-1111-4111-8111-111111111111";
+  const docId = "22222222-2222-4222-8222-222222222222";
+
+  assert.deepEqual(
+    await s1.sidebarState(),
+    { expandedCollections: [], collapsedDocs: [] },
+    "empty by default",
+  );
+
+  // Collections store the expanded set; repeat adds don't duplicate.
+  await s1.setSidebarNode("collection", colId, true);
+  await s1.setSidebarNode("collection", colId, true);
+  assert.deepEqual((await s1.sidebarState()).expandedCollections, [colId]);
+  await s1.setSidebarNode("collection", colId, false);
+  assert.deepEqual((await s1.sidebarState()).expandedCollections, []);
+
+  // Documents store the collapsed set (they default expanded).
+  await s1.setSidebarNode("doc", docId, false);
+  assert.deepEqual((await s1.sidebarState()).collapsedDocs, [docId]);
+  await s1.setSidebarNode("doc", docId, true);
+  assert.deepEqual((await s1.sidebarState()).collapsedDocs, []);
+
+  // The upsert touches only its own column: fold writes keep mcpEnabled,
+  // and an mcpEnabled write keeps the fold sets.
+  await s1.setMcpEnabled(false);
+  await s1.setSidebarNode("collection", colId, true);
+  assert.equal(await s1.mcpEnabled(), false);
+  await s1.setMcpEnabled(true);
+  assert.deepEqual((await s1.sidebarState()).expandedCollections, [colId]);
+
+  // Per-user isolation and the user-actor requirement.
+  assert.deepEqual((await new SettingsService(db, user("u2")).sidebarState()).expandedCollections, []);
+  await assert.rejects(() => new SettingsService(db).sidebarState(), /requires a user actor/);
+  await assert.rejects(
+    () => new SettingsService(db).setSidebarNode("doc", docId, false),
+    /requires a user actor/,
+  );
+});
+
 test("snapshots: byte-dedupe, interval gating, RLS reads, and no client writes", async () => {
   const collections = new CollectionService(db, user("u1"));
   const documents = new DocumentService(db, user("u1"));

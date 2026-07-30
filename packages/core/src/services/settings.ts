@@ -1,5 +1,5 @@
 import { ForbiddenError } from "../errors.js";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   auditLog,
   runAsActor,
@@ -11,6 +11,13 @@ import {
   type AuditEntry,
   type Database,
 } from "@tandem/db";
+
+export interface SidebarState {
+  /** Collection ids the user has unfolded (collections default collapsed). */
+  expandedCollections: string[];
+  /** Document ids the user has folded (document nodes default expanded). */
+  collapsedDocs: string[];
+}
 
 export interface AuditView {
   id: string;
@@ -63,6 +70,51 @@ export class SettingsService {
         .onConflictDoUpdate({
           target: userSettings.userId,
           set: { mcpEnabled: enabled, updatedAt: new Date() },
+        });
+    });
+  }
+
+  /** Sidebar fold state. Collections store the expanded set (default
+   * collapsed); document nodes store the collapsed set (default expanded). */
+  async sidebarState(): Promise<SidebarState> {
+    const userId = this.userId();
+    return this.system(async (db) => {
+      const [row] = await db
+        .select({
+          expandedCollections: userSettings.sidebarExpandedCollections,
+          collapsedDocs: userSettings.sidebarCollapsedDocs,
+        })
+        .from(userSettings)
+        .where(eq(userSettings.userId, userId));
+      return row ?? { expandedCollections: [], collapsedDocs: [] };
+    });
+  }
+
+  /** Record one fold toggle. Per-id array add/remove (not a whole-set
+   * replace), so concurrent tabs never clobber each other. Idempotent. */
+  async setSidebarNode(
+    kind: "collection" | "doc",
+    id: string,
+    expanded: boolean,
+  ): Promise<void> {
+    const userId = this.userId();
+    const isCollection = kind === "collection";
+    const key = isCollection ? "sidebarExpandedCollections" : "sidebarCollapsedDocs";
+    const column = userSettings[key];
+    // Inverted semantics: collections store the expanded set, docs the collapsed set.
+    const member = isCollection ? expanded : !expanded;
+    await this.system(async (db) => {
+      await db
+        .insert(userSettings)
+        .values({ userId, [key]: member ? [id] : [], updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: userSettings.userId,
+          set: {
+            [key]: member
+              ? sql`array_append(array_remove(${column}, ${id}), ${id})`
+              : sql`array_remove(${column}, ${id})`,
+            updatedAt: new Date(),
+          },
         });
     });
   }

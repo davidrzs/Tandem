@@ -277,6 +277,15 @@ export const userSettings = pgTable("user_settings", {
   userId: text("user_id").primaryKey(),
   // Kill switch: when false, MCP tokens for this user are refused.
   mcpEnabled: boolean("mcp_enabled").notNull().default(true),
+  // Sidebar fold state, synced across devices. Inverted semantics on purpose:
+  // collections store the EXPANDED set (they default collapsed), document
+  // nodes store the COLLAPSED set (they default expanded). Ids of deleted
+  // rows may linger; membership checks make that harmless.
+  sidebarExpandedCollections: text("sidebar_expanded_collections")
+    .array()
+    .notNull()
+    .default([]),
+  sidebarCollapsedDocs: text("sidebar_collapsed_docs").array().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

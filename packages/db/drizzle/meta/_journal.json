@@ -141,6 +141,13 @@
       "when": 1784843812465,
       "tag": "0019_parched_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785412862378,
+      "tag": "0020_serious_zarda",
+      "breakpoints": true
     }
   ]
 }

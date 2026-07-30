@@ -539,6 +539,19 @@ export const appRouter = t.router({
     setMcpEnabled: protectedProcedure
       .input(z.object({ enabled: z.boolean() }))
       .mutation(({ ctx, input }) => ctx.services.settings.setMcpEnabled(input.enabled)),
+    // Sidebar fold state lives apart from `get` so the two invalidate independently.
+    sidebar: protectedProcedure.query(({ ctx }) => ctx.services.settings.sidebarState()),
+    setSidebarNode: protectedProcedure
+      .input(
+        z.object({
+          kind: z.enum(["collection", "doc"]),
+          id: uuid,
+          expanded: z.boolean(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.services.settings.setSidebarNode(input.kind, input.id, input.expanded),
+      ),
     backupCodes: protectedProcedure.query(async ({ ctx }) => ({
       remaining: (await ctx.countBackupCodes?.(ctx.user.id)) ?? null,
     })),

@@ -323,6 +323,29 @@ button {
   transform: rotate(90deg);
 }
 
+/* Fold toggle on document rows with children; leaf rows carry an empty
+   spacer of the same width so titles line up. */
+.doc-twist {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+/* The svg carries .twist's own color, so the hover must target it directly —
+   inheriting from the button never wins. */
+button.doc-twist:hover .twist {
+  color: var(--ink);
+}
+
 .row-actions {
   display: inline-flex;
   align-items: center;

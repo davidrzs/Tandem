@@ -1,0 +1,2 @@
+ALTER TABLE "user_settings" ADD COLUMN "sidebar_expanded_collections" text[] DEFAULT '{}' NOT NULL;--> statement-breakpoint
+ALTER TABLE "user_settings" ADD COLUMN "sidebar_collapsed_docs" text[] DEFAULT '{}' NOT NULL;

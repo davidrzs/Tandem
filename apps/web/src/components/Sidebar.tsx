@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { authClient } from "../auth-client.js";
 import { friendlyError } from "../errors.js";
@@ -55,13 +55,29 @@ function slugify(name: string) {
   );
 }
 
-/** Which collections are unfolded, remembered across reloads. */
+/** Fold state: the DB is the durable cross-device copy; localStorage is a
+ * synchronous per-user seed cache so the first paint doesn't flash.
+ * Collections remember the EXPANDED set (they default collapsed), document
+ * folders the COLLAPSED set (they default expanded). */
 const EXPANDED_KEY = "tandem.sidebar.expanded";
+const COLLAPSED_DOCS_KEY = "tandem.sidebar.collapsedDocs";
 
-function loadExpanded(): Set<string> {
+/** Read the user's cached id set. Adopts the pre-scoping unscoped key once so
+ * existing single-profile browsers keep their state; in a shared browser the
+ * first account to load claims it (bounded, one-time). */
+function loadIdSet(base: string, userId: string): Set<string> {
+  const key = `${base}:${userId}`;
   try {
-    const raw = JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? "[]");
-    return new Set(Array.isArray(raw) ? raw.filter((v) => typeof v === "string") : []);
+    let raw = localStorage.getItem(key);
+    if (raw === null) {
+      raw = localStorage.getItem(base);
+      if (raw !== null) {
+        localStorage.setItem(key, raw);
+        localStorage.removeItem(base);
+      }
+    }
+    const parsed = JSON.parse(raw ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : []);
   } catch {
     return new Set();
   }
@@ -89,22 +105,94 @@ export function Sidebar({
   const createWorkspace = trpc.workspaces.create.useMutation();
   const createCollection = trpc.collections.create.useMutation();
 
+  // AuthGate only mounts the app with a session, so uid is stable for the
+  // lifetime of this component (sign-out unmounts it).
+  const uid = session.data?.user.id ?? "";
+
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ReactNode>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(loadExpanded);
+  const [expanded, setExpanded] = useState<Set<string>>(() => loadIdSet(EXPANDED_KEY, uid));
+  const [collapsedDocs, setCollapsedDocs] = useState<Set<string>>(() =>
+    loadIdSet(COLLAPSED_DOCS_KEY, uid),
+  );
 
   useEffect(() => {
-    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expanded]));
-  }, [expanded]);
+    localStorage.setItem(`${EXPANDED_KEY}:${uid}`, JSON.stringify([...expanded]));
+  }, [expanded, uid]);
+  useEffect(() => {
+    localStorage.setItem(`${COLLAPSED_DOCS_KEY}:${uid}`, JSON.stringify([...collapsedDocs]));
+  }, [collapsedDocs, uid]);
+
+  const sidebarState = trpc.settings.sidebar.useQuery(undefined, { staleTime: Infinity });
+  const persistFold = trpc.settings.setSidebarNode.useMutation();
+  // Fire-and-forget: local state is authoritative for the session; a lost
+  // write only costs fold state on the next device. Calls in one tick share
+  // one HTTP request (httpBatchLink).
+  const persistNode = (kind: "collection" | "doc", id: string, isExpanded: boolean) =>
+    persistFold.mutate({ kind, id, expanded: isExpanded });
+
+  // Server fold state wins once per mount (it may carry another device's
+  // toggles). Empty server + non-empty local = a user from the
+  // localStorage-only era: adopt their local state server-side instead.
+  // foldsReconciled tells the ancestor-reveal effects to take one fresh pass
+  // in case the server snapshot landed after a tree did (query retry) and
+  // re-collapsed the open document's ancestors.
+  const reconciled = useRef(false);
+  const [foldsReconciled, setFoldsReconciled] = useState(false);
+  useEffect(() => {
+    const data = sidebarState.data;
+    if (!data || reconciled.current) return;
+    reconciled.current = true;
+    setFoldsReconciled(true);
+    if (
+      data.expandedCollections.length === 0 &&
+      data.collapsedDocs.length === 0 &&
+      expanded.size > 0
+    ) {
+      for (const id of expanded) persistNode("collection", id, true);
+      return;
+    }
+    setCollapsedDocs(new Set(data.collapsedDocs));
+    setExpanded(() => {
+      const next = new Set(data.expandedCollections);
+      // Keep the open document's collection visible regardless.
+      if (activeCollectionId) next.add(activeCollectionId);
+      return next;
+    });
+  }, [sidebarState.data]);
 
   // The open document's collection is always expanded.
   useEffect(() => {
-    if (activeCollectionId) {
-      setExpanded((prev) =>
-        prev.has(activeCollectionId) ? prev : new Set(prev).add(activeCollectionId),
-      );
-    }
+    if (!activeCollectionId) return;
+    if (!expanded.has(activeCollectionId)) persistNode("collection", activeCollectionId, true);
+    setExpanded((prev) =>
+      prev.has(activeCollectionId) ? prev : new Set(prev).add(activeCollectionId),
+    );
   }, [activeCollectionId]);
+
+  const toggleDoc = (id: string) => {
+    const collapsing = !collapsedDocs.has(id);
+    setCollapsedDocs((prev) => {
+      const next = new Set(prev);
+      if (collapsing) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    persistNode("doc", id, !collapsing);
+  };
+
+  /** Expand-only: unfold the given document folders (drop targets, ancestors
+   * of the open document). Skips ids that are already unfolded. */
+  const revealDocs = (ids: string[]) => {
+    const toReveal = ids.filter((id) => collapsedDocs.has(id));
+    if (toReveal.length === 0) return;
+    setCollapsedDocs((prev) => {
+      const next = new Set(prev);
+      for (const id of toReveal) next.delete(id);
+      return next;
+    });
+    for (const id of toReveal) persistNode("doc", id, true);
+  };
 
   // Surface failures (RLS denial, duplicate slug, non-admin) instead of a
   // silent unhandled rejection.
@@ -223,14 +311,20 @@ export function Sidebar({
               index={i}
               expanded={expanded.has(c.id)}
               activeDocId={activeDocId}
-              onToggle={() =>
+              collapsedDocs={collapsedDocs}
+              foldsReconciled={foldsReconciled}
+              onToggle={() => {
+                const willExpand = !expanded.has(c.id);
                 setExpanded((prev) => {
                   const next = new Set(prev);
-                  if (next.has(c.id)) next.delete(c.id);
-                  else next.add(c.id);
+                  if (willExpand) next.add(c.id);
+                  else next.delete(c.id);
                   return next;
-                })
-              }
+                });
+                persistNode("collection", c.id, willExpand);
+              }}
+              onToggleDoc={toggleDoc}
+              onRevealDocs={revealDocs}
               onShare={() => onShareCollection(c.id)}
               onError={setError}
               setDialog={setDialog}
@@ -256,7 +350,10 @@ export function Sidebar({
           <button type="button"
             className="row-action"
             title="Sign out" aria-label="Sign out"
-            onClick={() => void authClient.signOut()}
+            // Full reload: drops the react-query cache (and any other
+            // in-memory state) so the next account can't reconcile against
+            // this session's snapshot. Same pattern as the 2FA challenge.
+            onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}
           >
             <Icon name="signout" />
           </button>
@@ -398,7 +495,11 @@ function CollectionSection({
   index,
   expanded,
   activeDocId,
+  collapsedDocs,
+  foldsReconciled,
   onToggle,
+  onToggleDoc,
+  onRevealDocs,
   onShare,
   onError,
   setDialog,
@@ -408,7 +509,11 @@ function CollectionSection({
   index: number;
   expanded: boolean;
   activeDocId: string | null;
+  collapsedDocs: Set<string>;
+  foldsReconciled: boolean;
   onToggle: () => void;
+  onToggleDoc: (id: string) => void;
+  onRevealDocs: (ids: string[]) => void;
   onShare: () => void;
   onError: (msg: string) => void;
   setDialog: (node: ReactNode) => void;
@@ -429,6 +534,22 @@ function CollectionSection({
   const moveCollection = trpc.collections.move.useMutation();
   const [showArchived, setShowArchived] = useState(false);
   const [dropMode, setDropMode] = useState<"before" | "after" | null>(null);
+
+  // Unfold the open document's ancestors once per doc; the user can still
+  // re-collapse them afterwards (same UX as the collection force-expand).
+  // The marker includes foldsReconciled so a server snapshot that lands after
+  // this tree did (query retry) gets one fresh reveal pass — otherwise a
+  // cross-device collapse could hide the document being read, permanently.
+  const revealedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeDocId || !tree.data) return;
+    const marker = `${activeDocId}:${foldsReconciled}`;
+    if (revealedFor.current === marker) return;
+    const path = ancestorPath(tree.data, activeDocId);
+    if (!path) return;
+    revealedFor.current = marker;
+    if (path.length > 0) onRevealDocs(path);
+  }, [activeDocId, tree.data, foldsReconciled]);
 
   // Where a dropped sibling lands: midway between this collection and its
   // neighbour (same sparse-position scheme as document rows).
@@ -485,6 +606,7 @@ function CollectionSection({
         ...(parentDocumentId ? { parentDocumentId } : {}),
       });
       if (!expanded) onToggle();
+      if (parentDocumentId) onRevealDocs([parentDocumentId]);
       navigate(`/d/${doc.id}`);
     });
 
@@ -602,6 +724,9 @@ function CollectionSection({
               writable={collection.writable}
               activeDocId={activeDocId}
               depth={0}
+              collapsedDocs={collapsedDocs}
+              onToggleDoc={onToggleDoc}
+              onRevealDocs={onRevealDocs}
               onNewChild={(id) => void newDoc(id)}
               run={run}
               setDialog={setDialog}
@@ -634,6 +759,17 @@ function CollectionSection({
   );
 }
 
+/** Parent chain (outermost first) leading to docId, excluding docId itself;
+ * null when the doc isn't in this tree. */
+function ancestorPath(nodes: DocNode[], docId: string): string[] | null {
+  for (const node of nodes) {
+    if (node.id === docId) return [];
+    const inChild = ancestorPath(node.children, docId);
+    if (inChild) return [node.id, ...inChild];
+  }
+  return null;
+}
+
 /** Drop position while dragging: before/after = reorder, into = nest. */
 type DropMode = "before" | "after" | "into";
 
@@ -644,6 +780,9 @@ function DocTree({
   writable,
   activeDocId,
   depth,
+  collapsedDocs,
+  onToggleDoc,
+  onRevealDocs,
   onNewChild,
   run,
   setDialog,
@@ -654,6 +793,9 @@ function DocTree({
   writable: boolean;
   activeDocId: string | null;
   depth: number;
+  collapsedDocs: Set<string>;
+  onToggleDoc: (id: string) => void;
+  onRevealDocs: (ids: string[]) => void;
   onNewChild: (parentId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
   setDialog: (node: ReactNode) => void;
@@ -671,6 +813,9 @@ function DocTree({
           writable={writable}
           activeDocId={activeDocId}
           depth={depth}
+          collapsedDocs={collapsedDocs}
+          onToggleDoc={onToggleDoc}
+          onRevealDocs={onRevealDocs}
           onNewChild={onNewChild}
           run={run}
           setDialog={setDialog}
@@ -689,6 +834,9 @@ function DocRow({
   writable,
   activeDocId,
   depth,
+  collapsedDocs,
+  onToggleDoc,
+  onRevealDocs,
   onNewChild,
   run,
   setDialog,
@@ -701,6 +849,9 @@ function DocRow({
   writable: boolean;
   activeDocId: string | null;
   depth: number;
+  collapsedDocs: Set<string>;
+  onToggleDoc: (id: string) => void;
+  onRevealDocs: (ids: string[]) => void;
   onNewChild: (parentId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
   setDialog: (node: ReactNode) => void;
@@ -732,6 +883,8 @@ function DocRow({
     const dragged = JSON.parse(payload) as { id: string; collectionId: string };
     // Moves stay within one collection (the backend enforces this too).
     if (dragged.collectionId !== collectionId || dragged.id === node.id) return;
+    // Nesting into a folded folder unfolds it so the drop stays visible.
+    if (mode === "into") onRevealDocs([node.id]);
     void run(() =>
       mode === "into"
         ? move.mutateAsync({ id: dragged.id, parentDocumentId: node.id })
@@ -742,6 +895,8 @@ function DocRow({
           }),
     );
   };
+
+  const collapsed = collapsedDocs.has(node.id);
 
   return (
     <div>
@@ -770,6 +925,21 @@ function DocRow({
         onDragLeave={() => setDropMode(null)}
         onDrop={onDrop}
       >
+        {node.children.length > 0 ? (
+          <button type="button"
+            className="doc-twist"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand" : "Collapse"}
+            onClick={(e) => {
+              e.preventDefault();
+              onToggleDoc(node.id);
+            }}
+          >
+            <Icon name="chevron" size={12} className={"twist" + (collapsed ? "" : " open")} />
+          </button>
+        ) : (
+          <span className="doc-twist" aria-hidden="true" />
+        )}
         <span className="doc-title">{node.title || "Untitled"}</span>
         {writable && (
           <span className="row-actions">
@@ -831,7 +1001,7 @@ function DocRow({
           </span>
         )}
       </Link>
-      {node.children.length > 0 && (
+      {node.children.length > 0 && !collapsed && (
         <DocTree
           nodes={node.children}
           parentId={node.id}
@@ -839,6 +1009,9 @@ function DocRow({
           writable={writable}
           activeDocId={activeDocId}
           depth={depth + 1}
+          collapsedDocs={collapsedDocs}
+          onToggleDoc={onToggleDoc}
+          onRevealDocs={onRevealDocs}
           onNewChild={onNewChild}
           run={run}
           setDialog={setDialog}
