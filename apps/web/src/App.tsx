@@ -26,6 +26,7 @@ export interface AppContext {
   collections: CollectionInfo[];
   /** Open the search modal, optionally prefilled (e.g. "#ml " to browse a tag). */
   openSearch: (query?: string) => void;
+  openSettings: () => void;
 }
 
 export function useAppContext(): AppContext {
@@ -112,6 +113,7 @@ export function App() {
     workspaceId,
     collections: collections.data ?? [],
     openSearch: (query = "") => setSearchQuery(query),
+    openSettings: () => setSettingsOpen(true),
   };
 
   return (
@@ -152,7 +154,16 @@ export function App() {
         </ErrorBoundary>
       </main>
       {searchQuery !== null && (
-        <SearchModal initialQuery={searchQuery} onClose={() => setSearchQuery(null)} />
+        <SearchModal
+          initialQuery={searchQuery}
+          workspaceId={workspaceId}
+          collections={wsCollections}
+          onOpenSettings={() => {
+            setSearchQuery(null);
+            setSettingsOpen(true);
+          }}
+          onClose={() => setSearchQuery(null)}
+        />
       )}
       {inboxOpen && <NotificationsModal onClose={() => setInboxOpen(false)} />}
       {settingsOpen && (

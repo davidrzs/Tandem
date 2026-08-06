@@ -323,6 +323,11 @@ export const notifications = pgTable(
     documentTitle: text("document_title").notNull().default(""),
     /** comment_reply | comment_mention | comment_resolved | task_assigned */
     kind: text("kind").notNull(),
+    /** Optional deep-link target within the document. Kept generic so the
+     * inbox can later point at tasks and AI review sessions as well as
+     * comments without another schema change. */
+    targetType: text("target_type"),
+    targetId: text("target_id"),
     actorName: text("actor_name").notNull().default(""),
     /** True when the acting side was an AI agent. */
     ai: boolean("ai").notNull().default(false),
@@ -351,6 +356,12 @@ export const auditLog = pgTable(
     action: text("action").notNull(),
     /** Human-readable target, e.g. the document title. */
     detail: text("detail").notNull().default(""),
+    /** Exact target for action-center review links. */
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
+    /** Yjs author session for one attributed agent edit, when applicable. */
+    sessionId: text("session_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("audit_log_workspace_idx").on(t.workspaceId, t.createdAt)],

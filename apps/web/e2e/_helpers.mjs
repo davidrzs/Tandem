@@ -1,6 +1,6 @@
 // Shared e2e helpers matching the current UI (paper-&-ink design system:
 // modal dialogs, hover-revealed row actions). Import into the *.mjs scripts.
-export const BASE = "http://localhost:5173";
+export const BASE = process.env.E2E_BASE ?? "http://localhost:5173";
 
 /** Sign up a fresh account and land on the app shell. On a brand-new server the
  * first-run setup wizard stands in for the sign-up form; the first caller

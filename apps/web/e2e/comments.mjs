@@ -31,6 +31,18 @@ try {
   await panel.getByRole("button", { name: "Reply", exact: true }).click();
   await thread.locator(".comment-reply .comment-text", { hasText: "Yes — ship it." }).waitFor();
 
+  // A collaboration link reopens the rail, focuses the exact thread, and
+  // selects its CRDT-anchored source text.
+  const threadId = await thread.getAttribute("data-comment-id");
+  if (!threadId) throw new Error("comment thread has no deep-link id");
+  const docUrl = page.url().split("?")[0];
+  await page.goto(`${docUrl}?comment=${threadId}`);
+  await page.locator(`.comment-thread[data-comment-id="${threadId}"].active`).waitFor();
+  const selected = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+  if (!selected.includes("The quick brown fox jumps.")) {
+    throw new Error(`comment deep link selected the wrong text: ${selected}`);
+  }
+
   // Resolve it — the thread moves behind the "Show N resolved" toggle.
   await thread.locator('.row-action[title="Resolve"]').click();
   await panel.getByText(/Show 1 resolved/).waitFor();

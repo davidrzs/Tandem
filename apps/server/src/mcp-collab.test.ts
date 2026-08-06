@@ -24,7 +24,13 @@ const client = new Client({ name: "test", version: "0.0.0" });
 
 let collectionId = "";
 let docId = "";
-const auditEntries: Array<{ action: string; detail: string; workspaceId: string | null }> = [];
+const auditEntries: Array<{
+  action: string;
+  detail: string;
+  workspaceId: string | null;
+  documentId: string | null;
+  sessionId: number | null;
+}> = [];
 
 async function liveMarkdown(id: string): Promise<string> {
   const conn = await hocuspocus.openDirectConnection(id, { userId: "u1" });
@@ -77,8 +83,8 @@ before(async () => {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await createMcpServer(services, {
     writer,
-    audit: (action, detail, workspaceId) =>
-      auditEntries.push({ action, detail, workspaceId }),
+    audit: (action, detail, workspaceId, target) =>
+      auditEntries.push({ action, detail, workspaceId, ...target }),
   }).connect(serverT);
   await client.connect(clientT);
 });
@@ -163,6 +169,10 @@ test("agent writes leave a workspace-scoped audit trail; denied writes leave non
   assert.ok(
     auditEntries.some((e) => e.detail.includes("Doc")),
     "detail names the document",
+  );
+  assert.ok(
+    auditEntries.every((e) => e.documentId === docId && e.sessionId !== null),
+    "each edit is deep-linked to its document and exact authorship session",
   );
 });
 

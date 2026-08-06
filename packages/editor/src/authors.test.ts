@@ -59,7 +59,7 @@ test("a targeted edit only re-attributes the changed span", () => {
   // Replace one word through the markdown round-trip, as the MCP tools do.
   const currentMd = jsonToMarkdown(yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(COLLAB_FIELD)));
   const nextMd = currentMd.replace("quick", "sluggish");
-  applyAttributedEdit(doc, markdownToJSON(nextMd), aliceAi);
+  const editClientId = applyAttributedEdit(doc, markdownToJSON(nextMd), aliceAi);
 
   const spans = attributed(doc);
   const aiText = spans.filter((s) => s.author?.ai).map((s) => s.text).join("");
@@ -69,6 +69,11 @@ test("a targeted edit only re-attributes the changed span", () => {
   assert.ok(humanText.includes("The "), "prefix stays human");
   assert.ok(humanText.includes(" fox jumps."), "suffix stays human");
   assert.equal(getAuthors(doc).size, 2, "edit session got its own author entry");
+  assert.deepEqual(
+    getAuthors(doc).get(editClientId),
+    aliceAi,
+    "the write path returns the exact session id used by review deep links",
+  );
 });
 
 test("appending a section attributes only the new block to the editor", () => {

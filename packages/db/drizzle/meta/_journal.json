@@ -148,6 +148,13 @@
       "when": 1785412862378,
       "tag": "0020_serious_zarda",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785866400000,
+      "tag": "0021_notification_deep_links",
+      "breakpoints": true
     }
   ]
 }

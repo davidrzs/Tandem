@@ -150,6 +150,25 @@ export class DocumentService {
     });
   }
 
+  /** Cheap workspace-level existence check for first-run UI. RLS still
+   * limits the answer to documents the actor can read. */
+  async hasAnyInWorkspace(workspaceId: string): Promise<boolean> {
+    return this.exec(async (db) => {
+      const [row] = await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.workspaceId, workspaceId),
+            isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
+          ),
+        )
+        .limit(1);
+      return !!row;
+    });
+  }
+
   /** Markdown view of a document — what the MCP `get_document` read tool returns. */
   toMarkdown(doc: Document): string {
     return doc.contentMd;

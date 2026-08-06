@@ -151,6 +151,7 @@ function Thread({
 
   return (
     <div
+      data-comment-id={thread.id}
       className={
         "comment-thread" + (active ? " active" : "") + (resolvedState ? " resolved" : "")
       }

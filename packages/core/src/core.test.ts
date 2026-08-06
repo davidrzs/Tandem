@@ -61,6 +61,16 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
     markdown: "Install **pnpm** and clone the monorepo.",
   });
   assert.equal(parent.workspaceId, col.workspaceId, "doc inherits workspace");
+  assert.equal(
+    await documents.hasAnyInWorkspace(col.workspaceId),
+    true,
+    "first-run UI can detect an existing readable document cheaply",
+  );
+  assert.equal(
+    await new DocumentService(db, user("u2")).hasAnyInWorkspace(col.workspaceId),
+    false,
+    "existence check remains RLS-scoped",
+  );
 
   const tree = await documents.tree(col.id);
   assert.equal(tree[0]!.children[0]!.id, child.id);
@@ -508,17 +518,36 @@ test("settings: MCP kill switch and workspace audit trail", async () => {
   await s1.setMcpEnabled(true);
 
   const [ws] = await new WorkspaceService(db, user("u1")).listMine();
+  const auditCollection = await new CollectionService(db, user("u1")).create({
+    workspaceId: ws!.id,
+    name: "Audit",
+    slug: "audit-review-target",
+  });
+  const auditDoc = await new DocumentService(db, user("u1")).create({
+    collectionId: auditCollection.id,
+    title: "Paper",
+  });
   await s1.recordAudit({
     workspaceId: ws!.id,
     userId: "u1",
     ai: true,
     action: "edit_document",
     detail: '"Paper"',
+    documentId: auditDoc.id,
+    sessionId: "1234",
   });
   const trail = await s1.auditTrail(ws!.id);
   assert.ok(
-    trail.some((e) => e.action === "edit_document" && e.userName === "Alice" && e.ai),
-    "entry visible with the human's name",
+    trail.some(
+      (e) =>
+        e.action === "edit_document" &&
+        e.userName === "Alice" &&
+        e.ai &&
+        e.documentId === auditDoc.id &&
+        e.documentTitle === "Paper" &&
+        e.sessionId === "1234",
+    ),
+    "entry visible with the human's name and exact review target",
   );
 
   // Fellow members see the trail; outsiders are rejected.
@@ -752,8 +781,34 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
     "Nia: reply + resolve (never her own actions)",
   );
   assert.ok(naList.every((n) => n.documentTitle === "Plans"));
+  assert.ok(naList.every((n) => n.workspaceId === ws.id));
+  assert.deepEqual(
+    (await inboxNa.listMine(ws.id)).map((n) => n.id).sort(),
+    naList.map((n) => n.id).sort(),
+    "a workspace-scoped inbox keeps that workspace's rows",
+  );
+  assert.deepEqual(
+    await inboxNa.listMine(crypto.randomUUID()),
+    [],
+    "and filters server-side, so a busy workspace can't crowd rows out",
+  );
   assert.ok(
-    naList.some((n) => n.kind === "comment_resolved" && n.ai),
+    naList.some(
+      (n) =>
+        n.kind === "comment_reply" &&
+        n.targetType === "comment" &&
+        n.targetId === top.id,
+    ),
+    "reply notification deep-links to its root thread",
+  );
+  assert.ok(
+    naList.some(
+      (n) =>
+        n.kind === "comment_resolved" &&
+        n.ai &&
+        n.targetType === "comment" &&
+        n.targetId === top.id,
+    ),
     "AI actor flagged",
   );
 
@@ -763,9 +818,23 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
     ["comment_mention", "task_assigned"],
     "Ben: mention + one task assignment (no duplicate on re-store)",
   );
-  assert.match(nbList.find((n) => n.kind === "task_assigned")!.snippet, /draft the intro/);
+  assert.ok(
+    nbList.some(
+      (n) =>
+        n.kind === "comment_mention" &&
+        n.targetType === "comment" &&
+        n.targetId === mention.id,
+    ),
+    "mention notification deep-links to the mentioned thread",
+  );
+  const assigned = nbList.find((n) => n.kind === "task_assigned")!;
+  assert.match(assigned.snippet, /draft the intro/);
+  assert.equal(assigned.targetType, "task", "task assignment deep-links to its line");
+  assert.match(assigned.targetId!, /draft the intro/);
 
   assert.equal(await inboxNb.unreadCount(), 2);
+  await inboxNb.markRead(nbList[0]!.id);
+  assert.equal(await inboxNb.unreadCount(), 1, "one action-center item can be cleared");
   await inboxNb.markAllRead();
   assert.equal(await inboxNb.unreadCount(), 0);
   assert.equal(await inboxNa.unreadCount(), 2, "Nia's inbox untouched");

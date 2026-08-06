@@ -161,11 +161,14 @@ test.describe.serial("wiki journey", () => {
 
     // --- the assigned task shows up on my start page ---
     await page.getByRole("link", { name: "Home" }).click();
-    await expect(page.getByText("1 open task assigned to you.")).toBeVisible();
+    await expect(page.getByText("1 item needs your attention.")).toBeVisible();
     await expect(page.getByText("@alice review the handbook")).toBeVisible();
-    // The todo card's link (the sidebar also has one).
-    await page.locator(".todo-doc", { hasText: "Onboarding" }).click();
-    await expect(page).toHaveURL(docUrl);
+    // The task itself deep-links back to its exact text and selects it.
+    await page.getByRole("link", { name: "@alice review the handbook" }).click();
+    await expect(page).toHaveURL(/\/d\/.*\?task=/);
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ""))
+      .toContain("@alice review the handbook");
 
     // --- search finds the document by body text ---
     await page.getByRole("button", { name: /Search/ }).click();

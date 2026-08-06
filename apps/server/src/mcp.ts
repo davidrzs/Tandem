@@ -73,6 +73,7 @@ export type AuditHook = (
   action: string,
   detail: string,
   workspaceId: string | null,
+  target: { documentId: string | null; sessionId: number | null },
 ) => void;
 
 export type McpServerOptions = {
@@ -95,13 +96,15 @@ export function createMcpServer(
   /** Record a successful write for the workspace's audit trail. */
   const logAudit = (
     action: string,
-    target?: { workspaceId: string | null; title?: string | null } | null,
+    target?: { id?: string; workspaceId: string | null; title?: string | null } | null,
     detail?: string,
+    sessionId?: number | null,
   ) => {
     audit?.(
       action,
       detail ?? (target?.title ? `"${target.title}"` : ""),
       target?.workspaceId ?? null,
+      { documentId: target?.id ?? null, sessionId: sessionId ?? null },
     );
   };
 
@@ -117,8 +120,9 @@ export function createMcpServer(
     transform: (md: string) => string,
   ) {
     if (!(await documents.get(id))) return notFound("document");
+    let sessionId: number | null = null;
     try {
-      if (writer) await writer.transform(id, transform);
+      if (writer) sessionId = await writer.transform(id, transform);
       else await documents.editBody(id, transform);
     } catch (err) {
       if (err instanceof DocumentWriteDeniedError) return toolError(READ_ONLY_MESSAGE);
@@ -127,7 +131,7 @@ export function createMcpServer(
     }
     const doc = await documents.get(id);
     if (!doc) return notFound("document");
-    logAudit(action, doc);
+    logAudit(action, doc, undefined, sessionId);
     return json(publicDoc(doc));
   }
 
