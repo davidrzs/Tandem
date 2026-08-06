@@ -49,6 +49,7 @@ import { timeAgo } from "./time.js";
 import { SlashCommand } from "./slash-command.js";
 import { TaskListInputRule } from "./task-input-rule.js";
 import { createMathExtension } from "./math.js";
+import { MarkdownPaste } from "./markdown-paste.js";
 import { TagBar } from "./TagBar.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
@@ -319,6 +320,7 @@ export function Editor({
         Placeholder.configure({
           placeholder: ({ editor }) => (editor.isEmpty ? "Write, or type / for commands…" : ""),
         }),
+        MarkdownPaste,
         Find,
         ClientImage,
         TaskList,
