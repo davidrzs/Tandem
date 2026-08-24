@@ -104,6 +104,10 @@ export async function buildHttpServer(
   // (Vite serves the page, so this CSP mostly doesn't apply there anyway).
   const publicUrl = process.env.BETTER_AUTH_URL;
   const appUrl = publicUrl ?? process.env.WEB_ORIGIN ?? "http://localhost:5173";
+  const mcpResourceMetadataUrl = new URL(
+    "/.well-known/oauth-protected-resource",
+    appUrl,
+  ).href;
   const wsOrigin = publicUrl
     ? `${new URL(publicUrl).protocol === "https:" ? "wss" : "ws"}://${new URL(publicUrl).host}`
     : "ws: wss:";
@@ -302,7 +306,10 @@ export async function buildHttpServer(
       headers: fromNodeHeaders(req.headers),
     });
     if (!token) {
-      const challenge = `Bearer resource_metadata="http://${req.headers.host}/.well-known/oauth-protected-resource"`;
+      // Advertise the configured public origin, not Fastify's internal HTTP
+      // connection behind the TLS reverse proxy. OAuth clients require the
+      // protected-resource metadata URL to remain HTTPS in production.
+      const challenge = `Bearer resource_metadata="${mcpResourceMetadataUrl}"`;
       return reply
         .code(401)
         .header("WWW-Authenticate", challenge)

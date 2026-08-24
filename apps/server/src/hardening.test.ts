@@ -162,6 +162,34 @@ test("/mcp body limit fits base64 image uploads but caps runaway payloads", asyn
   }
 });
 
+test("/mcp OAuth challenge uses the configured public HTTPS origin", async () => {
+  const savedAuthUrl = process.env.BETTER_AUTH_URL;
+  process.env.BETTER_AUTH_URL = "https://tandem.example";
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const app = await buildHttpServer(db);
+  try {
+    await app.ready();
+    const response = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { "content-type": "application/json" },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+
+    assert.equal(response.statusCode, 401);
+    assert.equal(
+      response.headers["www-authenticate"],
+      'Bearer resource_metadata="https://tandem.example/.well-known/oauth-protected-resource"',
+    );
+  } finally {
+    await app.close();
+    await db.$dispose();
+    if (savedAuthUrl === undefined) delete process.env.BETTER_AUTH_URL;
+    else process.env.BETTER_AUTH_URL = savedAuthUrl;
+  }
+});
+
 test("direct image upload: token-gated, mime-checked, bytes land on disk", async () => {
   const db = createDatabase("memory://");
   await migrateDatabase(db);
