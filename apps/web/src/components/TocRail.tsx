@@ -47,11 +47,13 @@ export function TocRail({ editor, hidden }: { editor: Editor | null; hidden: boo
     if (!editor || headings.length === 0) return;
     const scroller = editor.view.dom.closest(".main");
     if (!scroller) return;
+    // A heading counts as "reached" once it sits just under the 46px header bar
+    // (the same offset as the headings' scroll-margin-top).
     const onScroll = () => {
       const els = editor.view.dom.querySelectorAll("h1, h2, h3, h4");
       let cur = -1;
       els.forEach((el, i) => {
-        if (el.getBoundingClientRect().top <= 96) cur = i;
+        if (el.getBoundingClientRect().top <= 62) cur = i;
       });
       setActive(cur);
     };

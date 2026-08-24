@@ -1,47 +1,102 @@
-/* Tandem — quiet slate.
- * A calm collaborative workspace: white paper, near-black ink, cool neutral
- * grays, and one restrained blue accent. One typeface (Hanken Grotesk) carries
- * the whole product; code stays monospaced and math keeps KaTeX's own fonts. The
- * only loud thing in the app is supposed to be the authorship layer. */
+/* Tandem — instrument.
+ * A dense, flat workspace: white paper, graphite ink, cool neutral lines drawn
+ * as 1px borders rather than shadows, and one teal accent. IBM Plex Sans carries
+ * the product; IBM Plex Mono carries labels, metadata, and code; math keeps
+ * KaTeX's own fonts. Teal has one extra meaning inside a document: it marks
+ * what an AI wrote. Discussion (comments, find matches) is amber so the two
+ * never read as the same thing. */
 
 :root {
-  --tree-parent: #272c33;
-  --tree-leaf: #4d5560;
-  --tools-veil: rgba(255, 255, 255, 0.85);
+  --tree-parent: #22262d;
+  --tree-leaf: #4b525c;
   --paper: #ffffff;
   --surface: #ffffff;
-  --sunken: #f4f6f8;
-  --ink: #191d23;
-  --ink-body: #363c45;
-  --ink-2: #68717c;
-  --ink-3: #9aa2ad;
-  --line: #edeff2;
-  --line-strong: #e2e5e9;
-  --border-side: #e6e8ec;
-  --accent: #1f66d6;
-  --accent-ink: #1a56b5;
-  --accent-wash: rgba(31, 102, 214, 0.08);
-  --accent-line: rgba(31, 102, 214, 0.22);
-  --mention-wash: #eef4fd;
-  --hover: #edf0f3;
-  --hover-strong: #e8ebef;
-  --tag-bg: #f0f2f5;
-  --tag-hover: #e6e9ee;
-  --live: #2f9e63;
-  --live-glow: rgba(47, 158, 99, 0.18);
+  --sunken: #f6f8f9;
+  --ink: #16191d;
+  --ink-body: #343a42;
+  --ink-2: #5d6570;
+  --ink-3: #8b93a0;
+  --line: #e9edf0;
+  --line-strong: #e0e4e9;
+  --border-side: #e0e4e9;
+  --accent: #0d7364;
+  --accent-ink: #0a5a4e;
+  --accent-wash: rgba(13, 115, 100, 0.06);
+  --accent-line: rgba(13, 115, 100, 0.3);
+  --mention-wash: rgba(13, 115, 100, 0.08);
+  --selection: rgba(13, 115, 100, 0.18);
+  --hover: #eef1f4;
+  --hover-strong: #e6eaee;
+  --tag-bg: #f0f3f5;
+  --tag-hover: #e6eaee;
+  --live: #1e7d4f;
+  --live-glow: rgba(30, 125, 79, 0.18);
   --danger: #b3271e;
   --danger-wash: #fbefee;
-  --ok: #2f7d46;
+  --ok: #1e7d4f;
   --warn: #8a6d1f;
-  --radius-s: 8px;
-  --radius-leaf: 7px;
-  --radius-m: 10px;
-  --radius-l: 14px;
+  --ok-wash: rgba(30, 125, 79, 0.07);
+  --warn-wash: rgba(138, 109, 31, 0.08);
+  --comment: #c48a0f;
+  --comment-wash: rgba(226, 168, 43, 0.22);
+  --comment-active: rgba(226, 168, 43, 0.42);
+  --comment-line: rgba(196, 138, 15, 0.55);
+  --ai: #0d7364;
+  --ai-wash: rgba(13, 115, 100, 0.14);
+  --code-bg: #1d2126;
+  --code-ink: #d6dde3;
+  --code-comment: #7a8591;
+  --code-keyword: #8fd3c4;
+  --code-string: #d8c48a;
+  --code-number: #e0a97a;
+  --code-title: #a7c4ff;
+  --code-attr: #c8d2da;
+  --code-variable: #e8b4b8;
+  --radius-s: 5px;
+  --radius-leaf: 5px;
+  --radius-m: 6px;
+  --radius-l: 8px;
   --shadow-pop: 0 4px 16px rgba(15, 20, 28, 0.1), 0 1px 3px rgba(15, 20, 28, 0.08);
   --shadow-modal: 0 24px 64px rgba(15, 20, 28, 0.22), 0 4px 12px rgba(15, 20, 28, 0.1);
-  --font-ui: "Hanken Grotesk Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-prose: "Hanken Grotesk Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --font-ui: "IBM Plex Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-prose: "IBM Plex Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --label-size: 10.5px;
+  --label-tracking: 0.1em;
+}
+
+/* Section labels: every uppercase eyebrow in the product shares this recipe. */
+.section-title,
+.toc-title,
+.modal h3,
+.search-section-label,
+.comments-head h2,
+.backlinks h3,
+.history-section,
+.home-section > h2,
+.home-section-head h2,
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--label-size);
+  font-weight: 500;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.eyebrow {
+  color: var(--accent);
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--ink-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: var(--surface);
 }
 
 * {
@@ -73,7 +128,7 @@ button {
 }
 
 ::selection {
-  background: #d3e2f8;
+  background: var(--selection);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -89,7 +144,7 @@ button {
 
 .app {
   display: grid;
-  grid-template-columns: 264px 1fr;
+  grid-template-columns: 248px 1fr;
   /* Pin the single row to the viewport: the sidebar is no longer a scroll
    * container, and an auto row would otherwise grow to its content. */
   grid-template-rows: 100vh;
@@ -113,37 +168,37 @@ button {
   flex-direction: column;
   background: var(--sunken);
   border-right: 1px solid var(--border-side);
-  padding: 14px 12px;
+  padding: 8px;
   gap: 2px;
 }
 
 /* Only the middle region (favorites + collections) scrolls; the nav above and
  * the account footer below stay pinned. The negative margin puts the scrollbar
- * at the sidebar's edge rather than 12px inside it. */
+ * at the sidebar's edge rather than 8px inside it. */
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin: 0 -12px;
-  padding: 0 12px;
+  margin: 0 -8px;
+  padding: 0 8px;
 }
 
 .ws-switcher {
   position: relative;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .ws-button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
   border: none;
   background: transparent;
-  padding: 8px;
+  padding: 6px 7px;
   border-radius: var(--radius-s);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   text-align: left;
 }
@@ -154,12 +209,12 @@ button {
 
 .ws-mark {
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-leaf);
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -198,16 +253,18 @@ button {
   margin-bottom: 0;
 }
 
+/* Rows carry a transparent border so the active row's 1px outline never
+   shifts its neighbours. */
 .nav-row {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 7px 9px;
-  border: none;
+  gap: 9px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
   background: transparent;
   border-radius: var(--radius-s);
-  font-size: 13.5px;
-  font-weight: 450;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--ink-body);
   cursor: pointer;
   text-decoration: none;
@@ -223,32 +280,26 @@ button {
 }
 
 .nav-row.active {
-  background: var(--hover);
-  font-weight: 550;
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.nav-row.active svg {
+  color: var(--accent);
 }
 
 .nav-row kbd {
   margin-left: auto;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ink-3);
-  border-radius: 5px;
-  padding: 1px 6px;
-  background: var(--hover);
 }
 
 .section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 22px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--ink-3);
-  padding: 0 9px 6px;
+  margin-top: 16px;
+  padding: 0 9px 5px;
 }
 
 .side-note {
@@ -297,14 +348,14 @@ button {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   border: none;
   background: none;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--tree-parent);
   cursor: pointer;
-  padding: 6px 0 6px 6px;
+  padding: 4px 0 4px 6px;
   text-align: left;
 }
 
@@ -397,13 +448,17 @@ button.doc-twist:hover .twist {
   border-left: 1px solid var(--line-strong);
 }
 
+/* Left padding is set inline per tree depth (Sidebar.tsx); only the vertical
+   rhythm lives here. The transparent border keeps the active outline from
+   shifting the row. */
 .doc-row {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
   border-radius: var(--radius-leaf);
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--tree-leaf);
   text-decoration: none;
 }
@@ -414,7 +469,8 @@ button.doc-twist:hover .twist {
 }
 
 .doc-row.active {
-  background: var(--hover);
+  background: var(--surface);
+  border-color: var(--line-strong);
   color: var(--accent);
   font-weight: 600;
 }
@@ -476,16 +532,16 @@ button.doc-twist:hover .twist {
 .sidebar-footer {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   margin-top: auto;
-  padding: 9px 8px;
+  padding: 9px 6px 4px;
   border-top: 1px solid var(--border-side);
 }
 
 .avatar {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   color: #fff;
   font-size: 13px;
@@ -504,7 +560,7 @@ button.doc-twist:hover .twist {
 }
 
 .user-name {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   overflow: hidden;
   white-space: nowrap;
@@ -512,7 +568,8 @@ button.doc-twist:hover .twist {
 }
 
 .user-email {
-  font-size: 11.5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   color: var(--ink-3);
   overflow: hidden;
   white-space: nowrap;
@@ -599,8 +656,8 @@ button.doc-twist:hover .twist {
   gap: 6px;
   border: 1px solid var(--line-strong);
   background: var(--surface);
-  border-radius: var(--radius-s);
-  padding: 6px 12px;
+  border-radius: var(--radius-m);
+  padding: 7px 13px;
   font-size: 13px;
   font-weight: 500;
   color: var(--ink);
@@ -635,25 +692,25 @@ button.doc-twist:hover .twist {
 .tool-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   border: none;
   background: transparent;
   border-radius: var(--radius-s);
-  padding: 7px 11px;
-  font-size: 13px;
+  padding: 5px 9px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--ink-2);
   cursor: pointer;
 }
 
 .tool-btn:hover {
-  color: var(--tree-parent);
-  background: var(--hover-strong);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 .tool-btn.active {
   color: var(--accent);
-  background: var(--hover-strong);
+  background: var(--accent-wash);
 }
 
 /* ---------- editor ---------- */
@@ -661,27 +718,37 @@ button.doc-twist:hover .twist {
 .editor {
   max-width: 780px;
   margin: 0 auto;
-  padding: 20px 40px 96px;
+  padding: 28px 40px 96px;
 }
 
-.editor-tools {
+/* Document header bar: location on the left, status and tools on the right.
+   Sticky inside the scrolling .main so it stays put while the column scrolls;
+   the TOC rail and the right-hand panels start below it (46px). */
+.doc-bar {
   position: sticky;
   top: 0;
   z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  gap: 12px;
+  height: 46px;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.doc-bar-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
   gap: 4px;
-  margin: -20px -40px 0;
-  padding: 16px 28px;
-  background: var(--tools-veil);
-  backdrop-filter: blur(6px);
+  margin-left: auto;
   white-space: nowrap;
 }
 
 .tool-divider {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: var(--line-strong);
   margin: 0 8px;
 }
@@ -772,12 +839,12 @@ button.doc-twist:hover .twist {
   width: 100%;
   border: none;
   outline: none;
-  margin-top: 14px;
+  margin-top: 12px;
   font-family: var(--font-prose);
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   color: var(--ink);
   background: transparent;
   padding: 0;
@@ -794,9 +861,10 @@ button.doc-twist:hover .twist {
 }
 
 .doc-meta {
-  margin-top: 12px;
-  font-family: var(--font-ui);
-  font-size: 13px;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
   color: var(--ink-3);
 }
 
@@ -859,7 +927,7 @@ button.doc-twist:hover .twist {
 
 .tag-remove:hover {
   opacity: 1;
-  background: rgba(31, 102, 214, 0.14);
+  background: var(--hover-strong);
 }
 
 .tag-add {
@@ -898,7 +966,6 @@ button.doc-twist:hover .twist {
   margin: 16px 0;
   padding: 10px 14px;
   border: 1px solid var(--line-strong);
-  border-left: 3px solid var(--accent);
   border-radius: var(--radius-m);
   background: var(--accent-wash);
 }
@@ -908,10 +975,12 @@ button.doc-twist:hover .twist {
   align-items: center;
   gap: 7px;
   margin-bottom: 4px;
-  font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--label-size);
+  font-weight: 500;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--accent);
   user-select: none;
 }
 
@@ -936,28 +1005,24 @@ button.doc-twist:hover .twist {
 }
 
 .callout-tip {
-  border-left-color: var(--ok);
-  background: rgba(47, 125, 70, 0.07);
+  background: var(--ok-wash);
 }
 .callout-tip .callout-head {
   color: var(--ok);
 }
 .callout-warning {
-  border-left-color: var(--warn);
-  background: rgba(138, 109, 31, 0.08);
+  background: var(--warn-wash);
 }
 .callout-warning .callout-head {
   color: var(--warn);
 }
 .callout-caution {
-  border-left-color: var(--danger);
   background: var(--danger-wash);
 }
 .callout-caution .callout-head {
   color: var(--danger);
 }
 .callout-neutral {
-  border-left-color: var(--ink-3);
   background: var(--sunken);
 }
 .callout-neutral .callout-head {
@@ -1023,39 +1088,33 @@ button.doc-twist:hover .twist {
  * centered column; hidden below the width where both fit side by side. */
 .toc-rail {
   position: fixed;
-  left: 280px;
-  top: 96px;
-  width: 172px;
-  max-height: calc(100vh - 120px);
+  left: 248px;
+  top: 46px;
+  width: 236px;
+  max-height: calc(100vh - 66px);
   overflow-y: auto;
-  padding: 6px 12px 20px 6px;
+  padding: 22px 14px 20px 18px;
   font-family: var(--font-ui);
 }
 
 .toc-title {
-  padding: 0 8px 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-3);
+  padding: 0 0 8px 10px;
 }
 
+/* Entries wrap rather than truncate: a contents rail that hides most of every
+   heading is worse than one that takes two lines. */
 .toc-entry {
   display: block;
   width: 100%;
   border: none;
-  border-left: 2px solid transparent;
+  border-left: 2px solid var(--line-strong);
   background: none;
   cursor: pointer;
   text-align: left;
   color: var(--ink-2);
   font-size: 12px;
-  line-height: 1.35;
-  padding: 3px 8px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  line-height: 1.4;
+  padding: 3px 8px 3px 10px;
 }
 
 .toc-entry:hover {
@@ -1065,25 +1124,26 @@ button.doc-twist:hover .twist {
 .toc-entry.active {
   color: var(--accent);
   border-left-color: var(--accent);
-  font-weight: 550;
+  background: var(--accent-wash);
+  font-weight: 600;
 }
 
 .toc-l2 {
-  padding-left: 18px;
+  padding-left: 24px;
 }
 .toc-l3 {
-  padding-left: 28px;
+  padding-left: 36px;
 }
 
-/* Anchor-scroll clears the sticky toolbar. */
+/* Anchor-scroll clears the sticky header bar (46px) with a little air. */
 .ProseMirror :is(h1, h2, h3, h4) {
-  scroll-margin-top: 84px;
+  scroll-margin-top: 62px;
 }
 
 /* The rail never displaces the column: below the width where it fits in the
  * gutter beside the centered document, it simply disappears. The column sits
  * in the same place whether or not a document has a contents rail. */
-@media (max-width: 1450px) {
+@media (max-width: 1400px) {
   .toc-rail {
     display: none;
   }
@@ -1103,40 +1163,43 @@ button.doc-twist:hover .twist {
 .ProseMirror {
   outline: none;
   font-family: var(--font-prose);
-  font-size: 15.5px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.6;
   min-height: 60vh;
-  color: var(--ink);
+  color: var(--ink-body);
 }
 
 .ProseMirror p {
-  margin: 0.65em 0;
+  margin: 1em 0;
 }
 
 .ProseMirror h1,
 .ProseMirror h2,
 .ProseMirror h3 {
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  margin: 1.4em 0 0.4em;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  color: var(--ink);
 }
 
 .ProseMirror h1 {
-  font-size: 1.6em;
+  font-size: 22px;
+  margin: 40px 0 8px;
 }
 
 .ProseMirror h2 {
-  font-size: 1.3em;
+  font-size: 18px;
+  margin: 36px 0 6px;
 }
 
 .ProseMirror h3 {
-  font-size: 1.12em;
+  font-size: 15px;
+  margin: 20px 0 4px;
 }
 
 .ProseMirror a {
   color: var(--accent-ink);
-  text-decoration-color: rgba(31, 102, 214, 0.4);
+  text-decoration-color: var(--accent-line);
   text-underline-offset: 2px;
 }
 
@@ -1151,12 +1214,12 @@ button.doc-twist:hover .twist {
 
 .ProseMirror pre {
   font-family: var(--font-mono);
-  background: #22303c;
-  color: #eef1f4;
+  background: var(--code-bg);
+  color: var(--code-ink);
   padding: 14px 16px;
   border-radius: var(--radius-m);
   overflow-x: auto;
-  font-size: 0.82em;
+  font-size: 0.86em;
   line-height: 1.6;
 }
 
@@ -1167,44 +1230,45 @@ button.doc-twist:hover .twist {
   font-size: inherit;
 }
 
-/* Syntax highlighting (lowlight/hljs) — muted palette on the dark code block. */
+/* Syntax highlighting (lowlight/hljs) — muted graphite palette on the dark
+   code block, tokens defined in :root. */
 .ProseMirror pre .hljs-comment,
 .ProseMirror pre .hljs-quote {
-  color: #7c8a99;
+  color: var(--code-comment);
   font-style: italic;
 }
 .ProseMirror pre .hljs-keyword,
 .ProseMirror pre .hljs-selector-tag,
 .ProseMirror pre .hljs-literal {
-  color: #c792ea;
+  color: var(--code-keyword);
 }
 .ProseMirror pre .hljs-string,
 .ProseMirror pre .hljs-regexp,
 .ProseMirror pre .hljs-addition {
-  color: #a5d6a7;
+  color: var(--code-string);
 }
 .ProseMirror pre .hljs-number,
 .ProseMirror pre .hljs-symbol,
 .ProseMirror pre .hljs-meta {
-  color: #f5b971;
+  color: var(--code-number);
 }
 .ProseMirror pre .hljs-title,
 .ProseMirror pre .hljs-section,
 .ProseMirror pre .hljs-name {
-  color: #82aaff;
+  color: var(--code-title);
 }
 .ProseMirror pre .hljs-attr,
 .ProseMirror pre .hljs-attribute,
 .ProseMirror pre .hljs-type,
 .ProseMirror pre .hljs-built_in {
-  color: #ffcb6b;
+  color: var(--code-attr);
 }
 .ProseMirror pre .hljs-variable,
 .ProseMirror pre .hljs-template-variable {
-  color: #89ddff;
+  color: var(--code-variable);
 }
 .ProseMirror pre .hljs-deletion {
-  color: #ff8a80;
+  color: var(--code-variable);
 }
 .ProseMirror pre .hljs-emphasis {
   font-style: italic;
@@ -1290,10 +1354,22 @@ button.doc-twist:hover .twist {
 .ProseMirror ul,
 .ProseMirror ol {
   padding-left: 1.4em;
+  margin: 0.5em 0;
 }
 
+/* Nested lists sit tight: a schema written as a bulleted list should read as
+   a list, not as a stack of paragraphs. */
 .ProseMirror li {
-  margin: 0.2em 0;
+  margin: 0.15em 0;
+}
+
+.ProseMirror li > p {
+  margin: 0;
+}
+
+.ProseMirror li > ul,
+.ProseMirror li > ol {
+  margin: 0.15em 0;
 }
 
 .img-node {
@@ -1331,30 +1407,33 @@ button.doc-twist:hover .twist {
   padding-left: 0.2em;
 }
 
-.ProseMirror ul[data-type="taskList"] li {
+/* Direct children only: a bullet list nested inside a task must keep its
+   markers and list layout. */
+.ProseMirror ul[data-type="taskList"] > li {
   display: flex;
-  gap: 9px;
+  gap: 10px;
+  margin: 0.3em 0;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label {
+.ProseMirror ul[data-type="taskList"] > li > label {
   flex: 0 0 auto;
-  /* Centre the 15px box on the first text line (line-height 1.7 × 15.5px). */
-  margin-top: calc((1.7em - 15px) / 2);
+  /* Centre the 14px box on the first text line (line-height 1.6 × 14px). */
+  margin-top: calc((1.6em - 14px) / 2);
   user-select: none;
 }
 
 /* Task text is a paragraph; its prose margins would push it below the
    checkbox and balloon the gaps between items. */
-.ProseMirror ul[data-type="taskList"] li > div > p {
+.ProseMirror ul[data-type="taskList"] > li > div > p {
   margin: 0;
 }
 
 .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
   appearance: none;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   border: 1.5px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--surface);
   cursor: pointer;
   display: grid;
@@ -1375,11 +1454,11 @@ button.doc-twist:hover .twist {
   background: #fff;
 }
 
-.ProseMirror ul[data-type="taskList"] li > div {
+.ProseMirror ul[data-type="taskList"] > li > div {
   flex: 1;
 }
 
-.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+.ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div {
   color: var(--ink-3);
   text-decoration: line-through;
   text-decoration-color: var(--line-strong);
@@ -1393,7 +1472,7 @@ button.doc-twist:hover .twist {
 }
 
 .blame-ai {
-  border-bottom: 1px dotted rgba(15, 20, 28, 0.5);
+  border-bottom: 1px dotted var(--ai);
 }
 
 .blame-legend {
@@ -1476,8 +1555,7 @@ button.doc-twist:hover .twist {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 20, 28, 0.4);
-  backdrop-filter: blur(2px);
+  background: rgba(22, 25, 29, 0.42);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1492,13 +1570,14 @@ button.doc-twist:hover .twist {
   transform: translateX(-50%);
   z-index: 101;
   background: var(--surface);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-modal);
-  width: 460px;
+  width: 540px;
   max-width: calc(100vw - 32px);
   max-height: 74vh;
   overflow-y: auto;
-  padding: 20px 22px;
+  padding: 0 20px 18px;
   /* The keyframe must carry the base translateX(-50%): a keyframe transform
      REPLACES the element's own, which made every modal slide in ~290px from
      the right — visible jank, and clicks aimed mid-slide landed elsewhere. */
@@ -1524,29 +1603,26 @@ button.doc-twist:hover .twist {
 }
 
 .modal.wide {
-  width: 580px;
+  width: 720px;
 }
 
 .modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin: 0 -20px 14px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
 }
 
 .modal-head h2 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
 .modal h3 {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
   margin: 20px 0 8px;
 }
 
@@ -1663,10 +1739,13 @@ button.doc-twist:hover .twist {
 .grant-role,
 .member-role {
   color: var(--ink-2);
-  font-size: 12px;
-  background: var(--sunken);
-  border-radius: 999px;
-  padding: 2px 9px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 1px 7px;
 }
 
 .grant-add,
@@ -1745,9 +1824,10 @@ button.doc-twist:hover .twist {
 }
 
 .search-box {
-  width: 580px;
+  width: 620px;
   max-width: calc(100vw - 32px);
   background: var(--surface);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-modal);
   overflow: hidden;
@@ -1758,9 +1838,9 @@ button.doc-twist:hover .twist {
   width: 100%;
   border: none;
   outline: none;
-  padding: 17px 20px;
+  padding: 14px 18px;
   font-family: inherit;
-  font-size: 16px;
+  font-size: 15px;
   background: var(--surface);
   color: var(--ink);
 }
@@ -1799,11 +1879,12 @@ button.doc-twist:hover .twist {
 
 .search-hit.selected {
   background: var(--accent-wash);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .search-title {
-  font-size: 14px;
-  font-weight: 550;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -1817,18 +1898,13 @@ button.doc-twist:hover .twist {
 }
 
 .search-snippet mark {
-  background: rgba(31, 102, 214, 0.14);
+  background: var(--ai-wash);
   color: var(--accent-ink);
   border-radius: 2px;
 }
 
 .search-section-label {
   padding: 7px 14px 5px;
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 
 .command-hit {
@@ -1839,7 +1915,7 @@ button.doc-twist:hover .twist {
 
 .command-hit > svg {
   flex: none;
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
 
 .command-copy {
@@ -1902,17 +1978,14 @@ button.doc-twist:hover .twist {
 
 .home-search kbd {
   margin-left: auto;
-  color: var(--ink-3);
-  font: 11px var(--font-ui);
 }
 
 .onboarding-card {
   border: 1px solid var(--accent-line);
-  border-radius: var(--radius-l);
-  background: linear-gradient(145deg, var(--surface), var(--accent-wash));
-  box-shadow: var(--shadow-pop);
+  border-radius: var(--radius-m);
+  background: var(--accent-wash);
   margin-bottom: 34px;
-  padding: 22px;
+  padding: 20px;
 }
 
 .onboarding-head {
@@ -1923,16 +1996,9 @@ button.doc-twist:hover .twist {
 }
 
 .onboarding-head h2 {
-  margin: 3px 0 0;
-  font-size: 20px;
-}
-
-.eyebrow {
-  color: var(--accent-ink);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.075em;
-  text-transform: uppercase;
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .home-dismiss {
@@ -1989,13 +2055,13 @@ button.doc-twist:hover .twist {
   background: var(--surface);
   color: var(--ink-2);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .onboarding-steps li.done .onboarding-number {
-  border-color: var(--ok);
-  background: var(--ok);
-  color: white;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .onboarding-copy {
@@ -2032,9 +2098,7 @@ button.doc-twist:hover .twist {
 
 .home-section > h2,
 .home-section-head h2 {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 650;
+  margin: 0 0 8px;
 }
 
 .home-section-head {
@@ -2046,7 +2110,7 @@ button.doc-twist:hover .twist {
 
 .collection-document-list {
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   background: var(--surface);
   list-style: none;
@@ -2067,19 +2131,35 @@ button.doc-twist:hover .twist {
 .collection-document-list a {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
   font-size: 13.5px;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
   padding-right: 14px;
-  padding-top: 10px;
+  padding-top: 8px;
   text-decoration: none;
 }
 
 .collection-document-list a:hover {
   background: var(--hover);
   color: var(--accent-ink);
+}
+
+.collection-document-list .document-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.collection-document-list .document-when {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
 }
 
 .collection-document-list > li:last-child > a,
@@ -2109,7 +2189,7 @@ button.doc-twist:hover .twist {
   background: none;
   color: inherit;
   cursor: pointer;
-  padding: 12px 14px;
+  padding: 10px 14px;
   text-align: left;
   text-decoration: none;
 }
@@ -2124,19 +2204,21 @@ button.doc-twist:hover .twist {
 
 .attention-icon {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
   background: var(--sunken);
   color: var(--ink-2);
 }
 
 .attention-icon.ai {
+  border-color: var(--accent-line);
   background: var(--accent-wash);
-  color: var(--accent-ink);
+  color: var(--accent);
 }
 
 .attention-copy {
@@ -2166,7 +2248,7 @@ button.doc-twist:hover .twist {
 }
 
 .home-empty {
-  border: 1px dashed var(--line-strong);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   color: var(--ink-2);
   font-size: 13px;
@@ -2176,8 +2258,8 @@ button.doc-twist:hover .twist {
 
 .continue-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .continue-card {
@@ -2185,7 +2267,7 @@ button.doc-twist:hover .twist {
   min-width: 0;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   color: var(--ink);
   padding: 11px 12px;
@@ -2230,14 +2312,19 @@ button.doc-twist:hover .twist {
 .quick-action {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-m);
   background: var(--surface);
-  color: var(--ink-2);
+  color: var(--ink-body);
   cursor: pointer;
-  padding: 8px 11px;
-  font-size: 12.5px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.quick-action svg {
+  color: var(--ink-2);
 }
 
 .quick-action:hover:not(:disabled) {
@@ -2252,8 +2339,8 @@ button.doc-twist:hover .twist {
 
 .home h1 {
   font-family: var(--font-prose);
-  font-size: 30px;
-  font-weight: 650;
+  font-size: 24px;
+  font-weight: 600;
   letter-spacing: -0.01em;
   margin: 0 0 6px;
 }
@@ -2298,12 +2385,11 @@ button.doc-twist:hover .twist {
 }
 
 .todo-card {
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   background: var(--surface);
-  padding: 14px 18px;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(15, 20, 28, 0.04);
+  padding: 12px 16px;
+  margin-bottom: 10px;
 }
 
 .todo-doc {
@@ -2325,9 +2411,10 @@ button.doc-twist:hover .twist {
 
 .todo-list li {
   display: flex;
+  align-items: flex-start;
   gap: 9px;
   padding: 4px 0;
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .todo-list li.done {
@@ -2347,7 +2434,18 @@ button.doc-twist:hover .twist {
 }
 
 .todo-box {
-  color: var(--ink-3);
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.todo-list li.done .todo-box {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 /* ---------- errors & banners ---------- */
@@ -2360,7 +2458,7 @@ button.doc-twist:hover .twist {
 
 .error-panel h2 {
   font-family: var(--font-prose);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .error-panel.inline {
@@ -2379,9 +2477,9 @@ button.doc-twist:hover .twist {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: #fdf6e3;
-  border-bottom: 1px solid #efe3bb;
-  color: #7a5c12;
+  background: var(--warn-wash);
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--warn);
   font-size: 13px;
   padding: 9px 16px;
 }
@@ -2400,20 +2498,19 @@ button.doc-twist:hover .twist {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 340px;
+  width: 380px;
   padding: 32px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-l);
-  box-shadow: var(--shadow-pop);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
 }
 
 .wordmark {
   font-family: var(--font-prose);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--accent-ink);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 .auth-tagline {
@@ -2425,14 +2522,14 @@ button.doc-twist:hover .twist {
 .auth-card h1 {
   margin: 0 0 6px;
   font-size: 17px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .auth-card input {
   font-family: inherit;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-m);
   font-size: 14px;
 }
 
@@ -2470,9 +2567,9 @@ button.doc-twist:hover .twist {
 
 .auth-card select {
   font-family: inherit;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-m);
   font-size: 14px;
   background: var(--surface);
   color: var(--ink);
@@ -2499,7 +2596,7 @@ button.doc-twist:hover .twist {
   min-width: 210px;
   padding: 4px;
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-pop);
   font-family: var(--font-ui);
@@ -2580,13 +2677,13 @@ button.doc-twist:hover .twist {
 }
 
 .comment-span {
-  background: rgba(226, 168, 43, 0.18);
-  border-bottom: 1.5px solid rgba(196, 138, 15, 0.5);
+  background: var(--comment-wash);
+  border-bottom: 1.5px solid var(--comment-line);
   cursor: pointer;
 }
 
 .comment-span.active {
-  background: rgba(226, 168, 43, 0.34);
+  background: var(--comment-active);
 }
 
 .bubble-btn {
@@ -2620,11 +2717,11 @@ button.doc-twist:hover .twist {
 .comments-panel {
   flex: 0 0 320px;
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: 46px;
+  height: calc(100vh - 46px);
   overflow-y: auto;
-  padding: 24px 20px 60px;
-  border-left: 1px solid var(--line);
+  padding: 20px 20px 60px;
+  border-left: 1px solid var(--line-strong);
   background: var(--paper);
 }
 
@@ -2637,11 +2734,6 @@ button.doc-twist:hover .twist {
 
 .comments-head h2 {
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ink-3);
 }
 
 .comments-empty {
@@ -2651,7 +2743,7 @@ button.doc-twist:hover .twist {
 }
 
 .comment-thread {
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   background: var(--surface);
   padding: 10px 12px;
@@ -2660,8 +2752,8 @@ button.doc-twist:hover .twist {
 }
 
 .comment-thread.active {
-  border-color: rgba(196, 138, 15, 0.6);
-  box-shadow: 0 0 0 2px rgba(226, 168, 43, 0.18);
+  border-color: var(--comment-line);
+  box-shadow: 0 0 0 2px var(--comment-wash);
 }
 
 .comment-thread.resolved {
@@ -2676,7 +2768,7 @@ button.doc-twist:hover .twist {
 .comment-quote {
   margin: 0 0 8px;
   padding: 2px 8px;
-  border-left: 2px solid rgba(196, 138, 15, 0.55);
+  border-left: 2px solid var(--comment-line);
   font-size: 12px;
   color: var(--ink-2);
   overflow: hidden;
@@ -2775,8 +2867,9 @@ button.doc-twist:hover .twist {
   .comments-panel {
     position: fixed;
     right: 0;
-    top: 0;
+    top: 46px;
     bottom: 0;
+    height: auto;
     width: 320px;
     background: var(--surface);
     box-shadow: var(--shadow-modal);
@@ -2792,7 +2885,7 @@ button.doc-twist:hover .twist {
   color: var(--accent);
   font-weight: 500;
   text-decoration: none;
-  border-bottom: 1px solid rgba(31, 102, 214, 0.3);
+  border-bottom: 1px solid var(--accent-line);
   padding-bottom: 1px;
   cursor: pointer;
   white-space: nowrap;
@@ -2827,11 +2920,6 @@ button.doc-twist:hover .twist {
 }
 
 .backlinks h3 {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
   margin: 0 0 8px;
 }
 
@@ -2871,7 +2959,7 @@ button.doc-twist:hover .twist {
   text-align: left;
   font-size: 13px;
   color: var(--ink);
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-radius: var(--radius-s);
   cursor: pointer;
 }
@@ -2897,14 +2985,10 @@ button.doc-twist:hover .twist {
   color: var(--ink-3);
 }
 
+/* "All sessions" has no single identity hue: a neutral ring instead. */
 .legend-dot.all {
-  background: conic-gradient(
-    hsl(0 60% 55%),
-    hsl(90 60% 45%),
-    hsl(200 60% 45%),
-    hsl(300 60% 50%),
-    hsl(0 60% 55%)
-  );
+  background: var(--surface);
+  border: 2px solid var(--ink-3);
 }
 
 .history-note {
@@ -2916,11 +3000,6 @@ button.doc-twist:hover .twist {
 
 .history-section {
   margin: 20px 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-3);
 }
 
 .history-section:first-of-type {
@@ -3122,7 +3201,7 @@ button.doc-twist:hover .twist {
 
 .audit-what strong {
   color: var(--ink);
-  font-weight: 550;
+  font-weight: 600;
 }
 
 .audit-when {
@@ -3257,13 +3336,13 @@ button.doc-twist:hover .twist {
 }
 
 .find-match {
-  background: rgba(226, 168, 43, 0.28);
+  background: var(--comment-wash);
   border-radius: 2px;
 }
 
 .find-match-active {
-  background: rgba(226, 138, 43, 0.55);
-  outline: 1.5px solid rgba(196, 108, 15, 0.8);
+  background: var(--comment-active);
+  outline: 1.5px solid var(--comment);
 }
 
 /* Code block chrome (language picker + copy). */
@@ -3291,10 +3370,10 @@ button.doc-twist:hover .twist {
 .code-lang {
   appearance: none;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   background: rgba(255, 255, 255, 0.12);
-  color: #c8d2da;
-  font-size: 11.5px;
+  color: var(--code-attr);
+  font-size: 11px;
   font-family: var(--font-mono);
   padding: 3px 8px;
   cursor: pointer;
@@ -3306,10 +3385,11 @@ select.code-lang:hover {
 
 .code-copy {
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   background: rgba(255, 255, 255, 0.12);
-  color: #c8d2da;
-  font-size: 11.5px;
+  color: var(--code-attr);
+  font-size: 11px;
+  font-family: var(--font-mono);
   padding: 3px 8px;
   cursor: pointer;
 }
@@ -3394,10 +3474,19 @@ select.code-lang:hover {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  font-size: 12.5px;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   color: var(--ink-3);
   margin-bottom: 2px;
+}
+
+.doc-bar .breadcrumbs {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  margin-bottom: 0;
 }
 
 .breadcrumbs .crumb {
@@ -3417,7 +3506,19 @@ select.code-lang:hover {
 .breadcrumbs .crumb-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.breadcrumbs .crumb-current-wrap {
+  min-width: 0;
+}
+
+.breadcrumbs .crumb-current {
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .crumb-sep {
@@ -3427,7 +3528,7 @@ select.code-lang:hover {
 /* --- Print: the document only, clean and ink-friendly --- */
 @media print {
   .sidebar,
-  .editor-tools,
+  .doc-bar,
   .find-bar,
   .toasts,
   .toc-rail,
@@ -3478,15 +3579,6 @@ select.code-lang:hover {
   color: var(--warn);
 }
 
-.home-h2 {
-  font-size: 13px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  margin: 22px 0 8px;
-}
-
 .recent-row {
   display: flex;
   flex-wrap: wrap;
@@ -3499,7 +3591,7 @@ select.code-lang:hover {
   gap: 6px;
   padding: 6px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-m);
   background: var(--surface);
   color: var(--ink-body);
   font-size: 13px;
@@ -3523,34 +3615,43 @@ select.code-lang:hover {
 /* --- Dark theme (stamped on <html> by theme.ts; follows the system until
    the user picks explicitly). Same identity, inverted paper. --- */
 [data-theme="dark"] {
-  --tree-parent: #d5d9de;
-  --tree-leaf: #b2b8c1;
-  --tools-veil: rgba(25, 28, 33, 0.85);
-  --paper: #14161a;
-  --surface: #191c21;
-  --sunken: #101216;
-  --ink: #e8eaee;
-  --ink-body: #c6cbd2;
-  --ink-2: #939aa4;
-  --ink-3: #656c76;
-  --line: #24272d;
-  --line-strong: #2e323a;
-  --border-side: #22252b;
-  --accent: #5c94ee;
-  --accent-ink: #85b0f5;
-  --accent-wash: rgba(92, 148, 238, 0.14);
-  --accent-line: rgba(92, 148, 238, 0.3);
-  --mention-wash: rgba(92, 148, 238, 0.1);
-  --hover: #1f2228;
-  --hover-strong: #24282f;
-  --tag-bg: #1e2126;
-  --tag-hover: #272b31;
-  --live: #43b374;
-  --live-glow: rgba(67, 179, 116, 0.25);
+  --tree-parent: #dfe3e8;
+  --tree-leaf: #a8b0ba;
+  --paper: #121417;
+  --surface: #16191d;
+  --sunken: #0f1114;
+  --ink: #e6e9ed;
+  --ink-body: #c9ced5;
+  --ink-2: #929ba6;
+  --ink-3: #6f7883;
+  --line: #23272d;
+  --line-strong: #2c3138;
+  --border-side: #23272d;
+  --accent: #2fb39a;
+  --accent-ink: #5ccab4;
+  --accent-wash: rgba(47, 179, 154, 0.1);
+  --accent-line: rgba(47, 179, 154, 0.35);
+  --mention-wash: rgba(47, 179, 154, 0.12);
+  --selection: rgba(47, 179, 154, 0.28);
+  --hover: #1c2025;
+  --hover-strong: #23282e;
+  --tag-bg: #1e2227;
+  --tag-hover: #262b31;
+  --live: #3fbf7f;
+  --live-glow: rgba(63, 191, 127, 0.25);
   --danger: #e0736a;
   --danger-wash: rgba(224, 115, 106, 0.14);
-  --ok: #5cad74;
+  --ok: #3fbf7f;
   --warn: #c9a44a;
+  --ok-wash: rgba(63, 191, 127, 0.1);
+  --warn-wash: rgba(201, 164, 74, 0.12);
+  --comment: #d9b04a;
+  --comment-wash: rgba(226, 168, 43, 0.22);
+  --comment-active: rgba(226, 168, 43, 0.4);
+  --comment-line: rgba(226, 168, 43, 0.6);
+  --ai: #2fb39a;
+  --ai-wash: rgba(47, 179, 154, 0.18);
+  --code-bg: #0f1114;
   --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
 }
@@ -3564,7 +3665,7 @@ select.code-lang:hover {
 [data-theme="dark"] .bubble-group,
 [data-theme="dark"] .toast {
   background: #262a31;
-  color: #e8eaee;
+  color: #e6e9ed;
 }
 
 [data-theme="dark"] .bubble-btn:hover {
@@ -3573,7 +3674,7 @@ select.code-lang:hover {
 
 [data-theme="dark"] .bubble-btn.active {
   background: var(--accent);
-  color: #101318;
+  color: #0f1114;
 }
 
 [data-theme="dark"] .toast-danger {
@@ -3586,33 +3687,12 @@ select.code-lang:hover {
 }
 
 [data-theme="dark"] .ProseMirror pre {
-  background: #10141a;
   border: 1px solid var(--line);
-}
-
-/* Dark-mode pins for the remaining literal-colored chrome. */
-[data-theme="dark"] ::selection {
-  background: #2b4269;
 }
 
 [data-theme="dark"] .blame-card {
   background: #262a31;
-  color: #e8eaee;
-}
-
-[data-theme="dark"] .archived-banner {
-  background: #2b2413;
-  border-bottom-color: #3d3419;
-  color: #d8b968;
-}
-
-[data-theme="dark"] .comment-span {
-  background: rgba(226, 168, 43, 0.22);
-}
-
-[data-theme="dark"] .find-match {
-  background: rgba(226, 168, 43, 0.3);
-  color: inherit;
+  color: #e6e9ed;
 }
 
 /* --- Responsive shell: below 900px the sidebar is an off-canvas drawer --- */
@@ -3660,8 +3740,8 @@ select.code-lang:hover {
     top: 10px;
     left: 10px;
     z-index: 200;
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-m);
     background: var(--surface);
@@ -3670,9 +3750,9 @@ select.code-lang:hover {
     box-shadow: var(--shadow-pop);
   }
 
-  /* Leave room for the hamburger over the doc toolbar. */
-  .editor-tools {
-    padding-left: 48px;
+  /* Leave room for the hamburger over the document header bar. */
+  .doc-bar {
+    padding-left: 60px;
   }
 
   .home {
@@ -3688,13 +3768,17 @@ select.code-lang:hover {
   }
 
   .continue-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 620px) {
   .home {
     padding: 64px 18px 72px 56px;
+  }
+
+  .continue-grid {
+    grid-template-columns: 1fr;
   }
 
   .onboarding-card {
@@ -3724,7 +3808,7 @@ select.code-lang:hover {
   background: var(--accent);
   color: #fff;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   border-radius: 999px;
   padding: 1px 7px;
   line-height: 1.5;
@@ -3747,7 +3831,7 @@ select.code-lang:hover {
   text-align: left;
   border: none;
   background: none;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border-radius: var(--radius-s);
   cursor: pointer;
   font-size: 13.5px;
@@ -3760,6 +3844,7 @@ select.code-lang:hover {
 
 .notif-row.unread {
   background: var(--accent-wash);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .notif-row.unread:hover {

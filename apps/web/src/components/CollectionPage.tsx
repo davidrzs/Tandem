@@ -3,10 +3,12 @@ import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
+import { timeAgo } from "./time.js";
 
 interface DocumentNode {
   id: string;
   title: string;
+  updatedAt: string | Date;
   children: DocumentNode[];
 }
 
@@ -21,7 +23,8 @@ function DocumentLinks({ nodes, depth = 0 }: { nodes: DocumentNode[]; depth?: nu
         <li key={node.id}>
           <Link to={`/d/${node.id}`} style={{ paddingLeft: 14 + depth * 18 }}>
             <Icon name="page" size={14} />
-            <span>{node.title || "Untitled"}</span>
+            <span className="document-name">{node.title || "Untitled"}</span>
+            <span className="document-when">edited {timeAgo(node.updatedAt)}</span>
           </Link>
           {node.children.length > 0 && <DocumentLinks nodes={node.children} depth={depth + 1} />}
         </li>
@@ -65,7 +68,6 @@ export function CollectionPage() {
       </div>
 
       <section className="home-section">
-        <h2>Documents</h2>
         {documents.error && (
           <div className="error-panel inline">
             <p className="error-detail">
