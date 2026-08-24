@@ -392,6 +392,10 @@ export const appRouter = t.router({
 
     myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documents.listMyTodos()),
 
+    hasAny: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.documents.hasAnyInWorkspace(input.workspaceId)),
+
     listTags: protectedProcedure.query(({ ctx }) => ctx.services.documents.listTags()),
 
     listSnapshots: protectedProcedure
@@ -561,10 +565,15 @@ export const appRouter = t.router({
   }),
 
   notifications: t.router({
-    list: protectedProcedure.query(({ ctx }) => ctx.services.notifications.listMine()),
+    list: protectedProcedure
+      .input(z.object({ workspaceId: uuid.optional() }))
+      .query(({ ctx, input }) => ctx.services.notifications.listMine(input.workspaceId)),
     unreadCount: protectedProcedure.query(({ ctx }) =>
       ctx.services.notifications.unreadCount(),
     ),
+    markRead: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(({ ctx, input }) => ctx.services.notifications.markRead(input.id)),
     markAllRead: protectedProcedure.mutation(({ ctx }) =>
       ctx.services.notifications.markAllRead(),
     ),

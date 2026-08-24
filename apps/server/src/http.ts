@@ -355,9 +355,17 @@ export async function buildHttpServer(
       // Audit trail: every successful agent write, attributed to the human
       // whose token acted. Fire-and-forget; an audit hiccup must not fail
       // the tool call.
-      audit: (action, detail, workspaceId) => {
+      audit: (action, detail, workspaceId, target) => {
         void services.settings
-          .recordAudit({ workspaceId, userId: token.userId, ai: true, action, detail })
+          .recordAudit({
+            workspaceId,
+            userId: token.userId,
+            ai: true,
+            action,
+            detail,
+            documentId: target.documentId,
+            sessionId: target.sessionId === null ? null : String(target.sessionId),
+          })
           .catch((err) => app.log.error({ err }, "audit write failed"));
       },
       notify: notifyDocument,

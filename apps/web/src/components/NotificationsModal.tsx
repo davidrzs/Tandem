@@ -3,29 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Modal } from "./Modal.js";
+import { notificationHref, notificationVerb } from "./notification-link.js";
 import { timeAgo } from "./time.js";
-
-function verb(kind: string): string {
-  switch (kind) {
-    case "comment_reply":
-      return "replied in";
-    case "comment_mention":
-      return "mentioned you in";
-    case "comment_resolved":
-      return "resolved your comment in";
-    case "task_assigned":
-      return "assigned you a task in";
-    default:
-      return "did something in";
-  }
-}
 
 /** The inbox: comment replies/mentions/resolves and task assignments. Opening
  * it clears the unread badge; rows navigate to their document. */
 export function NotificationsModal({ onClose }: { onClose: () => void }) {
   const utils = trpc.useUtils();
   const navigate = useNavigate();
-  const list = trpc.notifications.list.useQuery();
+  // The inbox spans every workspace the user belongs to, like the badge.
+  const list = trpc.notifications.list.useQuery({});
   // Unread dots come from the list fetched at open; marking read only resets
   // the badge, so the dots stay visible while the modal is up.
   const unreadIds = useMemo(
@@ -60,7 +47,8 @@ export function NotificationsModal({ onClose }: { onClose: () => void }) {
               className={"notif-row" + (unreadIds.has(n.id) ? " unread" : "")}
               onClick={() => {
                 onClose();
-                if (n.documentId) navigate(`/d/${n.documentId}`);
+                const href = notificationHref(n);
+                if (href) navigate(href);
               }}
             >
               <span className="notif-what">
@@ -68,7 +56,7 @@ export function NotificationsModal({ onClose }: { onClose: () => void }) {
                   {n.actorName || "Someone"}
                   {n.ai ? "'s AI" : ""}
                 </strong>{" "}
-                {verb(n.kind)} <em>{n.documentTitle || "Untitled"}</em>
+                {notificationVerb(n.kind)} <em>{n.documentTitle || "Untitled"}</em>
                 {n.snippet && <span className="notif-snippet">{n.snippet}</span>}
               </span>
               <span className="notif-when">{timeAgo(n.createdAt)}</span>

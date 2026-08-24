@@ -34,6 +34,10 @@ you should always be able to see, calmly and truthfully, **who wrote what**.
 - **The usual wiki bones.** Nested documents in collections, full-text search
   (⌘K), archive/restore, drag-to-reorganize, per-collection sharing with
   users/groups, invites — all enforced by Postgres row-level security.
+- **An action-oriented start.** Home brings unread collaboration, assigned
+  tasks, favorites and private browser-local recents together. First-time users
+  get a real human+AI editing walkthrough; notifications jump to the exact
+  comment, and AI review links open the precise attributed edit session.
 
 ## Tasks and assignment
 

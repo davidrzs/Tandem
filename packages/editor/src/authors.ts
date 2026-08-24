@@ -71,9 +71,10 @@ export function applyAttributedEdit(
   doc: Y.Doc,
   nextJson: unknown,
   author: AuthorInfo,
-): void {
+): number {
   const previousClientId = doc.clientID;
   doc.clientID = freshClientId(doc);
+  const editClientId = doc.clientID;
   try {
     doc.transact(() => {
       stampAuthor(doc, doc.clientID, author);
@@ -87,6 +88,7 @@ export function applyAttributedEdit(
   } finally {
     doc.clientID = previousClientId;
   }
+  return editClientId;
 }
 
 /** Build a new Y.Doc seeded with `json`, attributed to `author` (creation). */

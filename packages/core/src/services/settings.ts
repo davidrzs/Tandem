@@ -2,6 +2,7 @@ import { ForbiddenError } from "../errors.js";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   auditLog,
+  documents,
   runAsActor,
   SYSTEM,
   user,
@@ -27,6 +28,9 @@ export interface AuditView {
   ai: boolean;
   action: string;
   detail: string;
+  documentId: string | null;
+  documentTitle: string | null;
+  sessionId: string | null;
   createdAt: Date;
 }
 
@@ -127,6 +131,8 @@ export class SettingsService {
     ai: boolean;
     action: string;
     detail: string;
+    documentId?: string | null;
+    sessionId?: string | null;
   }): Promise<void> {
     await this.system(async (db) => {
       await db.insert(auditLog).values(entry);
@@ -149,9 +155,12 @@ export class SettingsService {
           ),
         );
       if (!member) throw new ForbiddenError("not a member of this workspace");
+      // The title is joined rather than parsed back out of `detail`, which is
+      // a display string. Both name the same document to the same members.
       return db
-        .select()
+        .select({ entry: auditLog, documentTitle: documents.title })
         .from(auditLog)
+        .leftJoin(documents, eq(documents.id, auditLog.documentId))
         .where(eq(auditLog.workspaceId, workspaceId))
         .orderBy(desc(auditLog.createdAt))
         .limit(100);
@@ -170,25 +179,31 @@ export class SettingsService {
         .orderBy(desc(auditLog.createdAt))
         .limit(100),
     );
-    return this.withNames(rows);
+    // Instance-level administration never targets a document.
+    return this.withNames(rows.map((entry) => ({ entry, documentTitle: null })));
   }
 
   /** Resolve actor names onto raw audit rows (deleted users show as Unknown). */
-  private async withNames(rows: AuditEntry[]): Promise<AuditView[]> {
+  private async withNames(
+    rows: Array<{ entry: AuditEntry; documentTitle: string | null }>,
+  ): Promise<AuditView[]> {
     if (rows.length === 0) return [];
-    const ids = [...new Set(rows.map((r) => r.userId))];
+    const ids = [...new Set(rows.map((r) => r.entry.userId))];
     const users = await this.system((db) =>
       db.select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, ids)),
     );
     const names = new Map(users.map((u) => [u.id, u.name]));
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      userName: names.get(r.userId) ?? "Unknown",
-      ai: r.ai,
-      action: r.action,
-      detail: r.detail,
-      createdAt: r.createdAt,
+    return rows.map(({ entry, documentTitle }) => ({
+      id: entry.id,
+      userId: entry.userId,
+      userName: names.get(entry.userId) ?? "Unknown",
+      ai: entry.ai,
+      action: entry.action,
+      detail: entry.detail,
+      documentId: entry.documentId,
+      documentTitle,
+      sessionId: entry.sessionId,
+      createdAt: entry.createdAt,
     }));
   }
 }

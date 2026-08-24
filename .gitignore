@@ -19,3 +19,4 @@ playwright-report/
 
 # Local working notes
 tasks/
+.pglite-e2e-local/*

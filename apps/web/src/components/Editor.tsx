@@ -15,7 +15,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { createLowlight, common } from "lowlight";
 import { getAuthors, ToggleSummary, ToggleContent } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useSearchParams } from "react-router-dom";
 import * as Y from "yjs";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
@@ -49,6 +49,7 @@ import { timeAgo } from "./time.js";
 import { SlashCommand } from "./slash-command.js";
 import { TaskListInputRule } from "./task-input-rule.js";
 import { createMathExtension } from "./math.js";
+import { MarkdownPaste } from "./markdown-paste.js";
 import { TagBar } from "./TagBar.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
@@ -114,6 +115,10 @@ export function Editor({
   const utilsRef = useRef(utils);
   utilsRef.current = utils;
   const session = authClient.useSession();
+  const [searchParams] = useSearchParams();
+  const commentTarget = searchParams.get("comment");
+  const historyTarget = searchParams.get("history");
+  const taskTarget = searchParams.get("task");
   // Metadata only — the body arrives over Yjs, so we don't fetch it here.
   const doc = trpc.documents.getMeta.useQuery({ id: docId });
   const tagOptions = trpc.documents.listTags.useQuery();
@@ -315,6 +320,7 @@ export function Editor({
         Placeholder.configure({
           placeholder: ({ editor }) => (editor.isEmpty ? "Write, or type / for commands…" : ""),
         }),
+        MarkdownPaste,
         Find,
         ClientImage,
         TaskList,
@@ -423,13 +429,74 @@ export function Editor({
   const jumpToComment = useCallback(
     (comment: CommentItem) => {
       setActiveCommentId(comment.id);
-      if (!editor || !comment.anchor || !comment.head) return;
+      if (!editor || !comment.anchor || !comment.head) return true;
       const range = anchorRange(editor.state, ydoc, comment.anchor, comment.head);
-      if (!range) return;
+      if (!range) return false;
       editor.chain().setTextSelection(range).scrollIntoView().run();
+      return true;
     },
     [editor, ydoc],
   );
+
+  // Collaboration deep links are resolved only after both the editor binding
+  // and the relevant server data are ready. The URL remains shareable; refs
+  // prevent query refetches from repeatedly stealing the user's selection.
+  const handledCommentTarget = useRef<string | null>(null);
+  useEffect(() => {
+    if (!commentTarget || !editor || !synced || handledCommentTarget.current === commentTarget) {
+      return;
+    }
+    const target = commentItems.find((comment) => comment.id === commentTarget);
+    if (!target) return;
+    const thread = target.parentId
+      ? commentItems.find((comment) => comment.id === target.parentId) ?? target
+      : target;
+    setRail("comments");
+    if (!jumpToComment(thread)) return;
+    handledCommentTarget.current = commentTarget;
+    // Focus only for deep links: a click in the panel must not pull the
+    // caret out of a reply the reader is in the middle of typing.
+    editor.commands.focus();
+  }, [commentItems, commentTarget, editor, jumpToComment, synced]);
+
+  const handledTaskTarget = useRef<string | null>(null);
+  useEffect(() => {
+    if (!taskTarget || !editor || !synced || handledTaskTarget.current === taskTarget) return;
+    const selectTask = () => {
+      let matchFrom = -1;
+      let matchTo = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (matchFrom >= 0 || node.type.name !== "taskItem") return;
+        if (node.textContent.trim() === taskTarget.trim()) {
+          // taskItem -> paragraph -> text: two positions enter the inline
+          // content. Select only its text, not the surrounding list structure.
+          matchFrom = pos + 2;
+          matchTo = Math.min(pos + node.nodeSize - 2, matchFrom + node.textContent.length);
+        }
+      });
+      if (matchFrom < 0) return false;
+      handledTaskTarget.current = taskTarget;
+      // Focus as well: ProseMirror only writes the browser selection for a
+      // focused view, so without it the jump lands but shows nothing.
+      editor
+        .chain()
+        .setTextSelection({ from: matchFrom, to: matchTo })
+        .focus()
+        .scrollIntoView()
+        .run();
+      return true;
+    };
+    // The CRDT body reaches ProseMirror after the provider reports "synced",
+    // so a link opened cold has nothing to match on the first pass.
+    if (selectTask()) return;
+    const onUpdate = () => {
+      if (selectTask()) editor.off("update", onUpdate);
+    };
+    editor.on("update", onUpdate);
+    return () => {
+      editor.off("update", onUpdate);
+    };
+  }, [editor, synced, taskTarget]);
 
   const openThreadCount = commentItems.filter((c) => !c.parentId && !c.resolvedAt).length;
 
@@ -475,6 +542,29 @@ export function Editor({
       ydoc.off("update", onUpdate);
     };
   }, [editor, blameOn, onlySession, ydoc, refreshSessions]);
+
+  useEffect(() => {
+    if (historyTarget) setRail("history");
+  }, [historyTarget]);
+
+  const handledHistoryTarget = useRef<string | null>(null);
+  useEffect(() => {
+    if (!historyTarget || sessions.length === 0 || handledHistoryTarget.current === historyTarget) {
+      return;
+    }
+    const selected =
+      historyTarget === "ai"
+        ? sessions.find((session) => session.ai)
+        : sessions.find((session) => String(session.clientId) === historyTarget);
+    if (!selected) return;
+    handledHistoryTarget.current = historyTarget;
+    setOnlySession(selected.clientId);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-blame-client="${selected.clientId}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [historyTarget, sessions]);
 
   // --- version snapshots + preview ---
   const versions = trpc.documents.listSnapshots.useQuery(

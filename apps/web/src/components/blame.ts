@@ -49,6 +49,7 @@ function computeDecorations(
           style: `background-color: ${authorTint(key)};`,
           "data-blame-label": info ? authorLabel(info) : "Unknown",
           "data-blame-at": String(info?.at ?? 0),
+          "data-blame-client": String(span.clientId),
         }),
       );
     }

@@ -13,9 +13,12 @@ import { ForbiddenError } from "../errors.js";
 
 export interface NotificationView {
   id: string;
+  workspaceId: string | null;
   documentId: string | null;
   documentTitle: string;
   kind: string;
+  targetType: string | null;
+  targetId: string | null;
   actorName: string;
   ai: boolean;
   snippet: string;
@@ -55,15 +58,21 @@ export class NotificationService {
     return runAsActor(this.db, SYSTEM, fn);
   }
 
-  async listMine(): Promise<NotificationView[]> {
+  /** The newest notifications for the acting user. Callers that render one
+   * workspace must pass its id: the row cap is applied after filtering, so
+   * filtering client-side would silently hide items behind a busier workspace. */
+  async listMine(workspaceId?: string): Promise<NotificationView[]> {
     const userId = this.userId();
     return this.system((db) =>
       db
         .select({
           id: notifications.id,
+          workspaceId: notifications.workspaceId,
           documentId: notifications.documentId,
           documentTitle: notifications.documentTitle,
           kind: notifications.kind,
+          targetType: notifications.targetType,
+          targetId: notifications.targetId,
           actorName: notifications.actorName,
           ai: notifications.ai,
           snippet: notifications.snippet,
@@ -71,7 +80,14 @@ export class NotificationService {
           readAt: notifications.readAt,
         })
         .from(notifications)
-        .where(eq(notifications.userId, userId))
+        .where(
+          workspaceId
+            ? and(
+                eq(notifications.userId, userId),
+                eq(notifications.workspaceId, workspaceId),
+              )
+            : eq(notifications.userId, userId),
+        )
         .orderBy(desc(notifications.createdAt))
         .limit(50),
     );
@@ -98,6 +114,22 @@ export class NotificationService {
     });
   }
 
+  async markRead(id: string): Promise<void> {
+    const userId = this.userId();
+    await this.system(async (db) => {
+      await db
+        .update(notifications)
+        .set({ readAt: new Date() })
+        .where(
+          and(
+            eq(notifications.id, id),
+            eq(notifications.userId, userId),
+            isNull(notifications.readAt),
+          ),
+        );
+    });
+  }
+
   /** Raw insert for trusted producers; the actor never notifies themselves. */
   async record(entry: {
     userId: string;
@@ -105,6 +137,8 @@ export class NotificationService {
     documentId: string | null;
     documentTitle: string;
     kind: string;
+    targetType?: string | null;
+    targetId?: string | null;
     actor: NotifyActor;
     snippet: string;
   }): Promise<void> {
@@ -116,6 +150,8 @@ export class NotificationService {
         documentId: entry.documentId,
         documentTitle: entry.documentTitle,
         kind: entry.kind,
+        targetType: entry.targetType ?? null,
+        targetId: entry.targetId ?? null,
         actorName: entry.actor.name,
         ai: entry.actor.ai,
         snippet: snippet(entry.snippet),
@@ -198,6 +234,8 @@ export class NotificationService {
         documentId: comment.documentId,
         documentTitle,
         kind,
+        targetType: "comment",
+        targetId: comment.parentId ?? comment.id,
         actor,
         snippet: comment.body,
       });
@@ -217,6 +255,8 @@ export class NotificationService {
       documentId: input.comment.documentId,
       documentTitle: input.documentTitle,
       kind: "comment_resolved",
+      targetType: "comment",
+      targetId: input.comment.id,
       actor: input.actor,
       snippet: input.comment.body,
     });
@@ -260,6 +300,8 @@ export class NotificationService {
           documentId: input.documentId,
           documentTitle: input.documentTitle,
           kind: "task_assigned",
+          targetType: "task",
+          targetId: task.text,
           actor: input.actor,
           snippet: task.text,
         });

@@ -39,7 +39,7 @@ export function createCollabWriter(
     async transform(
       docId: string,
       transform: (currentMd: string) => string,
-    ): Promise<void> {
+    ): Promise<number> {
       if (!(await documents.canWrite(docId))) {
         throw new DocumentWriteDeniedError();
       }
@@ -58,9 +58,11 @@ export function createCollabWriter(
         // Run the transform outside the transaction: a bad target (e.g.
         // old_string not found) must abort cleanly with the doc untouched.
         const nextJson = markdownToJSON(transform(currentMd));
+        let clientId = 0;
         await connection.transact((doc) => {
-          applyAttributedEdit(doc, nextJson, { ...author, at: Date.now() });
+          clientId = applyAttributedEdit(doc, nextJson, { ...author, at: Date.now() });
         });
+        return clientId;
       } finally {
         await connection.disconnect();
       }
