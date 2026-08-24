@@ -86,10 +86,17 @@ Point an MCP client at `https://<your-domain>/mcp` — Tandem is its own OAuth
 its edits are blamed to your AI). The agent has colleague-level access:
 
 - **Content**: `list_collections`, `create_collection`, `list_documents`,
-  `get_document`, `search_documents` (also filters by an exact tag),
+  `recent_documents`, `get_document`, `search_documents` (also filters by an exact tag),
   `create_document`, `update_document` (title and/or tags), `move_document`,
   `archive_document`, `restore_document`, `list_archived`, `list_tags`,
   `list_backlinks`.
+
+`list_documents` is intentionally bounded for agent context windows: it returns
+a flat, compact page (`id`, `title`, `path`, `tags`, `updatedAt`), defaults to
+top-level documents only, and accepts `depth`, `limit`, `cursor`,
+`updated_after`, and `fields`. `recent_documents` provides a separately
+paginated, newest-first view across all readable collections or one collection.
+
 - **Targeted edits**: `edit_document` (exact find/replace),
   `insert_after_heading`, `replace_section`, `append_section`. There is
   deliberately no full-body-rewrite tool: it would re-attribute the whole
@@ -107,6 +114,10 @@ its edits are blamed to your AI). The agent has colleague-level access:
 - **History & blame**: `list_versions`, `read_version` (a past version's
   markdown), and `get_authors` — the blame view as data: every span of text
   attributed to the human or AI session that wrote it.
+
+Document, collection, and comment objects returned by MCP include an absolute
+`url` for handing a clickable link back to the user. These canonical links are
+ID-based, so renaming or moving an item does not invalidate them.
 
 ## Rich content, tags, and versions
 

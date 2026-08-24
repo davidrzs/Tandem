@@ -171,7 +171,7 @@ test.describe.serial("wiki journey", () => {
       .toContain("@alice review the handbook");
 
     // --- search finds the document by body text ---
-    await page.getByRole("button", { name: /Search/ }).click();
+    await page.getByRole("button", { name: "Search ⌘K", exact: true }).click();
     await page.getByPlaceholder("Search documents…").fill("team wiki");
     await expect(page.locator(".search-hit")).toContainText(["Onboarding"]);
     await page.keyboard.press("Enter");
@@ -213,7 +213,7 @@ test.describe.serial("wiki journey", () => {
     await expect(page.getByRole("button", { name: "Admin", exact: true })).toHaveCount(0);
 
     // Search across the tenant finds nothing of Alice's.
-    await page.getByRole("button", { name: /Search/ }).click();
+    await page.getByRole("button", { name: "Search ⌘K", exact: true }).click();
     await page.getByPlaceholder("Search documents…").fill("team wiki");
     await expect(page.getByText(/Nothing matches that search/)).toBeVisible();
     await page.keyboard.press("Escape");
@@ -558,6 +558,7 @@ test("invite mode: no public signup, but the invite link signs a new user up", a
   await page.getByPlaceholder("Email").fill("gina@example.com");
   await page.getByPlaceholder(/Password/).fill("password-123");
   await page.getByRole("button", { name: "Sign up & join" }).click();
+  await expect(page).toHaveURL("/");
   await expect(page.getByTitle("Sign out")).toBeVisible();
   await expect(page.getByText("gina@example.com")).toBeVisible();
 });

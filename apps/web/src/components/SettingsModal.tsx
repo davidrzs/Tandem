@@ -205,8 +205,8 @@ export function SettingsModal({
                     {importResult.warnings.length === 1 ? "" : "s"} to review
                   </summary>
                   <ul>
-                    {importResult.warnings.map((w, i) => (
-                      <li key={i}>{w}</li>
+                    {[...new Set(importResult.warnings)].map((warning) => (
+                      <li key={warning}>{warning}</li>
                     ))}
                   </ul>
                 </details>

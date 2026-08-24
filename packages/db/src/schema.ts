@@ -206,7 +206,16 @@ export const documents = pgTable(
     index("documents_collection_idx").on(t.collectionId),
     index("documents_parent_idx").on(t.parentDocumentId),
     index("documents_search_idx").using("gin", t.searchVector),
+    index("documents_title_trgm_idx")
+      .using("gin", sql`lower(${t.title}) gin_trgm_ops`)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
     index("documents_tags_idx").using("gin", t.tags),
+    index("documents_recent_idx")
+      .on(t.updatedAt, t.id)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
+    index("documents_collection_recent_idx")
+      .on(t.collectionId, t.updatedAt, t.id)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
   ],
 );
 

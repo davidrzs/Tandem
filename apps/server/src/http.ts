@@ -351,6 +351,7 @@ export async function buildHttpServer(
     });
     const services = createServices(db, actor, author);
     const server = createMcpServer(services, {
+      publicUrl: appUrl,
       writer: createCollabWriter(hocuspocus, services.documents, author),
       // Audit trail: every successful agent write, attributed to the human
       // whose token acted. Fire-and-forget; an audit hiccup must not fail
@@ -370,7 +371,7 @@ export async function buildHttpServer(
       },
       notify: notifyDocument,
       identity: author,
-      uploads: { secret, publicUrl: appUrl },
+      uploads: { secret },
     });
     reply.raw.on("close", () => {
       transport.close();

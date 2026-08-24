@@ -1,5 +1,5 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { and, asc, desc, eq, isNull, like, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   collections,
@@ -62,6 +62,37 @@ export interface SearchOptions {
   limit?: number;
   /** Restrict to documents carrying this tag (exact, case-sensitive). */
   tag?: string;
+}
+
+export type SearchMatchKind =
+  | "tag"
+  | "title_phrase"
+  | "phrase"
+  | "all_terms"
+  | "partial_terms"
+  | "fuzzy_title";
+
+/** Search result diagnostics are deliberately lexical and deterministic: MCP
+ * clients can see exactly which terms matched and decide whether to retry. */
+export interface SearchHit extends DocumentMeta {
+  rank: number;
+  snippet: string;
+  matchedTerms: string[];
+  fuzzyTitleTerms: string[];
+  totalTerms: number;
+  matchKind: SearchMatchKind;
+  collectionName: string;
+  /** Collection + active ancestor titles + the result title. */
+  path: string;
+}
+
+export interface RecentDocumentsOptions {
+  collectionId?: string;
+  /** Only return documents updated strictly after this instant. */
+  updatedAfter?: Date;
+  /** Keyset cursor: return documents older than this document. */
+  before?: { updatedAt: Date; id: string };
+  limit?: number;
 }
 
 /** Metadata-only view (no content_md / content_json / ydoc_state / search_vector)
@@ -503,6 +534,39 @@ export class DocumentService {
     );
   }
 
+  /** Load only the requested hierarchy levels. This keeps shallow MCP
+   * orientation requests from reading every descendant in a large collection.
+   * The unbounded tree() path remains available to the first-party UI/export. */
+  private async listByCollectionDepth(
+    collectionId: string,
+    maxDepth: number,
+  ): Promise<DocumentMeta[]> {
+    return this.exec(async (db) => {
+      const active = [
+        eq(documents.collectionId, collectionId),
+        isNull(documents.deletedAt),
+        isNull(documents.archivedAt),
+      ] as const;
+      const roots = await db
+        .select(DocumentService.metaColumns)
+        .from(documents)
+        .where(and(...active, isNull(documents.parentDocumentId)))
+        .orderBy(asc(documents.position), asc(documents.id));
+      const rows = [...roots];
+      let parentIds = roots.map((row) => row.id);
+      for (let depth = 2; depth <= maxDepth && parentIds.length > 0; depth += 1) {
+        const level = await db
+          .select(DocumentService.metaColumns)
+          .from(documents)
+          .where(and(...active, inArray(documents.parentDocumentId, parentIds)))
+          .orderBy(asc(documents.position), asc(documents.id));
+        rows.push(...level);
+        parentIds = level.map((row) => row.id);
+      }
+      return rows;
+    });
+  }
+
   /** Archived subtree roots in a collection (their descendants restore with them). */
   async listArchived(collectionId: string): Promise<DocumentMeta[]> {
     return this.exec(async (db) => {
@@ -523,8 +587,14 @@ export class DocumentService {
     });
   }
 
-  async tree(collectionId: string): Promise<DocumentNode[]> {
-    const flat = await this.listByCollection(collectionId);
+  async tree(collectionId: string, maxDepth?: number): Promise<DocumentNode[]> {
+    if (maxDepth !== undefined && (!Number.isInteger(maxDepth) || maxDepth < 1)) {
+      throw new InvalidInputError("tree depth must be a positive integer");
+    }
+    const flat =
+      maxDepth === undefined
+        ? await this.listByCollection(collectionId)
+        : await this.listByCollectionDepth(collectionId, maxDepth);
     const byId = new Map<string, DocumentNode>();
     for (const d of flat) byId.set(d.id, { ...d, children: [] });
     const roots: DocumentNode[] = [];
@@ -540,20 +610,89 @@ export class DocumentService {
     return roots;
   }
 
-  /** Full-text search over titles (weight A) and bodies (weight B). Returns
-   * metadata + a highlighted snippet — never the body/binary columns (results
-   * ship to browsers and agents). */
+  /** Recently changed active documents, ordered newest-first with a stable
+   * `(updated_at, id)` keyset cursor. The query is RLS-scoped and metadata-only. */
+  async recent(opts: RecentDocumentsOptions = {}): Promise<DocumentMeta[]> {
+    return this.exec((db) => {
+      const before = opts.before
+        ? or(
+            lt(documents.updatedAt, opts.before.updatedAt),
+            and(
+              eq(documents.updatedAt, opts.before.updatedAt),
+              lt(documents.id, opts.before.id),
+            ),
+          )
+        : undefined;
+      return db
+        .select(DocumentService.metaColumns)
+        .from(documents)
+        .where(
+          and(
+            isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
+            opts.collectionId ? eq(documents.collectionId, opts.collectionId) : undefined,
+            opts.updatedAfter ? gt(documents.updatedAt, opts.updatedAfter) : undefined,
+            before,
+          ),
+        )
+        .orderBy(desc(documents.updatedAt), desc(documents.id))
+        .limit(opts.limit ?? 20);
+    });
+  }
+
+  /** Resolve readable ancestor paths for a bounded set of search hits in one
+   * recursive query. The supplied db is the actor-scoped transaction, so RLS
+   * applies to ancestors exactly as it does to the hits themselves. */
+  private async searchPaths(db: Database, ids: readonly string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const result = await db.execute(sql`
+      WITH RECURSIVE document_paths AS (
+        SELECT
+          d.id AS leaf_id,
+          d.parent_document_id,
+          ARRAY[coalesce(nullif(d.title, ''), 'Untitled')]::text[] AS parts
+        FROM documents d
+        WHERE d.id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+          AND d.deleted_at IS NULL
+          AND d.archived_at IS NULL
+
+        UNION ALL
+
+        SELECT
+          path.leaf_id,
+          parent.parent_document_id,
+          ARRAY[coalesce(nullif(parent.title, ''), 'Untitled')]::text[] || path.parts
+        FROM document_paths path
+        JOIN documents parent ON parent.id = path.parent_document_id
+        WHERE parent.deleted_at IS NULL
+          AND parent.archived_at IS NULL
+      )
+      SELECT leaf_id, array_to_string(parts, ' / ') AS path
+      FROM document_paths
+      WHERE parent_document_id IS NULL
+    `);
+    const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
+    return new Map(
+      (rows as Array<{ leaf_id: string; path: string }>).map((row) => [row.leaf_id, row.path]),
+    );
+  }
+
+  /** Native Postgres search over title/body FTS plus pg_trgm title fuzziness.
+   * Retrieval is deliberately broad (any lexical term); phrase/all-term/title
+   * matches are ranking boosts, not gates. Never returns body/binary columns. */
   async search(
     query: string,
     opts: SearchOptions = {},
-  ): Promise<Array<DocumentMeta & { rank: number; snippet: string }>> {
+  ): Promise<SearchHit[]> {
     // Prefix-match every term: the index uses the un-stemmed 'simple' config,
     // so "Read" must still find "Reading the river" while someone types.
-    const terms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 8) ?? [];
+    const terms = [
+      ...new Set(query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []),
+    ].slice(0, 8);
     const tag = opts.tag?.trim();
     // A tag on its own is a valid search (browse by label); text alone or both.
     if (terms.length === 0 && !tag) return [];
-    return this.exec((db) => {
+    return this.exec(async (db) => {
       const tagFilter = tag ? sql`${documents.tags} @> ARRAY[${tag}]::text[]` : undefined;
       const base = and(
         isNull(documents.deletedAt),
@@ -564,28 +703,123 @@ export class DocumentService {
 
       // Tag-only browse: no text ranking, newest first, no snippet.
       if (terms.length === 0) {
-        const zero = sql<number>`0`;
-        const empty = sql<string>`''`;
-        return db
-          .select({ ...DocumentService.metaColumns, rank: zero, snippet: empty })
+        const rows = await db
+          .select({
+            ...DocumentService.metaColumns,
+            rank: sql<number>`0`,
+            snippet: sql<string>`''`,
+            matchedTerms: sql<string[]>`ARRAY[]::text[]`,
+            fuzzyTitleTerms: sql<string[]>`ARRAY[]::text[]`,
+            totalTerms: sql<number>`0`,
+            matchKind: sql<SearchMatchKind>`'tag'`,
+            collectionName: collections.name,
+          })
           .from(documents)
+          .innerJoin(collections, eq(collections.id, documents.collectionId))
           .where(base)
           .orderBy(desc(documents.updatedAt))
           .limit(opts.limit ?? 20);
+        const paths = await this.searchPaths(db, rows.map((row) => row.id));
+        return rows.map((row) => ({
+          ...row,
+          path: `${row.collectionName} / ${paths.get(row.id) ?? (row.title || "Untitled")}`,
+        }));
       }
 
-      const prefixQuery = terms.map((t) => `'${t}':*`).join(" & ");
-      const tsquery = sql`to_tsquery('simple', ${prefixQuery})`;
-      const rank = sql<number>`ts_rank(${documents.searchVector}, ${tsquery})`;
+      const termQueries = terms.map((term) =>
+        sql`to_tsquery('simple', ${`'${term}':*`})`,
+      );
+      const broadQuery = sql`to_tsquery('simple', ${terms.map((t) => `'${t}':*`).join(" | ")})`;
+      const strictQuery = sql`to_tsquery('simple', ${terms.map((t) => `'${t}':*`).join(" & ")})`;
+      const phraseQuery = sql`to_tsquery('simple', ${terms.map((t) => `'${t}':*`).join(" <-> ")})`;
+      const titleVector = sql`to_tsvector('simple', coalesce(${documents.title}, ''))`;
+      const matchedCount = sql<number>`(${sql.join(
+        termQueries.map(
+          (termQuery) => sql`CASE WHEN ${documents.searchVector} @@ ${termQuery} THEN 1 ELSE 0 END`,
+        ),
+        sql` + `,
+      )})`;
+      const matchedTerms = sql<string[]>`array_remove(ARRAY[${sql.join(
+        termQueries.map(
+          (termQuery, index) =>
+            sql`CASE WHEN ${documents.searchVector} @@ ${termQuery} THEN ${terms[index]!} ELSE NULL END`,
+        ),
+        sql`, `,
+      )}]::text[], NULL)`;
+      // Short inputs generate weak/noisy trigrams; FTS prefix search already
+      // handles them better. Word similarity compares each term to a title span.
+      const fuzzyTerms = terms.filter((term) => term.length >= 4);
+      const fuzzyConditions = fuzzyTerms.map(
+        (term) => sql`${term} <% lower(${documents.title})`,
+      );
+      const fuzzyFilter =
+        fuzzyConditions.length > 0
+          ? sql`(${sql.join(fuzzyConditions, sql` OR `)})`
+          : sql`false`;
+      const fuzzyTitleTerms = sql<string[]>`array_remove(ARRAY[${sql.join(
+        fuzzyTerms.map((term) => {
+          const termQuery = termQueries[terms.indexOf(term)]!;
+          return sql`CASE WHEN NOT (${documents.searchVector} @@ ${termQuery}) AND ${term} <% lower(${documents.title}) THEN ${term} ELSE NULL END`;
+        }),
+        sql`, `,
+      )}]::text[], NULL)`;
+      const bestTitleSimilarity =
+        fuzzyTerms.length > 0
+          ? sql<number>`greatest(${sql.join(
+              [sql`0::real`, ...fuzzyTerms.map(
+                (term) => sql`word_similarity(${term}, lower(${documents.title}))`,
+              )],
+              sql`, `,
+            )})`
+          : sql<number>`0::real`;
+      const titlePhrase = sql`${titleVector} @@ ${phraseQuery}`;
+      const phraseMatch = sql`${documents.searchVector} @@ ${phraseQuery}`;
+      const strictMatch = sql`${documents.searchVector} @@ ${strictQuery}`;
+      const normalizedRank = sql<number>`ts_rank_cd(${documents.searchVector}, ${broadQuery}, 32)`;
+      const rank = sql<number>`(
+        CASE WHEN ${titlePhrase} THEN 8.0 ELSE 0.0 END
+        + CASE WHEN ${phraseMatch} THEN 4.0 ELSE 0.0 END
+        + CASE WHEN ${strictMatch} THEN 2.0 ELSE 0.0 END
+        + (2.0 * ${matchedCount}::double precision / ${terms.length})
+        + ${normalizedRank}::double precision
+        + (0.5 * ${bestTitleSimilarity}::double precision)
+      )`;
+      const matchKind = sql<SearchMatchKind>`CASE
+        WHEN ${titlePhrase} THEN 'title_phrase'
+        WHEN ${phraseMatch} THEN 'phrase'
+        WHEN ${strictMatch} THEN 'all_terms'
+        WHEN ${matchedCount} > 0 THEN 'partial_terms'
+        ELSE 'fuzzy_title'
+      END`;
       // Highlight delimiters are control chars (chr 2/3): impossible in the
       // text itself, so clients can mark fragments without parsing HTML.
-      const snippet = sql<string>`ts_headline('simple', ${documents.contentMd}, ${tsquery}, 'MaxFragments=2, MaxWords=16, MinWords=6, StartSel=' || chr(2) || ', StopSel=' || chr(3))`;
-      return db
-        .select({ ...DocumentService.metaColumns, rank, snippet })
+      const snippet = sql<string>`ts_headline('simple', ${documents.contentMd}, ${broadQuery}, 'MaxFragments=2, MaxWords=16, MinWords=6, StartSel=' || chr(2) || ', StopSel=' || chr(3))`;
+      const rows = await db
+        .select({
+          ...DocumentService.metaColumns,
+          rank,
+          snippet,
+          matchedTerms,
+          fuzzyTitleTerms,
+          totalTerms: sql<number>`${terms.length}::integer`,
+          matchKind,
+          collectionName: collections.name,
+        })
         .from(documents)
-        .where(and(sql`${documents.searchVector} @@ ${tsquery}`, base))
-        .orderBy(desc(rank))
+        .innerJoin(collections, eq(collections.id, documents.collectionId))
+        .where(
+          and(
+            base,
+            sql`(${documents.searchVector} @@ ${broadQuery} OR ${fuzzyFilter})`,
+          ),
+        )
+        .orderBy(desc(rank), desc(documents.updatedAt), asc(documents.id))
         .limit(opts.limit ?? 20);
+      const paths = await this.searchPaths(db, rows.map((row) => row.id));
+      return rows.map((row) => ({
+        ...row,
+        path: `${row.collectionName} / ${paths.get(row.id) ?? (row.title || "Untitled")}`,
+      }));
     });
   }
 

@@ -46,9 +46,9 @@ before(async () => {
   });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await createMcpServer(services, {
+    publicUrl: "http://app.test",
     uploads: {
       secret: "test-secret-value-at-least-16-chars-long",
-      publicUrl: "http://app.test",
     },
   }).connect(serverT);
   await client.connect(clientT);
@@ -84,6 +84,7 @@ test("tools are advertised", async () => {
     "move_document",
     "my_tasks",
     "read_version",
+    "recent_documents",
     "replace_section",
     "request_image_upload",
     "resolve_comment",
@@ -100,6 +101,15 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
       name: "create_collection",
       arguments: { name: "Docs", slug: "docs" },
     }),
+  );
+  assert.equal(col.url, `http://app.test/c/${col.id}`);
+  const listedCollections = payload(
+    await client.callTool({ name: "list_collections", arguments: {} }),
+  );
+  assert.equal(
+    listedCollections.find((item: any) => item.id === col.id)?.url,
+    col.url,
+    "collection list returns the same canonical URL as creation",
   );
 
   const parent = payload(
@@ -124,12 +134,15 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
       },
     }),
   );
+  assert.equal(parent.url, `http://app.test/d/${parent.id}`);
+  assert.equal(child.url, `http://app.test/d/${child.id}`);
 
   // get_document returns markdown
   const fetched = payload(
     await client.callTool({ name: "get_document", arguments: { id: parent.id } }),
   );
   assert.match(fetched.markdown, /Deploy with \*\*podman\*\*/);
+  assert.equal(fetched.url, parent.url);
 
   // search finds the child by body text
   const hits = payload(
@@ -138,7 +151,26 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
       arguments: { query: "kubernetes ingress", collectionId: col.id },
     }),
   );
-  assert.ok(hits.some((h: any) => h.id === child.id));
+  const searchHit = hits.find((h: any) => h.id === child.id);
+  assert.ok(searchHit);
+  assert.equal(searchHit.url, child.url);
+  assert.equal(searchHit.collectionName, "Docs");
+  assert.equal(searchHit.path, "Docs / Guide / Networking");
+  assert.equal(searchHit.match.kind, "phrase");
+  assert.deepEqual(searchHit.match.matchedTerms, ["kubernetes", "ingress"]);
+  assert.match(searchHit.match.explanation, /2\/2 query terms matched/);
+  assert.match(searchHit.snippet, /\*\*kubernetes\*\*/);
+  assert.ok(searchHit.updatedAt);
+
+  const partialHits = payload(
+    await client.callTool({
+      name: "search_documents",
+      arguments: { query: "kubernetes unrelated", collectionId: col.id },
+    }),
+  );
+  const partialHit = partialHits.find((h: any) => h.id === child.id);
+  assert.equal(partialHit.match.kind, "partial_terms");
+  assert.deepEqual(partialHit.match.matchedTerms, ["kubernetes"]);
 
   // a targeted edit changes exactly the addressed text
   payload(
@@ -167,6 +199,7 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
     }),
   );
   assert.equal(renamed.title, "Deployment guide");
+  assert.equal(renamed.url, parent.url, "rename keeps the canonical document URL stable");
 
   // tags via update_document (normalized) then browse by tag
   const tagged = payload(
@@ -181,15 +214,95 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
   );
   assert.ok(byTag.some((h: any) => h.id === parent.id), "tag browse finds the doc");
 
-  // tree nests child under parent
-  const tree = payload(
+  // The default listing is compact and shallow for quick collection orientation.
+  const topLevel = payload(
     await client.callTool({
       name: "list_documents",
       arguments: { collectionId: col.id },
     }),
   );
-  assert.equal(tree.length, 1);
-  assert.equal(tree[0].children[0].id, child.id);
+  assert.equal(topLevel.documents.length, 1);
+  assert.deepEqual(Object.keys(topLevel.documents[0]).sort(), [
+    "id",
+    "path",
+    "tags",
+    "title",
+    "updatedAt",
+  ]);
+  assert.equal(topLevel.documents[0].id, parent.id);
+  assert.equal(topLevel.documents[0].path, "Deployment guide");
+  assert.equal(topLevel.nextCursor, null);
+
+  // Deeper traversal stays flat, carries a readable path, and is paginated.
+  const firstPage = payload(
+    await client.callTool({
+      name: "list_documents",
+      arguments: {
+        collectionId: col.id,
+        depth: 2,
+        limit: 1,
+        fields: ["id", "path", "url"],
+      },
+    }),
+  );
+  assert.equal(firstPage.documents[0].id, parent.id);
+  assert.equal(firstPage.documents[0].url, parent.url);
+  assert.ok(firstPage.nextCursor);
+  const secondPage = payload(
+    await client.callTool({
+      name: "list_documents",
+      arguments: {
+        collectionId: col.id,
+        depth: 2,
+        limit: 1,
+        fields: ["id", "path", "url"],
+        cursor: firstPage.nextCursor,
+      },
+    }),
+  );
+  assert.equal(secondPage.documents[0].id, child.id);
+  assert.equal(secondPage.documents[0].path, "Deployment guide / Networking");
+  assert.equal(secondPage.documents[0].url, child.url);
+  assert.equal(secondPage.nextCursor, null);
+
+  const noFutureUpdates = payload(
+    await client.callTool({
+      name: "list_documents",
+      arguments: {
+        collectionId: col.id,
+        depth: 2,
+        updated_after: new Date(Date.now() + 60_000).toISOString(),
+      },
+    }),
+  );
+  assert.deepEqual(noFutureUpdates.documents, []);
+
+  const recentFirst = payload(
+    await client.callTool({
+      name: "recent_documents",
+      arguments: { collectionId: col.id, limit: 1 },
+    }),
+  );
+  assert.equal(recentFirst.documents.length, 1);
+  assert.ok(recentFirst.nextCursor);
+  assert.equal(recentFirst.documents[0].url, `http://app.test/d/${recentFirst.documents[0].id}`);
+  const recentSecond = payload(
+    await client.callTool({
+      name: "recent_documents",
+      arguments: { collectionId: col.id, limit: 1, cursor: recentFirst.nextCursor },
+    }),
+  );
+  assert.equal(recentSecond.documents.length, 1);
+  assert.notEqual(recentSecond.documents[0].id, recentFirst.documents[0].id);
+  assert.equal(recentSecond.nextCursor, null);
+
+  const moved = payload(
+    await client.callTool({
+      name: "move_document",
+      arguments: { id: child.id, parentDocumentId: null },
+    }),
+  );
+  assert.equal(moved.url, child.url, "move keeps the canonical document URL stable");
 });
 
 test("the writer-less fallback keeps ydoc_state consistent and attributed", async () => {
@@ -315,27 +428,37 @@ test("colleague parity: comments, tasks, members, versions, blame, archive round
       arguments: { documentId: doc.id, body: "Should this section move?" },
     }),
   );
-  payload(
+  const reply = payload(
     await client.callTool({
       name: "add_comment",
       arguments: { documentId: doc.id, body: "Yes — under Setup.", parentId: top.id },
     }),
   );
+  assert.equal(top.url, `http://app.test/d/${doc.id}?comment=${top.id}`);
+  assert.equal(reply.url, `http://app.test/d/${doc.id}?comment=${reply.id}`);
   const thread = payload(
     await client.callTool({ name: "list_comments", arguments: { documentId: doc.id } }),
   );
   assert.equal(thread.length, 2, "top-level + reply");
   assert.equal(thread[1].parentId, top.id);
+  assert.equal(thread[0].url, top.url);
+  assert.equal(thread[1].url, reply.url);
   const resolved = payload(
     await client.callTool({ name: "resolve_comment", arguments: { id: top.id } }),
   );
   assert.ok(resolved.resolvedAt, "thread resolved");
+  assert.equal(resolved.url, top.url);
 
   // Tasks: the checkbox mentioning @alice (u1's handle) is visible.
   const tasks = payload(await client.callTool({ name: "my_tasks", arguments: {} }));
   assert.ok(
     tasks.some((t: any) => t.documentId === doc.id && /write the intro/.test(t.text)),
     "assigned task surfaced",
+  );
+  assert.equal(
+    tasks.find((t: any) => t.documentId === doc.id)?.url,
+    doc.url,
+    "tasks link to their document",
   );
 
   // Members: handle derived from the email local part.

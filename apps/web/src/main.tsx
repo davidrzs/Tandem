@@ -6,6 +6,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App.js";
 import { AuthGate, ResetPassword } from "./components/AuthGate.js";
 import { ConsentScreen } from "./components/ConsentScreen.js";
+import { CollectionPage } from "./components/CollectionPage.js";
 import { Home } from "./components/Home.js";
 import { InviteAccept } from "./components/InviteAccept.js";
 import { SetupWizard } from "./components/SetupWizard.js";
@@ -43,6 +44,7 @@ function Routed() {
       <Routes>
         <Route element={<App />}>
           <Route index element={<Home />} />
+          <Route path="c/:collectionId" element={<CollectionPage />} />
           <Route path="d/:docId" element={<DocumentPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

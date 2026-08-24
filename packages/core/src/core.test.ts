@@ -74,6 +74,24 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
 
   const tree = await documents.tree(col.id);
   assert.equal(tree[0]!.children[0]!.id, child.id);
+  const shallowTree = await documents.tree(col.id, 1);
+  assert.equal(shallowTree[0]!.id, parent.id);
+  assert.deepEqual(shallowTree[0]!.children, [], "bounded tree reads omit deeper levels");
+
+  const recent = await documents.recent({ collectionId: col.id, limit: 2 });
+  assert.deepEqual(new Set(recent.map((doc) => doc.id)), new Set([parent.id, child.id]));
+  assert.equal(
+    (await new DocumentService(db, user("u2")).recent({ collectionId: col.id })).length,
+    0,
+    "recent documents remain RLS-scoped",
+  );
+  assert.equal(
+    (await documents.recent({
+      collectionId: col.id,
+      updatedAfter: new Date(Date.now() + 60_000),
+    })).length,
+    0,
+  );
 
   const hits = await documents.search("pnpm monorepo", { collectionId: col.id });
   assert.ok(hits.some((h) => h.id === child.id));
@@ -82,6 +100,44 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
   const titleHits = await documents.search("onboard");
   assert.ok(titleHits.some((h) => h.id === parent.id), "title prefix matches");
   assert.equal((await documents.search("   ")).length, 0, "blank query is empty");
+});
+
+test("search retrieves partial terms, ranks precise matches, and tolerates title typos", async () => {
+  const collections = new CollectionService(db, user("u1"));
+  const documents = new DocumentService(db, user("u1"));
+  const col = await collections.create({ name: "Search Quality", slug: "search-quality" });
+  const parent = await documents.create({ collectionId: col.id, title: "Planning" });
+  const partial = await documents.create({
+    collectionId: col.id,
+    parentDocumentId: parent.id,
+    title: "Research Proposal",
+    markdown: "A proposal describing the upcoming programme of work.",
+  });
+  const precise = await documents.create({
+    collectionId: col.id,
+    title: "Research Agenda",
+    markdown: "The research agenda for the coming year.",
+  });
+
+  const broad = await documents.search("research agenda", { collectionId: col.id });
+  assert.equal(broad[0]!.id, precise.id, "title phrase outranks a partial-term result");
+  const partialHit = broad.find((hit) => hit.id === partial.id);
+  assert.ok(partialHit, "a one-of-two token match is still retrieved");
+  assert.deepEqual(partialHit.matchedTerms, ["research"]);
+  assert.deepEqual(partialHit.fuzzyTitleTerms, []);
+  assert.equal(partialHit.totalTerms, 2);
+  assert.equal(partialHit.matchKind, "partial_terms");
+  assert.equal(partialHit.collectionName, "Search Quality");
+  assert.equal(partialHit.path, "Search Quality / Planning / Research Proposal");
+
+  const fuzzy = await documents.search("reseach proposl", { collectionId: col.id });
+  const fuzzyHit = fuzzy.find((hit) => hit.id === partial.id);
+  assert.ok(fuzzyHit, "misspelled title terms are recovered through pg_trgm");
+  assert.equal(fuzzyHit.matchKind, "fuzzy_title");
+  assert.deepEqual(new Set(fuzzyHit.fuzzyTitleTerms), new Set(["reseach", "proposl"]));
+
+  const deduped = await documents.search("research research", { collectionId: col.id });
+  assert.equal(deduped[0]!.totalTerms, 1, "repeated query terms count once");
 });
 
 test("normalizeTags trims, collapses, dedupes case-insensitively, and caps", () => {

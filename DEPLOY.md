@@ -18,6 +18,9 @@ the web SPA) behind Caddy (auto-TLS + WebSockets), with Postgres on Neon.
    stays enforced — no superuser or `BYPASSRLS` needed.
    - Neon roles can `CREATE ROLE` by default; if `CREATE ROLE app_user` is ever
      rejected, create it once as an admin: `CREATE ROLE app_user NOLOGIN;`.
+3. Search migrations enable PostgreSQL's trusted `pg_trgm` extension. If your
+   migration role cannot create extensions, run `CREATE EXTENSION pg_trgm;`
+   once as the database owner before applying Tandem migrations.
 
 ## 2. Configure env
 ```bash

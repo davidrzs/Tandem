@@ -1880,10 +1880,6 @@ button.doc-twist:hover .twist {
   margin-bottom: 30px;
 }
 
-.home-heading .home-sub {
-  margin-bottom: 0;
-}
-
 .home-search {
   display: flex;
   width: 250px;
@@ -2046,6 +2042,54 @@ button.doc-twist:hover .twist {
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
+}
+
+.collection-document-list {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.collection-document-list .collection-document-list {
+  border: none;
+  border-radius: 0;
+}
+
+.collection-document-list li {
+  margin: 0;
+  padding: 0;
+}
+
+.collection-document-list a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13.5px;
+  padding-bottom: 10px;
+  padding-right: 14px;
+  padding-top: 10px;
+  text-decoration: none;
+}
+
+.collection-document-list a:hover {
+  background: var(--hover);
+  color: var(--accent-ink);
+}
+
+.collection-document-list > li:last-child > a,
+.collection-document-list > li:last-child > .collection-document-list:last-child > li:last-child > a {
+  border-bottom-color: transparent;
+}
+
+.collection-document-list svg {
+  flex: none;
+  color: var(--ink-3);
 }
 
 .attention-list {
@@ -2217,6 +2261,10 @@ button.doc-twist:hover .twist {
 .home-sub {
   color: var(--ink-2);
   margin: 0 0 28px;
+}
+
+.home-heading .home-sub {
+  margin-bottom: 0;
 }
 
 .home-hint {

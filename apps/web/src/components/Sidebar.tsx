@@ -261,7 +261,10 @@ export function Sidebar({
       />
 
       <nav className="side-nav">
-        <Link className={"nav-row" + (activeDocId ? "" : " active")} to="/">
+        <Link
+          className={"nav-row" + (activeDocId || activeCollectionId ? "" : " active")}
+          to="/"
+        >
           <Icon name="home" />
           Home
         </Link>

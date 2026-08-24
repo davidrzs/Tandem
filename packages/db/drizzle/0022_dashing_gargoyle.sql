@@ -1,0 +1,2 @@
+CREATE INDEX "documents_recent_idx" ON "documents" USING btree ("updated_at","id") WHERE "documents"."deleted_at" IS NULL AND "documents"."archived_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "documents_collection_recent_idx" ON "documents" USING btree ("collection_id","updated_at","id") WHERE "documents"."deleted_at" IS NULL AND "documents"."archived_at" IS NULL;

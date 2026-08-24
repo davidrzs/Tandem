@@ -1,7 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as Y from "yjs";
 import { z } from "zod";
-import { DocumentWriteDeniedError, type DocumentMeta } from "@tandem/core";
+import {
+  DocumentWriteDeniedError,
+  type DocumentMeta,
+  type SearchHit,
+} from "@tandem/core";
 import {
   appendMarkdown,
   blameSpans,
@@ -30,21 +34,6 @@ export const MCP_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 /** JSON-RPC body ceiling for POST /mcp: base64 of the cap (~4/3) + envelope headroom. */
 export const MCP_BODY_LIMIT = 12 * 1024 * 1024;
 
-/** Compact, machine-friendly document shape (drops binary/search internals). */
-function publicDoc(d: DocumentMeta & { rank?: number }) {
-  return {
-    id: d.id,
-    title: d.title,
-    tags: d.tags,
-    collectionId: d.collectionId,
-    parentDocumentId: d.parentDocumentId,
-    position: d.position,
-    archivedAt: d.archivedAt,
-    updatedAt: d.updatedAt,
-    ...(d.rank !== undefined ? { rank: d.rank } : {}),
-  };
-}
-
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
@@ -59,6 +48,60 @@ function notFound(what: string) {
 
 const READ_ONLY_MESSAGE =
   "permission denied: this document is read-only for you (its collection does not grant you write access)";
+
+const DOCUMENT_LIST_FIELDS = [
+  "id",
+  "title",
+  "path",
+  "tags",
+  "updatedAt",
+  "url",
+  "collectionId",
+  "parentDocumentId",
+  "position",
+  "depth",
+] as const;
+type DocumentListField = (typeof DOCUMENT_LIST_FIELDS)[number];
+const DEFAULT_DOCUMENT_LIST_FIELDS: DocumentListField[] = [
+  "id",
+  "title",
+  "path",
+  "tags",
+  "updatedAt",
+];
+
+const RECENT_DOCUMENT_FIELDS = [
+  "id",
+  "title",
+  "tags",
+  "updatedAt",
+  "url",
+  "collectionId",
+  "parentDocumentId",
+] as const;
+type RecentDocumentField = (typeof RECENT_DOCUMENT_FIELDS)[number];
+const DEFAULT_RECENT_DOCUMENT_FIELDS: RecentDocumentField[] = [
+  "id",
+  "title",
+  "tags",
+  "updatedAt",
+  "url",
+];
+
+function encodeCursor(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function decodeCursor(value: string): Record<string, unknown> | null {
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    return decoded !== null && typeof decoded === "object" && !Array.isArray(decoded)
+      ? (decoded as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Build the MCP server exposing the wiki content. Every tool delegates to the
@@ -77,21 +120,116 @@ export type AuditHook = (
 ) => void;
 
 export type McpServerOptions = {
+  /** Public browser origin used for absolute, user-facing entity URLs. */
+  publicUrl: string;
   writer?: CollabWriter;
   audit?: AuditHook;
   notify?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void;
   /** Who the agent acts for — used for inbox notifications it produces. */
   identity?: { userId: string; name: string; ai: boolean };
-  /** Enables request_image_upload: token secret + the instance's public URL. */
-  uploads?: { secret: string; publicUrl: string };
+  /** Enables request_image_upload with a short-lived token. */
+  uploads?: { secret: string };
 };
 
 export function createMcpServer(
   services: Services,
-  { writer, audit, notify, identity, uploads }: McpServerOptions = {},
+  { publicUrl, writer, audit, notify, identity, uploads }: McpServerOptions,
 ): McpServer {
   const { documents, collections, comments, workspaces, snapshots } = services;
   const server = new McpServer({ name: "tandem", version: "0.1.0" });
+
+  // Canonical routes contain immutable ids only. Titles, slugs, nesting, and
+  // collection placement may all change without invalidating a shared link.
+  const documentUrl = (id: string) => new URL(`/d/${encodeURIComponent(id)}`, publicUrl).href;
+  const collectionUrl = (id: string) => new URL(`/c/${encodeURIComponent(id)}`, publicUrl).href;
+  const commentUrl = (documentId: string, commentId: string) => {
+    const url = new URL(`/d/${encodeURIComponent(documentId)}`, publicUrl);
+    url.searchParams.set("comment", commentId);
+    return url.href;
+  };
+
+  /** Compact, machine-friendly document shape (drops binary/search internals). */
+  const publicDoc = (d: DocumentMeta & { rank?: number }) => ({
+    id: d.id,
+    title: d.title,
+    tags: d.tags,
+    collectionId: d.collectionId,
+    parentDocumentId: d.parentDocumentId,
+    position: d.position,
+    archivedAt: d.archivedAt,
+    updatedAt: d.updatedAt,
+    ...(d.rank !== undefined ? { rank: d.rank } : {}),
+    url: documentUrl(d.id),
+  });
+  const readableSearchSnippet = (snippet: string) =>
+    snippet.replaceAll("\x02", "**").replaceAll("\x03", "**");
+  const explainSearchHit = (hit: SearchHit): string => {
+    const coverage = `${hit.matchedTerms.length}/${hit.totalTerms}`;
+    switch (hit.matchKind) {
+      case "tag":
+        return "Matched the exact tag filter";
+      case "title_phrase":
+        return `Title phrase matched; ${coverage} query terms matched`;
+      case "phrase":
+        return `Document phrase matched; ${coverage} query terms matched`;
+      case "all_terms":
+        return `All ${hit.totalTerms} query terms matched`;
+      case "partial_terms":
+        return `${coverage} query terms matched: ${hit.matchedTerms.join(", ")}`;
+      case "fuzzy_title":
+        return `Title approximately matched: ${hit.fuzzyTitleTerms.join(", ")}`;
+    }
+  };
+  type TreeDocumentNode = DocumentMeta & { children: TreeDocumentNode[] };
+  type FlatDocumentNode = { document: DocumentMeta; path: string; depth: number };
+  const flattenDocumentTree = (
+    nodes: TreeDocumentNode[],
+    parentPath: string[] = [],
+  ): FlatDocumentNode[] => {
+    const flat: FlatDocumentNode[] = [];
+    for (const { children, ...document } of nodes) {
+      const pathParts = [...parentPath, document.title || "Untitled"];
+      flat.push({ document, path: pathParts.join(" / "), depth: pathParts.length });
+      flat.push(...flattenDocumentTree(children, pathParts));
+    }
+    return flat;
+  };
+  const listedDocument = (entry: FlatDocumentNode, fields: DocumentListField[]) => {
+    const { document, path, depth } = entry;
+    const values: Record<DocumentListField, unknown> = {
+      id: document.id,
+      title: document.title,
+      path,
+      tags: document.tags,
+      updatedAt: document.updatedAt,
+      url: documentUrl(document.id),
+      collectionId: document.collectionId,
+      parentDocumentId: document.parentDocumentId,
+      position: document.position,
+      depth,
+    };
+    return Object.fromEntries(fields.map((field) => [field, values[field]]));
+  };
+  const recentDocument = (document: DocumentMeta, fields: RecentDocumentField[]) => {
+    const values: Record<RecentDocumentField, unknown> = {
+      id: document.id,
+      title: document.title,
+      tags: document.tags,
+      updatedAt: document.updatedAt,
+      url: documentUrl(document.id),
+      collectionId: document.collectionId,
+      parentDocumentId: document.parentDocumentId,
+    };
+    return Object.fromEntries(fields.map((field) => [field, values[field]]));
+  };
+  const publicCollection = <T extends { id: string }>(collection: T) => ({
+    ...collection,
+    url: collectionUrl(collection.id),
+  });
+  const publicComment = <T extends { id: string; documentId: string }>(comment: T) => ({
+    ...comment,
+    url: commentUrl(comment.documentId, comment.id),
+  });
 
   /** Record a successful write for the workspace's audit trail. */
   const logAudit = (
@@ -165,10 +303,12 @@ export function createMcpServer(
     "list_collections",
     {
       title: "List collections",
-      description: "List all collections (top-level groupings of documents).",
+      description:
+        "List all collections (top-level groupings of documents). Each result " +
+        "includes an absolute canonical url that can be shown to the user.",
       inputSchema: {},
     },
-    async () => json(await collections.list()),
+    async () => json((await collections.list()).map(publicCollection)),
   );
 
   server.registerTool(
@@ -177,7 +317,7 @@ export function createMcpServer(
       title: "Create collection",
       description:
         "Create a new collection. workspaceId is required when you belong to " +
-        "more than one workspace.",
+        "more than one workspace. Returns its absolute canonical url.",
       inputSchema: {
         name: z.string().min(1),
         slug: z.string().min(1),
@@ -188,7 +328,7 @@ export function createMcpServer(
     async (args) => {
       const collection = await collections.create(args);
       logAudit("create_collection", { workspaceId: collection.workspaceId, title: collection.name });
-      return json(collection);
+      return json(publicCollection(collection));
     },
   );
 
@@ -196,10 +336,67 @@ export function createMcpServer(
     "list_documents",
     {
       title: "List documents",
-      description: "List documents in a collection as a nested tree.",
-      inputSchema: { collectionId: z.string().uuid() },
+      description:
+        "List a bounded, flat page of documents in tree order. Defaults to " +
+        "top-level orientation only (depth 1), 25 results, and the compact " +
+        "fields id/title/path/tags/updatedAt. Increase depth to include " +
+        "descendants; use nextCursor to continue a large result.",
+      inputSchema: {
+        collectionId: z.string().uuid(),
+        depth: z.number().int().min(1).max(20).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().min(1).optional(),
+        updated_after: z.string().datetime({ offset: true }).optional(),
+        fields: z.array(z.enum(DOCUMENT_LIST_FIELDS)).min(1).max(10).optional(),
+      },
     },
-    async ({ collectionId }) => json(await documents.tree(collectionId)),
+    async ({ collectionId, depth, limit, cursor, updated_after, fields }) => {
+      const pageDepth = depth ?? 1;
+      const pageLimit = limit ?? 25;
+      const normalizedAfter = updated_after ? new Date(updated_after).toISOString() : null;
+      let offset = 0;
+      if (cursor) {
+        const decoded = decodeCursor(cursor);
+        if (
+          decoded?.kind !== "documents" ||
+          decoded.collectionId !== collectionId ||
+          decoded.depth !== pageDepth ||
+          decoded.updatedAfter !== normalizedAfter ||
+          !Number.isSafeInteger(decoded.offset) ||
+          (decoded.offset as number) < 0
+        ) {
+          return toolError("invalid cursor for these list_documents parameters");
+        }
+        offset = decoded.offset as number;
+      }
+
+      const updatedAfterDate = normalizedAfter ? new Date(normalizedAfter) : null;
+      const matching = flattenDocumentTree(await documents.tree(collectionId, pageDepth)).filter(
+        ({ document }) =>
+          !updatedAfterDate || document.updatedAt.getTime() > updatedAfterDate.getTime(),
+      );
+      const page = matching.slice(offset, offset + pageLimit);
+      const nextOffset = offset + page.length;
+      const hasMore = nextOffset < matching.length;
+      return json({
+        documents: page.map((entry) =>
+          listedDocument(
+            entry,
+            (fields as DocumentListField[] | undefined) ?? DEFAULT_DOCUMENT_LIST_FIELDS,
+          ),
+        ),
+        nextCursor: hasMore
+          ? encodeCursor({
+              kind: "documents",
+              collectionId,
+              depth: pageDepth,
+              updatedAfter: normalizedAfter,
+              offset: nextOffset,
+            })
+          : null,
+        hasMore,
+      });
+    },
   );
 
   server.registerTool(
@@ -207,7 +404,8 @@ export function createMcpServer(
     {
       title: "Get document",
       description:
-        "Fetch a single document's markdown content and metadata by id.",
+        "Fetch a single document's markdown content, metadata, and absolute " +
+        "canonical url by id.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
@@ -222,9 +420,13 @@ export function createMcpServer(
     {
       title: "Search documents",
       description:
-        "Full-text search over document titles and bodies. Optionally scope to a " +
+        "Broad keyword search over document titles and bodies. Results matching an " +
+        "exact phrase or every term rank above partial matches; title typos are " +
+        "tolerated. Each hit explains which terms matched, and includes its collection, " +
+        "breadcrumb path, last update, snippet, and absolute canonical url. Optionally scope to a " +
         "collection, or filter/browse by an exact tag (pass an empty query with a " +
-        "tag to list everything carrying that tag).",
+        "tag to list everything carrying that tag). Retry with fewer or alternative " +
+        "keywords when no results are returned.",
       inputSchema: {
         query: z.string(),
         collectionId: z.string().uuid().optional(),
@@ -234,7 +436,89 @@ export function createMcpServer(
     },
     async ({ query, collectionId, limit, tag }) => {
       const hits = await documents.search(query, { collectionId, limit, tag });
-      return json(hits.map((h) => ({ ...publicDoc(h), snippet: h.snippet })));
+      return json(
+        hits.map((hit) => ({
+          ...publicDoc(hit),
+          collectionName: hit.collectionName,
+          path: hit.path,
+          snippet: readableSearchSnippet(hit.snippet),
+          match: {
+            kind: hit.matchKind,
+            matchedTerms: hit.matchedTerms,
+            fuzzyTitleTerms: hit.fuzzyTitleTerms,
+            totalTerms: hit.totalTerms,
+            explanation: explainSearchHit(hit),
+          },
+        })),
+      );
+    },
+  );
+
+  server.registerTool(
+    "recent_documents",
+    {
+      title: "Recent documents",
+      description:
+        "List recently updated active documents across accessible collections, " +
+        "newest first. Optionally scope to one collection or to updates after " +
+        "an ISO 8601 instant; use nextCursor to continue.",
+      inputSchema: {
+        collectionId: z.string().uuid().optional(),
+        updated_after: z.string().datetime({ offset: true }).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().min(1).optional(),
+        fields: z.array(z.enum(RECENT_DOCUMENT_FIELDS)).min(1).max(7).optional(),
+      },
+    },
+    async ({ collectionId, updated_after, limit, cursor, fields }) => {
+      const pageLimit = limit ?? 20;
+      const normalizedAfter = updated_after ? new Date(updated_after).toISOString() : null;
+      let before: { updatedAt: Date; id: string } | undefined;
+      if (cursor) {
+        const decoded = decodeCursor(cursor);
+        const cursorDate =
+          typeof decoded?.updatedAt === "string" ? new Date(decoded.updatedAt) : null;
+        const cursorId = z.string().uuid().safeParse(decoded?.id);
+        if (
+          decoded?.kind !== "recent" ||
+          decoded.collectionId !== (collectionId ?? null) ||
+          decoded.updatedAfter !== normalizedAfter ||
+          !cursorId.success ||
+          !cursorDate ||
+          Number.isNaN(cursorDate.getTime())
+        ) {
+          return toolError("invalid cursor for these recent_documents parameters");
+        }
+        before = { updatedAt: cursorDate, id: cursorId.data };
+      }
+      const rows = await documents.recent({
+        collectionId,
+        updatedAfter: normalizedAfter ? new Date(normalizedAfter) : undefined,
+        before,
+        limit: pageLimit + 1,
+      });
+      const hasMore = rows.length > pageLimit;
+      const page = rows.slice(0, pageLimit);
+      const last = page.at(-1);
+      return json({
+        documents: page.map((document) =>
+          recentDocument(
+            document,
+            (fields as RecentDocumentField[] | undefined) ?? DEFAULT_RECENT_DOCUMENT_FIELDS,
+          ),
+        ),
+        nextCursor:
+          hasMore && last
+            ? encodeCursor({
+                kind: "recent",
+                collectionId: collectionId ?? null,
+                updatedAfter: normalizedAfter,
+                updatedAt: last.updatedAt.toISOString(),
+                id: last.id,
+              })
+            : null,
+        hasMore,
+      });
     },
   );
 
@@ -243,7 +527,8 @@ export function createMcpServer(
     {
       title: "Create document",
       description:
-        "Create a document in a collection. Body is markdown; parentDocumentId nests it.",
+        "Create a document in a collection. Body is markdown; parentDocumentId " +
+        "nests it. Returns its absolute canonical url.",
       inputSchema: {
         collectionId: z.string().uuid(),
         title: z.string().optional(),
@@ -348,7 +633,7 @@ export function createMcpServer(
           workspaceId: ws.id,
           alt,
         });
-        const uploadUrl = new URL("/api/images/upload", uploads.publicUrl).toString();
+        const uploadUrl = new URL("/api/images/upload", publicUrl).toString();
         return json({
           uploadUrl,
           token,
@@ -561,7 +846,13 @@ export function createMcpServer(
         "mentioning their @handle), each pointing at its document.",
       inputSchema: {},
     },
-    async () => json(await documents.listMyTodos()),
+    async () =>
+      json(
+        (await documents.listMyTodos()).map((task) => ({
+          ...task,
+          url: documentUrl(task.documentId),
+        })),
+      ),
   );
 
   server.registerTool(
@@ -571,12 +862,13 @@ export function createMcpServer(
       description:
         "All comment threads on a document — top-level comments and replies " +
         "(parentId), with author, human-vs-AI not distinguished here, and " +
-        "resolved state. Commenting needs only read access.",
+        "resolved state. Each comment includes an absolute canonical url that " +
+        "opens its thread. Commenting needs only read access.",
       inputSchema: { documentId: z.string().uuid() },
     },
     async ({ documentId }) => {
       if (!(await documents.get(documentId))) return notFound("document");
-      return json(await comments.list(documentId));
+      return json((await comments.list(documentId)).map(publicComment));
     },
   );
 
@@ -586,7 +878,8 @@ export function createMcpServer(
       title: "Add comment",
       description:
         "Comment on a document, or reply to an existing top-level comment by " +
-        "passing its id as parentId. Needs only read access to the document.",
+        "passing its id as parentId. Returns an absolute canonical url that " +
+        "opens the comment thread. Needs only read access to the document.",
       inputSchema: {
         documentId: z.string().uuid(),
         body: z.string().min(1).max(10_000),
@@ -609,7 +902,7 @@ export function createMcpServer(
           })
           .catch((err) => console.error("comment notification failed", err));
       }
-      return json(comment);
+      return json(publicComment(comment));
     },
   );
 
@@ -636,7 +929,7 @@ export function createMcpServer(
           })
           .catch((err) => console.error("resolve notification failed", err));
       }
-      return json(comment);
+      return json(publicComment(comment));
     },
   );
 

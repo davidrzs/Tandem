@@ -144,6 +144,7 @@ export function Home() {
   const writableCollection = collections.find(
     (collection) => collection.workspaceId === workspaceId && collection.writable,
   );
+  const onboardingProgress = [hasDocument, agentUsed, reviewed].filter(Boolean).length;
 
   const dismissOnboarding = () => {
     setDismissed(true);
@@ -200,8 +201,15 @@ export function Home() {
               Dismiss
             </button>
           </div>
-          <div className="onboarding-progress" aria-label="Getting started progress">
-            <span style={{ width: `${([hasDocument, agentUsed, reviewed].filter(Boolean).length / 3) * 100}%` }} />
+          <div
+            className="onboarding-progress"
+            role="progressbar"
+            aria-label="Getting started progress"
+            aria-valuemin={0}
+            aria-valuemax={3}
+            aria-valuenow={onboardingProgress}
+          >
+            <span style={{ width: `${(onboardingProgress / 3) * 100}%` }} />
           </div>
           <ol className="onboarding-steps">
             <OnboardingStep done={hasDocument} number={1} title="Create or open a document">

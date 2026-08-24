@@ -82,6 +82,7 @@ before(async () => {
 
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await createMcpServer(services, {
+    publicUrl: "http://app.test",
     writer,
     audit: (action, detail, workspaceId, target) =>
       auditEntries.push({ action, detail, workspaceId, ...target }),
@@ -197,7 +198,10 @@ test("a write to a read-only document is a permission error, not silent success"
   });
   const u2Client = new Client({ name: "test-u2", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(u2Services, { writer: u2Writer }).connect(serverT);
+  await createMcpServer(u2Services, {
+    publicUrl: "http://app.test",
+    writer: u2Writer,
+  }).connect(serverT);
   await u2Client.connect(clientT);
 
   try {

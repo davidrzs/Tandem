@@ -8,14 +8,22 @@ import { listRecents } from "./recents.js";
 
 /** Highlighted-fragment markers from ts_headline (chr(2)/chr(3) delimiters). */
 function Snippet({ text }: { text: string }) {
-  const parts = text.split(/(\x02[^\x03]*\x03)/g).filter(Boolean);
+  const occurrences = new Map<string, number>();
+  const parts = text
+    .split(/(\x02[^\x03]*\x03)/g)
+    .filter(Boolean)
+    .map((part) => {
+      const occurrence = occurrences.get(part) ?? 0;
+      occurrences.set(part, occurrence + 1);
+      return { key: `${part}:${occurrence}`, part };
+    });
   return (
     <span className="search-snippet">
-      {parts.map((part, i) =>
+      {parts.map(({ key, part }) =>
         part.startsWith("\x02") ? (
-          <mark key={i}>{part.slice(1, -1)}</mark>
+          <mark key={key}>{part.slice(1, -1)}</mark>
         ) : (
-          <span key={i}>{part}</span>
+          <span key={key}>{part}</span>
         ),
       )}
     </span>

@@ -15,6 +15,7 @@ import { trpc } from "./trpc.js";
 export interface CollectionInfo {
   id: string;
   name: string;
+  description: string | null;
   workspaceId: string;
   defaultRole: string;
   writable: boolean;
@@ -24,6 +25,7 @@ export interface CollectionInfo {
 export interface AppContext {
   workspaceId: string | null;
   collections: CollectionInfo[];
+  collectionsLoading: boolean;
   /** Open the search modal, optionally prefilled (e.g. "#ml " to browse a tag). */
   openSearch: (query?: string) => void;
   openSettings: () => void;
@@ -54,17 +56,23 @@ export function App() {
     if (workspaceId) localStorage.setItem(WS_KEY, workspaceId);
   }, [workspaceId]);
 
-  // A deep link into another workspace's document switches the workspace.
+  // A deep link into another workspace's document or collection switches the
+  // workspace. Both canonical routes use immutable ids rather than slugs.
   const docMatch = useMatch("/d/:docId");
+  const collectionMatch = useMatch("/c/:collectionId");
   const activeDocId = docMatch?.params.docId ?? null;
+  const linkedCollectionId = collectionMatch?.params.collectionId ?? null;
   const activeMeta = trpc.documents.getMeta.useQuery(
     { id: activeDocId! },
     { enabled: !!activeDocId },
   );
   useEffect(() => {
-    const ws = activeMeta.data?.workspaceId;
+    const ws = activeDocId
+      ? activeMeta.data?.workspaceId
+      : (collections.data ?? []).find((collection) => collection.id === linkedCollectionId)
+          ?.workspaceId;
     if (ws && ws !== workspaceId) setWorkspaceId(ws);
-  }, [activeMeta.data?.workspaceId, workspaceId]);
+  }, [activeDocId, activeMeta.data?.workspaceId, collections.data, linkedCollectionId, workspaceId]);
 
   // Narrow screens: the sidebar becomes an off-canvas drawer.
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -112,6 +120,7 @@ export function App() {
   const context: AppContext = {
     workspaceId,
     collections: collections.data ?? [],
+    collectionsLoading: collections.isLoading,
     openSearch: (query = "") => setSearchQuery(query),
     openSettings: () => setSettingsOpen(true),
   };
@@ -135,7 +144,7 @@ export function App() {
         workspaceId={workspaceId}
         collections={wsCollections}
         activeDocId={activeDocId}
-        activeCollectionId={activeMeta.data?.collectionId ?? null}
+        activeCollectionId={activeMeta.data?.collectionId ?? linkedCollectionId}
         onSelectWorkspace={setWorkspaceId}
         onOpenSearch={() => setSearchQuery("")}
         onOpenInbox={() => setInboxOpen(true)}

@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { sql } from "drizzle-orm";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
@@ -58,7 +59,11 @@ export function createDatabase(
   if (isPostgresUrl(connectionString)) {
     return makePostgres(connectionString) as Database;
   }
-  const client = new PGlite(pgliteDir(connectionString));
+  const client = new PGlite(pgliteDir(connectionString), {
+    // Register the bundled WASM extension before migrations run so the same
+    // CREATE EXTENSION pg_trgm migration works in PGlite and real Postgres.
+    extensions: { pg_trgm },
+  });
   return Object.assign(drizzlePglite(client, { schema, casing: "snake_case" }), {
     $kind: "pglite" as const,
     $dispose: async () => {
