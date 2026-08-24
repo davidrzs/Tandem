@@ -18,9 +18,18 @@ function pathTo(nodes: TreeNode[], id: string, trail: TreeNode[]): TreeNode[] | 
   return null;
 }
 
-/** "Collection › Parent › Grandparent" above a document's title. The current
- * document itself isn't repeated — its title sits right below. */
-export function Breadcrumbs({ docId, collectionId }: { docId: string; collectionId: string }) {
+/** "Collection / Parent / Grandparent / Current" in the document header bar.
+ * The current title is the last, non-link crumb so the bar reads as a full
+ * location even when the title itself has scrolled out of view. */
+export function Breadcrumbs({
+  docId,
+  collectionId,
+  currentTitle,
+}: {
+  docId: string;
+  collectionId: string;
+  currentTitle?: string;
+}) {
   const { collections } = useAppContext();
   const tree = trpc.documents.tree.useQuery({ collectionId });
   const collection = collections.find((c) => c.id === collectionId);
@@ -32,13 +41,21 @@ export function Breadcrumbs({ docId, collectionId }: { docId: string; collection
       {ancestors.map((a) => (
         <span key={a.id} className="crumb-wrap">
           <span className="crumb-sep" aria-hidden>
-            ›
+            /
           </span>
           <RouterLink className="crumb" to={`/d/${a.id}`}>
             {a.title || "Untitled"}
           </RouterLink>
         </span>
       ))}
+      {currentTitle !== undefined && (
+        <span className="crumb-wrap crumb-current-wrap">
+          <span className="crumb-sep" aria-hidden>
+            /
+          </span>
+          <span className="crumb crumb-current">{currentTitle || "Untitled"}</span>
+        </span>
+      )}
     </nav>
   );
 }

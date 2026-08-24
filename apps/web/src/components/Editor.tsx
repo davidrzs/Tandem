@@ -663,6 +663,96 @@ export function Editor({
         : { label: "Offline", tone: "bad" };
 
   return (
+    <div className="doc-page">
+      <div className="doc-bar">
+        <Breadcrumbs docId={docId} collectionId={doc.data.collectionId} currentTitle={title} />
+        <div className="doc-bar-actions">
+          {!canEdit && <span className="save-state">Read only</span>}
+          <span className={`save-state status-${status.tone}`}>
+            <span className="status-dot" /> {status.label}
+          </span>
+          <span className="tool-divider" />
+          <button type="button"
+            className={"tool-btn" + (rail === "comments" ? " active" : "")}
+            title="Show comments"
+            onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
+          >
+            <Icon name="comment" size={15} />
+            Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
+          </button>
+          <button type="button"
+            className={"tool-btn" + (findOpen ? " active" : "")}
+            title="Find in document (Mod+F)"
+            onClick={() => setFindOpen((f) => !f)}
+          >
+            <Icon name="search" size={15} />
+            Find
+          </button>
+          <button type="button"
+            className={"tool-btn" + (blameOn ? " active" : "")}
+            title="Edit history: who wrote each part, and when"
+            onClick={() => {
+              setOnlySession(null);
+              setRail((r) => (r === "history" ? null : "history"));
+            }}
+          >
+            <Icon name="restore" size={15} />
+            History
+          </button>
+          <RowMenu
+            title="Document actions"
+            items={[
+              {
+                label: isFavorite ? "Remove from favorites" : "Add to favorites",
+                icon: "star" as const,
+                onClick: () =>
+                  isFavorite
+                    ? favRemove.mutate({ documentId: docId })
+                    : favAdd.mutate({ documentId: docId }),
+              },
+              { label: "Copy link", icon: "share" as const, onClick: copyDocLink },
+              ...(canEdit
+                ? [
+                    {
+                      label: "Duplicate",
+                      icon: "page" as const,
+                      onClick: () => duplicate.mutate({ id: docId }),
+                    },
+                  ]
+                : []),
+              {
+                label: "Download markdown",
+                icon: "download" as const,
+                onClick: () => void downloadMarkdown(),
+              },
+              { label: "Print", icon: "page" as const, onClick: () => window.print() },
+            ]}
+          />
+          {peers.length > 0 && (
+            <>
+              <span className="tool-divider" />
+              <span className="presence" title={peers.map((p) => p.name).join(", ")}>
+                <span className="presence-stack">
+                  {peers.slice(0, 4).map((p) => (
+                    <span
+                      key={p.clientId}
+                      className="presence-avatar"
+                      style={{ background: p.color }}
+                    >
+                      {p.name.slice(0, 1).toUpperCase()}
+                    </span>
+                  ))}
+                  {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
+                </span>
+                <span className="presence-count">
+                  <span className="live-dot" />
+                  {peers.length} editing
+                </span>
+              </span>
+            </>
+          )}
+        </div>
+      </div>
     <div className="doc-shell">
       {editor && (
         <BubbleMenu
@@ -807,92 +897,6 @@ export function Editor({
           }}
         />
       )}
-      <div className="editor-tools">
-        {!canEdit && <span className="save-state">Read only</span>}
-        <span className={`save-state status-${status.tone}`}>
-          <span className="status-dot" /> {status.label}
-        </span>
-        <button type="button"
-          className={"tool-btn" + (rail === "comments" ? " active" : "")}
-          title="Show comments"
-          onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
-        >
-          <Icon name="comment" size={15} />
-          Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
-        </button>
-        <button type="button"
-          className={"tool-btn" + (findOpen ? " active" : "")}
-          title="Find in document (Mod+F)"
-          onClick={() => setFindOpen((f) => !f)}
-        >
-          <Icon name="search" size={15} />
-          Find
-        </button>
-        <button type="button"
-          className={"tool-btn" + (blameOn ? " active" : "")}
-          title="Edit history: who wrote each part, and when"
-          onClick={() => {
-            setOnlySession(null);
-            setRail((r) => (r === "history" ? null : "history"));
-          }}
-        >
-          <Icon name="restore" size={15} />
-          History
-        </button>
-        <RowMenu
-          title="Document actions"
-          items={[
-            {
-              label: isFavorite ? "Remove from favorites" : "Add to favorites",
-              icon: "star" as const,
-              onClick: () =>
-                isFavorite
-                  ? favRemove.mutate({ documentId: docId })
-                  : favAdd.mutate({ documentId: docId }),
-            },
-            { label: "Copy link", icon: "share" as const, onClick: copyDocLink },
-            ...(canEdit
-              ? [
-                  {
-                    label: "Duplicate",
-                    icon: "page" as const,
-                    onClick: () => duplicate.mutate({ id: docId }),
-                  },
-                ]
-              : []),
-            {
-              label: "Download markdown",
-              icon: "download" as const,
-              onClick: () => void downloadMarkdown(),
-            },
-            { label: "Print", icon: "page" as const, onClick: () => window.print() },
-          ]}
-        />
-        {peers.length > 0 && (
-          <>
-            <span className="tool-divider" />
-            <span className="presence" title={peers.map((p) => p.name).join(", ")}>
-              <span className="presence-stack">
-                {peers.slice(0, 4).map((p) => (
-                  <span
-                    key={p.clientId}
-                    className="presence-avatar"
-                    style={{ background: p.color }}
-                  >
-                    {p.name.slice(0, 1).toUpperCase()}
-                  </span>
-                ))}
-                {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
-              </span>
-              <span className="presence-count">
-                <span className="live-dot" />
-                {peers.length} editing
-              </span>
-            </span>
-          </>
-        )}
-      </div>
-      <Breadcrumbs docId={docId} collectionId={doc.data.collectionId} />
       <input
         ref={titleInputRef}
         className="title-input"
@@ -1018,6 +1022,7 @@ export function Editor({
           }}
         />
       )}
+    </div>
     </div>
   );
 }
