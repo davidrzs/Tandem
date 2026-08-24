@@ -410,7 +410,7 @@ function TodoCard({ group }: { group: TodoGroup }) {
       <ul className="todo-list">
         {group.items.map((item) => (
           <li key={item.line} className={item.done ? "done" : ""}>
-            <span className="todo-box">{item.done ? "☑" : "☐"}</span>
+            <span className="todo-box" aria-hidden="true" />
             <Link to={`/d/${group.documentId}?task=${encodeURIComponent(item.text)}`}>
               {item.text}
             </Link>
