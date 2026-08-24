@@ -2,7 +2,7 @@
 // fold state survives a reload with localStorage wiped (DB-persisted), and
 // opening a child directly reveals its ancestors. Needs web+api (run.sh).
 import { chromium } from "playwright";
-import { signUp, createCollection, newDocument } from "./_helpers.mjs";
+import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
@@ -42,16 +42,22 @@ try {
   await parentRow.locator("button.doc-twist").click();
   await childRow.waitFor();
 
-  // Collapse once more, waiting for the persist to reach the server — the
-  // upcoming reload must restore fold state from the DB alone.
+  // Collapse once more, waiting for THAT persist to reach the server — the
+  // upcoming reload must restore fold state from the DB alone. Match on the
+  // request body: the previous expand's response can still be in flight when
+  // this waiter is registered, and resolving on it would let the full-page
+  // navigation below abort the collapse write before it is ever sent.
   const persisted = page.waitForResponse(
-    (r) => r.url().includes("settings.setSidebarNode") && r.ok(),
+    (r) =>
+      r.url().includes("settings.setSidebarNode") &&
+      r.ok() &&
+      (r.request().postData() ?? "").includes('"expanded":false'),
   );
   await parentRow.locator("button.doc-twist").click();
   await childRow.waitFor({ state: "detached" });
   await persisted;
 
-  await page.goto("http://localhost:5173/");
+  await page.goto(`${BASE}/`);
   await page.waitForSelector(".sidebar");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
