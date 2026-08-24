@@ -28,6 +28,9 @@ export default defineConfig({
     ],
   },
   build: {
+    // The server's CSP is font-src 'self': a small font subset inlined as a
+    // data: URI would be blocked, so fonts always ship as files.
+    assetsInlineLimit: (filePath) => (/\.(woff2?|ttf|otf)$/.test(filePath) ? false : undefined),
     rollupOptions: {
       output: {
         // Split the big libraries into cacheable chunks that load in parallel;

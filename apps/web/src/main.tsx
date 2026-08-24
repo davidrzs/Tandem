@@ -16,7 +16,9 @@ import { initTheme } from "./theme.js";
 import { trpc } from "./trpc.js";
 
 initTheme();
-import "@fontsource-variable/hanken-grotesk";
+import "@fontsource-variable/ibm-plex-sans";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
 import "./styles.css";
 
 // The editor (Tiptap + ProseMirror + Yjs + KaTeX + lowlight) is by far the
