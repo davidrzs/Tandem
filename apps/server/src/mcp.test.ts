@@ -172,6 +172,23 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
   assert.equal(partialHit.match.kind, "partial_terms");
   assert.deepEqual(partialHit.match.matchedTerms, ["kubernetes"]);
 
+  // The caller can keep a document that quotes its own query out of the way.
+  const excludedById = payload(
+    await client.callTool({
+      name: "search_documents",
+      arguments: {
+        query: "kubernetes ingress",
+        collectionId: col.id,
+        excludeDocumentIds: [child.id],
+      },
+    }),
+  );
+  assert.deepEqual(
+    excludedById.map((h: any) => h.id),
+    hits.filter((h: any) => h.id !== child.id).map((h: any) => h.id),
+    "excludeDocumentIds drops exactly that hit",
+  );
+
   // a targeted edit changes exactly the addressed text
   payload(
     await client.callTool({
@@ -209,6 +226,17 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
     }),
   );
   assert.deepEqual(tagged.tags, ["infra", "ops"], "tags normalized and returned");
+  const excludedByTag = payload(
+    await client.callTool({
+      name: "search_documents",
+      arguments: { query: "terraform", excludeTags: ["ops"] },
+    }),
+  );
+  assert.deepEqual(
+    excludedByTag.map((h: any) => h.id),
+    afterHits.filter((h: any) => h.id !== parent.id).map((h: any) => h.id),
+    "excludeTags drops exactly the tagged hit",
+  );
   const byTag = payload(
     await client.callTool({ name: "search_documents", arguments: { query: "", tag: "ops" } }),
   );
@@ -228,7 +256,9 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
     "tags",
     "title",
     "updatedAt",
+    "url",
   ]);
+  assert.equal(topLevel.documents[0].url, parent.url, "listings carry the canonical URL by default");
   assert.equal(topLevel.documents[0].id, parent.id);
   assert.equal(topLevel.documents[0].path, "Deployment guide");
   assert.equal(topLevel.nextCursor, null);
@@ -264,6 +294,26 @@ test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async (
   assert.equal(secondPage.documents[0].path, "Deployment guide / Networking");
   assert.equal(secondPage.documents[0].url, child.url);
   assert.equal(secondPage.nextCursor, null);
+
+  // Subtree listing: one document's descendants, paths still collection-relative.
+  const subtree = payload(
+    await client.callTool({
+      name: "list_documents",
+      arguments: {
+        collectionId: col.id,
+        parentDocumentId: parent.id,
+        fields: ["id", "path", "depth"],
+      },
+    }),
+  );
+  assert.deepEqual(subtree.documents, [
+    { id: child.id, path: "Deployment guide / Networking", depth: 2 },
+  ]);
+  const missingRoot = await client.callTool({
+    name: "list_documents",
+    arguments: { collectionId: col.id, parentDocumentId: randomUUID() },
+  });
+  assert.ok(missingRoot.isError, "an unknown subtree root is reported, not listed as empty");
 
   const noFutureUpdates = payload(
     await client.callTool({
@@ -503,7 +553,11 @@ test("colleague parity: comments, tasks, members, versions, blame, archive round
     }),
   );
   const tags = payload(await client.callTool({ name: "list_tags", arguments: {} }));
-  assert.ok(JSON.stringify(tags).includes("roadmap"));
+  assert.deepEqual(
+    tags.find((t: any) => t.tag === "roadmap"),
+    { tag: "roadmap", count: 1 },
+    "tags come with their document counts",
+  );
 
   // Backlinks: a second doc linking here shows up.
   const other = payload(

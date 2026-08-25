@@ -92,10 +92,14 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `list_backlinks`.
 
 `list_documents` is intentionally bounded for agent context windows: it returns
-a flat, compact page (`id`, `title`, `path`, `tags`, `updatedAt`), defaults to
-top-level documents only, and accepts `depth`, `limit`, `cursor`,
-`updated_after`, and `fields`. `recent_documents` provides a separately
-paginated, newest-first view across all readable collections or one collection.
+a flat, compact page (`id`, `title`, `path`, `tags`, `updatedAt`, `url`),
+defaults to top-level documents only, and accepts `depth`, `limit`, `cursor`,
+`updated_after`, `fields`, and `parentDocumentId` (one document's subtree).
+`recent_documents` provides a separately paginated, newest-first view across all
+readable collections or one collection. `search_documents` ranks lexically, so
+`excludeDocumentIds` and `excludeTags` exist to keep documents that merely quote
+a query (a backlog of example searches) out of the results. `list_tags` returns
+each tag with its document count.
 
 - **Targeted edits**: `edit_document` (exact find/replace),
   `insert_after_heading`, `replace_section`, `append_section`. There is

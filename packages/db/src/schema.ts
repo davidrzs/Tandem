@@ -198,7 +198,12 @@ export const documents = pgTable(
     ),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Millisecond precision: every app write is a JS Date (ms) and the
+    // recent-documents keyset cursor round-trips through one, so the
+    // microseconds now() would add could only make that cursor skip rows.
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },

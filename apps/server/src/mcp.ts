@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   DocumentWriteDeniedError,
   type DocumentMeta,
+  NotFoundError,
   type SearchHit,
 } from "@tandem/core";
 import {
@@ -68,6 +69,7 @@ const DEFAULT_DOCUMENT_LIST_FIELDS: DocumentListField[] = [
   "path",
   "tags",
   "updatedAt",
+  "url",
 ];
 
 const RECENT_DOCUMENT_FIELDS = [
@@ -339,10 +341,14 @@ export function createMcpServer(
       description:
         "List a bounded, flat page of documents in tree order. Defaults to " +
         "top-level orientation only (depth 1), 25 results, and the compact " +
-        "fields id/title/path/tags/updatedAt. Increase depth to include " +
-        "descendants; use nextCursor to continue a large result.",
+        "fields id/title/path/tags/updatedAt/url. Increase depth to include " +
+        "descendants, or pass parentDocumentId to list one document's subtree " +
+        "(the depth parameter then counts from that document, while path and the " +
+        "depth field stay collection-relative). Use nextCursor to continue a " +
+        "large result.",
       inputSchema: {
         collectionId: z.string().uuid(),
+        parentDocumentId: z.string().uuid().optional(),
         depth: z.number().int().min(1).max(20).optional(),
         limit: z.number().int().min(1).max(100).optional(),
         cursor: z.string().min(1).optional(),
@@ -350,7 +356,7 @@ export function createMcpServer(
         fields: z.array(z.enum(DOCUMENT_LIST_FIELDS)).min(1).max(10).optional(),
       },
     },
-    async ({ collectionId, depth, limit, cursor, updated_after, fields }) => {
+    async ({ collectionId, parentDocumentId, depth, limit, cursor, updated_after, fields }) => {
       const pageDepth = depth ?? 1;
       const pageLimit = limit ?? 25;
       const normalizedAfter = updated_after ? new Date(updated_after).toISOString() : null;
@@ -360,6 +366,7 @@ export function createMcpServer(
         if (
           decoded?.kind !== "documents" ||
           decoded.collectionId !== collectionId ||
+          decoded.parentDocumentId !== (parentDocumentId ?? null) ||
           decoded.depth !== pageDepth ||
           decoded.updatedAfter !== normalizedAfter ||
           !Number.isSafeInteger(decoded.offset) ||
@@ -370,8 +377,19 @@ export function createMcpServer(
         offset = decoded.offset as number;
       }
 
+      let entries: FlatDocumentNode[];
+      if (parentDocumentId) {
+        const sub = await documents.subtree(parentDocumentId, pageDepth).catch((error: unknown) => {
+          if (error instanceof NotFoundError) return null;
+          throw error;
+        });
+        if (!sub || sub.root.collectionId !== collectionId) return notFound("document");
+        entries = flattenDocumentTree(sub.nodes, sub.ancestry);
+      } else {
+        entries = flattenDocumentTree(await documents.tree(collectionId, pageDepth));
+      }
       const updatedAfterDate = normalizedAfter ? new Date(normalizedAfter) : null;
-      const matching = flattenDocumentTree(await documents.tree(collectionId, pageDepth)).filter(
+      const matching = entries.filter(
         ({ document }) =>
           !updatedAfterDate || document.updatedAt.getTime() > updatedAfterDate.getTime(),
       );
@@ -389,6 +407,7 @@ export function createMcpServer(
           ? encodeCursor({
               kind: "documents",
               collectionId,
+              parentDocumentId: parentDocumentId ?? null,
               depth: pageDepth,
               updatedAfter: normalizedAfter,
               offset: nextOffset,
@@ -422,20 +441,33 @@ export function createMcpServer(
       description:
         "Broad keyword search over document titles and bodies. Results matching an " +
         "exact phrase or every term rank above partial matches; title typos are " +
-        "tolerated. Each hit explains which terms matched, and includes its collection, " +
-        "breadcrumb path, last update, snippet, and absolute canonical url. Optionally scope to a " +
-        "collection, or filter/browse by an exact tag (pass an empty query with a " +
-        "tag to list everything carrying that tag). Retry with fewer or alternative " +
-        "keywords when no results are returned.",
+        "tolerated. Each hit explains which terms matched (match.matchedTerms of " +
+        "match.totalTerms — drop low-overlap hits yourself when precision matters), " +
+        "and includes its collection, breadcrumb path, last update, snippet, and " +
+        "absolute canonical url. Ranking is lexical: a document that merely quotes " +
+        "the query (a backlog of example searches, notes about a query) outranks the " +
+        "documents that answer it, so pass excludeDocumentIds for the document you " +
+        "are working from and excludeTags for documents tagged as meta. Optionally " +
+        "scope to a collection, or filter/browse by an exact tag (pass an empty query " +
+        "with a tag to list everything carrying that tag). Retry with fewer or " +
+        "alternative keywords when no results are returned.",
       inputSchema: {
         query: z.string(),
         collectionId: z.string().uuid().optional(),
         limit: z.number().int().min(1).max(100).optional(),
         tag: z.string().optional(),
+        excludeDocumentIds: z.array(z.string().uuid()).max(50).optional(),
+        excludeTags: z.array(z.string().min(1)).max(20).optional(),
       },
     },
-    async ({ query, collectionId, limit, tag }) => {
-      const hits = await documents.search(query, { collectionId, limit, tag });
+    async ({ query, collectionId, limit, tag, excludeDocumentIds, excludeTags }) => {
+      const hits = await documents.search(query, {
+        collectionId,
+        limit,
+        tag,
+        excludeIds: excludeDocumentIds,
+        excludeTags,
+      });
       return json(
         hits.map((hit) => ({
           ...publicDoc(hit),
