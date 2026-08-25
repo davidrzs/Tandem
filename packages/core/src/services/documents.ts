@@ -1,5 +1,19 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  like,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   collections,
@@ -62,6 +76,17 @@ export interface SearchOptions {
   limit?: number;
   /** Restrict to documents carrying this tag (exact, case-sensitive). */
   tag?: string;
+  /** Drop these documents — typically the one the caller is working from,
+   * which tends to quote its own queries verbatim. */
+  excludeIds?: string[];
+  /** Drop documents carrying any of these tags (exact, case-sensitive). */
+  excludeTags?: string[];
+}
+
+/** A tag with the number of active, readable documents carrying it. */
+export interface TagCount {
+  tag: string;
+  count: number;
 }
 
 export type SearchMatchKind =
@@ -116,6 +141,14 @@ export interface DocumentNode extends DocumentMeta {
   children: DocumentNode[];
 }
 
+/** One document's bounded descendants plus the titles leading down to it. */
+export interface DocumentSubtree {
+  root: DocumentMeta;
+  /** Collection-relative titles from the top-level ancestor to the root itself. */
+  ancestry: string[];
+  nodes: DocumentNode[];
+}
+
 /** An in-document task (`- [ ] @user …`) assigned to a user, for the start page. */
 export interface TodoItem {
   documentId: string;
@@ -132,6 +165,12 @@ export interface TodoItem {
 function deriveContent(markdown: string): { contentMd: string; contentJson: unknown } {
   const contentJson = markdownToJSON(markdown);
   return { contentMd: jsonToMarkdown(contentJson), contentJson };
+}
+
+/** Rows of a raw `db.execute`, whichever shape the driver hands back. */
+function rowsOf<T>(result: unknown): T[] {
+  const rows = Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows;
+  return (rows ?? []) as T[];
 }
 
 export class DocumentService {
@@ -237,15 +276,18 @@ export class DocumentService {
 
       const parentId = input.parentDocumentId ?? null;
       if (parentId) {
-        // Same rule as move(): the parent must be a visible document in the
+        // Same rule as move(): the parent must be an active document in the
         // same collection (the FK alone runs as table owner and would accept
-        // a cross-tenant uuid).
+        // a cross-tenant uuid; a child under an archived parent would vanish
+        // from the tree while staying searchable).
         const [parent] = await db
           .select({ collectionId: documents.collectionId })
           .from(documents)
-          .where(and(eq(documents.id, parentId), isNull(documents.deletedAt)));
+          .where(
+            and(eq(documents.id, parentId), isNull(documents.deletedAt), isNull(documents.archivedAt)),
+          );
         if (!parent || parent.collectionId !== input.collectionId) {
-          throw new InvalidInputError("parent must be a document in the same collection");
+          throw new InvalidInputError("parent must be an active document in the same collection");
         }
       }
       const position = await this.nextPosition(db, input.collectionId, parentId);
@@ -412,14 +454,20 @@ export class DocumentService {
         if (target.parentDocumentId === id) {
           throw new InvalidInputError("a document cannot be its own parent");
         }
-        // The new parent must live in the same collection (keeps the tree
-        // consistent and prevents cross-collection/tenant parent edges).
+        // The new parent must be active and live in the same collection (keeps
+        // the tree consistent and prevents cross-collection/tenant parent edges).
         const [parent] = await db
           .select({ collectionId: documents.collectionId })
           .from(documents)
-          .where(and(eq(documents.id, target.parentDocumentId), isNull(documents.deletedAt)));
+          .where(
+            and(
+              eq(documents.id, target.parentDocumentId),
+              isNull(documents.deletedAt),
+              isNull(documents.archivedAt),
+            ),
+          );
         if (!parent || parent.collectionId !== doc.collectionId) {
-          throw new InvalidInputError("parent must be a document in the same collection");
+          throw new InvalidInputError("parent must be an active document in the same collection");
         }
 
         // Reject moving id into one of its own descendants (would create a cycle).
@@ -534,37 +582,59 @@ export class DocumentService {
     );
   }
 
-  /** Load only the requested hierarchy levels. This keeps shallow MCP
-   * orientation requests from reading every descendant in a large collection.
-   * The unbounded tree() path remains available to the first-party UI/export. */
-  private async listByCollectionDepth(
+  /** Load only the requested hierarchy levels below `rootId` (the collection's
+   * top level when null). This keeps shallow MCP orientation requests from
+   * reading every descendant in a large collection; the unbounded tree() path
+   * remains available to the first-party UI/export. Takes the actor-scoped db
+   * so subtree() can compose it with its root lookup in one transaction. */
+  private async levels(
+    db: Database,
     collectionId: string,
     maxDepth: number,
+    rootId: string | null = null,
   ): Promise<DocumentMeta[]> {
-    return this.exec(async (db) => {
-      const active = [
-        eq(documents.collectionId, collectionId),
-        isNull(documents.deletedAt),
-        isNull(documents.archivedAt),
-      ] as const;
-      const roots = await db
+    const active = [
+      eq(documents.collectionId, collectionId),
+      isNull(documents.deletedAt),
+      isNull(documents.archivedAt),
+    ] as const;
+    const roots = await db
+      .select(DocumentService.metaColumns)
+      .from(documents)
+      .where(
+        and(
+          ...active,
+          rootId ? eq(documents.parentDocumentId, rootId) : isNull(documents.parentDocumentId),
+        ),
+      )
+      .orderBy(asc(documents.position), asc(documents.id));
+    const rows = [...roots];
+    let parentIds = roots.map((row) => row.id);
+    for (let depth = 2; depth <= maxDepth && parentIds.length > 0; depth += 1) {
+      const level = await db
         .select(DocumentService.metaColumns)
         .from(documents)
-        .where(and(...active, isNull(documents.parentDocumentId)))
+        .where(and(...active, inArray(documents.parentDocumentId, parentIds)))
         .orderBy(asc(documents.position), asc(documents.id));
-      const rows = [...roots];
-      let parentIds = roots.map((row) => row.id);
-      for (let depth = 2; depth <= maxDepth && parentIds.length > 0; depth += 1) {
-        const level = await db
-          .select(DocumentService.metaColumns)
-          .from(documents)
-          .where(and(...active, inArray(documents.parentDocumentId, parentIds)))
-          .orderBy(asc(documents.position), asc(documents.id));
-        rows.push(...level);
-        parentIds = level.map((row) => row.id);
-      }
-      return rows;
-    });
+      rows.push(...level);
+      parentIds = level.map((row) => row.id);
+    }
+    return rows;
+  }
+
+  /** Nest a flat, active-only listing under its parents. `rootParentId` is the
+   * parent the top level hangs from (null for collection roots). A child whose
+   * parent is missing (archived separately) is omitted rather than promoted to
+   * a fake root. */
+  private static nest(flat: DocumentMeta[], rootParentId: string | null): DocumentNode[] {
+    const byId = new Map<string, DocumentNode>();
+    for (const d of flat) byId.set(d.id, { ...d, children: [] });
+    const roots: DocumentNode[] = [];
+    for (const node of byId.values()) {
+      if (node.parentDocumentId === rootParentId) roots.push(node);
+      else if (node.parentDocumentId) byId.get(node.parentDocumentId)?.children.push(node);
+    }
+    return roots;
   }
 
   /** Archived subtree roots in a collection (their descendants restore with them). */
@@ -594,20 +664,32 @@ export class DocumentService {
     const flat =
       maxDepth === undefined
         ? await this.listByCollection(collectionId)
-        : await this.listByCollectionDepth(collectionId, maxDepth);
-    const byId = new Map<string, DocumentNode>();
-    for (const d of flat) byId.set(d.id, { ...d, children: [] });
-    const roots: DocumentNode[] = [];
-    for (const node of byId.values()) {
-      const parent = node.parentDocumentId
-        ? byId.get(node.parentDocumentId)
-        : undefined;
-      if (parent) parent.children.push(node);
-      else if (!node.parentDocumentId) roots.push(node);
-      // A child whose parent is filtered out (archived separately) is omitted
-      // rather than promoted to a fake root.
+        : await this.exec((db) => this.levels(db, collectionId, maxDepth));
+    return DocumentService.nest(flat, null);
+  }
+
+  /** The active descendants of one document, `maxDepth` levels below it —
+   * bounded subtree navigation without reading the rest of the collection.
+   * `ancestry` (top-level ancestor … the root's own title) lets callers print
+   * collection-relative paths for the entries. */
+  async subtree(rootId: string, maxDepth: number): Promise<DocumentSubtree> {
+    if (!Number.isInteger(maxDepth) || maxDepth < 1) {
+      throw new InvalidInputError("subtree depth must be a positive integer");
     }
-    return roots;
+    return this.exec(async (db) => {
+      const [root] = await db
+        .select(DocumentService.metaColumns)
+        .from(documents)
+        .where(
+          and(eq(documents.id, rootId), isNull(documents.deletedAt), isNull(documents.archivedAt)),
+        );
+      if (!root) throw new NotFoundError("document not found");
+      const ancestry = (await this.searchPaths(db, [rootId])).get(rootId) ?? [
+        root.title || "Untitled",
+      ];
+      const flat = await this.levels(db, root.collectionId, maxDepth, rootId);
+      return { root, ancestry, nodes: DocumentService.nest(flat, rootId) };
+    });
   }
 
   /** Recently changed active documents, ordered newest-first with a stable
@@ -643,7 +725,10 @@ export class DocumentService {
   /** Resolve readable ancestor paths for a bounded set of search hits in one
    * recursive query. The supplied db is the actor-scoped transaction, so RLS
    * applies to ancestors exactly as it does to the hits themselves. */
-  private async searchPaths(db: Database, ids: readonly string[]): Promise<Map<string, string>> {
+  private async searchPaths(
+    db: Database,
+    ids: readonly string[],
+  ): Promise<Map<string, string[]>> {
     if (ids.length === 0) return new Map();
     const result = await db.execute(sql`
       WITH RECURSIVE document_paths AS (
@@ -667,14 +752,25 @@ export class DocumentService {
         WHERE parent.deleted_at IS NULL
           AND parent.archived_at IS NULL
       )
-      SELECT leaf_id, array_to_string(parts, ' / ') AS path
+      SELECT leaf_id, parts
       FROM document_paths
       WHERE parent_document_id IS NULL
     `);
-    const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
     return new Map(
-      (rows as Array<{ leaf_id: string; path: string }>).map((row) => [row.leaf_id, row.path]),
+      rowsOf<{ leaf_id: string; parts: string[] }>(result).map((row) => [row.leaf_id, row.parts]),
     );
+  }
+
+  /** Attach the "Collection / Ancestor / Title" breadcrumb to search rows. */
+  private async withPaths<T extends { id: string; title: string; collectionName: string }>(
+    db: Database,
+    rows: T[],
+  ): Promise<Array<T & { path: string }>> {
+    const paths = await this.searchPaths(db, rows.map((row) => row.id));
+    return rows.map((row) => ({
+      ...row,
+      path: [row.collectionName, ...(paths.get(row.id) ?? [row.title || "Untitled"])].join(" / "),
+    }));
   }
 
   /** Native Postgres search over title/body FTS plus pg_trgm title fuzziness.
@@ -690,15 +786,29 @@ export class DocumentService {
       ...new Set(query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []),
     ].slice(0, 8);
     const tag = opts.tag?.trim();
+    const excludeIds = opts.excludeIds ?? [];
+    const excludeTags = (opts.excludeTags ?? []).map((t) => t.trim()).filter(Boolean);
     // A tag on its own is a valid search (browse by label); text alone or both.
     if (terms.length === 0 && !tag) return [];
     return this.exec(async (db) => {
       const tagFilter = tag ? sql`${documents.tags} @> ARRAY[${tag}]::text[]` : undefined;
+      // Exclusions keep documents that merely QUOTE the query (a backlog of
+      // example searches, notes about a query) out of the way: lexical ranking
+      // cannot tell those apart from the documents that answer it.
+      const excludeTagFilter =
+        excludeTags.length > 0
+          ? sql`NOT (${documents.tags} && ARRAY[${sql.join(
+              excludeTags.map((t) => sql`${t}`),
+              sql`, `,
+            )}]::text[])`
+          : undefined;
       const base = and(
         isNull(documents.deletedAt),
         isNull(documents.archivedAt),
         opts.collectionId ? eq(documents.collectionId, opts.collectionId) : undefined,
         tagFilter,
+        excludeIds.length > 0 ? notInArray(documents.id, excludeIds) : undefined,
+        excludeTagFilter,
       );
 
       // Tag-only browse: no text ranking, newest first, no snippet.
@@ -719,11 +829,7 @@ export class DocumentService {
           .where(base)
           .orderBy(desc(documents.updatedAt))
           .limit(opts.limit ?? 20);
-        const paths = await this.searchPaths(db, rows.map((row) => row.id));
-        return rows.map((row) => ({
-          ...row,
-          path: `${row.collectionName} / ${paths.get(row.id) ?? (row.title || "Untitled")}`,
-        }));
+        return this.withPaths(db, rows);
       }
 
       const termQueries = terms.map((term) =>
@@ -815,25 +921,24 @@ export class DocumentService {
         )
         .orderBy(desc(rank), desc(documents.updatedAt), asc(documents.id))
         .limit(opts.limit ?? 20);
-      const paths = await this.searchPaths(db, rows.map((row) => row.id));
-      return rows.map((row) => ({
-        ...row,
-        path: `${row.collectionName} / ${paths.get(row.id) ?? (row.title || "Untitled")}`,
-      }));
+      return this.withPaths(db, rows);
     });
   }
 
-  /** Every distinct tag across the documents this actor can read (RLS-scoped),
-   * for tag autocomplete. Excludes archived/deleted. */
-  async listTags(): Promise<string[]> {
-    const rows = await this.exec((db) =>
-      db
-        .select({ tag: sql<string>`unnest(${documents.tags})` })
-        .from(documents)
-        .where(and(isNull(documents.deletedAt), isNull(documents.archivedAt))),
+  /** Every distinct tag across the documents this actor can read (RLS-scoped)
+   * with how many active documents carry it, sorted by name — for tag
+   * autocomplete and agent-side browsing. Excludes archived/deleted. */
+  async listTags(): Promise<TagCount[]> {
+    const result = await this.exec((db) =>
+      db.execute(sql`
+        SELECT t.tag, count(DISTINCT d.id)::int AS count
+        FROM documents d, unnest(d.tags) AS t(tag)
+        WHERE d.deleted_at IS NULL AND d.archived_at IS NULL
+        GROUP BY t.tag
+      `),
     );
-    return [...new Set(rows.map((r) => r.tag))].sort((a, b) =>
-      a.toLowerCase().localeCompare(b.toLowerCase()),
+    return rowsOf<TagCount>(result).sort((a, b) =>
+      a.tag.toLowerCase().localeCompare(b.tag.toLowerCase()),
     );
   }
 

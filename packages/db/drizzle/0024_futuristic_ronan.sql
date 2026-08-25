@@ -1,0 +1,1 @@
+ALTER TABLE "documents" ALTER COLUMN "updated_at" SET DATA TYPE timestamp (3) with time zone;

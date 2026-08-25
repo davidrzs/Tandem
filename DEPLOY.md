@@ -47,6 +47,10 @@ git pull
 docker compose --env-file .env.deploy --profile release run --rm migrate
 docker compose --env-file .env.deploy up -d --build
 ```
+Some migrations rewrite a table under an exclusive lock — `0024` retypes
+`documents.updated_at` to millisecond precision, which rewrites every row and
+index of `documents`. Collaboration saves pause for the duration: seconds on a
+wiki-sized table, but run it in a quiet moment on a large one.
 
 ## First run
 The first visit to a fresh instance shows the setup wizard: it creates the

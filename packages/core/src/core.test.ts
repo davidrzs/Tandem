@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import {
   createDatabase,
@@ -11,6 +12,7 @@ import {
   type Actor,
 } from "@tandem/db";
 import { eq, sql } from "drizzle-orm";
+import { InvalidInputError, NotFoundError } from "./errors.js";
 import { CollectionService } from "./services/collections.js";
 import { CommentService } from "./services/comments.js";
 import { NotificationService } from "./services/notifications.js";
@@ -100,6 +102,27 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
   const titleHits = await documents.search("onboard");
   assert.ok(titleHits.some((h) => h.id === parent.id), "title prefix matches");
   assert.equal((await documents.search("   ")).length, 0, "blank query is empty");
+
+  // Bounded subtree navigation: one document's descendants, with the titles
+  // leading to it so callers can print collection-relative paths.
+  const grandchild = await documents.create({
+    collectionId: col.id,
+    parentDocumentId: child.id,
+    title: "Dotfiles",
+  });
+  const sub = await documents.subtree(child.id, 1);
+  assert.equal(sub.root.id, child.id);
+  assert.deepEqual(sub.ancestry, ["Onboarding", "Laptop setup"]);
+  assert.deepEqual(sub.nodes.map((n) => n.id), [grandchild.id]);
+  assert.deepEqual(sub.nodes[0]!.children, [], "depth counts from the root");
+  const deeper = await documents.subtree(parent.id, 2);
+  assert.equal(deeper.nodes[0]!.children[0]!.id, grandchild.id);
+  await assert.rejects(documents.subtree(randomUUID(), 1), NotFoundError);
+  await assert.rejects(
+    new DocumentService(db, user("u2")).subtree(child.id, 1),
+    NotFoundError,
+    "subtree roots are RLS-scoped",
+  );
 });
 
 test("search retrieves partial terms, ranks precise matches, and tolerates title typos", async () => {
@@ -167,7 +190,14 @@ test("tags: create/update, RLS-scoped listing, tag search and browse", async () 
   await documents.update(draft.id, { tags: ["ml", "published"] });
 
   const tags = await documents.listTags();
-  assert.deepEqual(tags, ["ml", "published"], "distinct, sorted, current tags only");
+  assert.deepEqual(
+    tags,
+    [
+      { tag: "ml", count: 2 },
+      { tag: "published", count: 1 },
+    ],
+    "distinct, sorted, current tags with document counts",
+  );
 
   // Tag filter + text.
   const mlHits = await documents.search("", { tag: "ml" });
@@ -175,6 +205,15 @@ test("tags: create/update, RLS-scoped listing, tag search and browse", async () 
   const combined = await documents.search("transformer", { tag: "ml" });
   assert.deepEqual(combined.map((h) => h.id), [other.id], "text + tag narrows");
   assert.equal((await documents.search("", { tag: "nope" })).length, 0, "unknown tag is empty");
+
+  // Exclusions compose with the rest: by id and by tag, in browse and ranked search.
+  const withoutDraft = await documents.search("", { tag: "ml", excludeIds: [draft.id] });
+  assert.deepEqual(withoutDraft.map((h) => h.id), [other.id], "excludeIds drops a browse hit");
+  const unpublished = await documents.search("notes", {
+    collectionId: col.id,
+    excludeTags: ["published"],
+  });
+  assert.deepEqual(unpublished.map((h) => h.id), [other.id], "excludeTags drops a ranked hit");
 
   // RLS: u2 sees none of u1's tags.
   const d2 = new DocumentService(db, user("u2"));
@@ -341,14 +380,53 @@ test("archive and restore apply to the whole subtree; archived docs leave tree a
   assert.ok(archived?.archivedAt, "parent archived");
   assert.equal((await d1.tree(col.id)).length, 0, "subtree gone from tree");
   assert.equal((await d1.search("zebra")).length, 0, "archived docs not searchable");
+  await assert.rejects(d1.subtree(parent.id, 1), NotFoundError, "archived roots have no subtree");
+  // An archived document takes no new children: they would drop out of the
+  // tree (orphans are not promoted) while staying active and searchable.
+  await assert.rejects(
+    d1.create({ collectionId: col.id, parentDocumentId: parent.id, title: "Late child" }),
+    InvalidInputError,
+    "cannot create under an archived parent",
+  );
+  const loose = await d1.create({ collectionId: col.id, title: "Loose" });
+  await assert.rejects(
+    d1.move(loose.id, { parentDocumentId: parent.id }),
+    InvalidInputError,
+    "cannot move under an archived parent",
+  );
   const archivedList = await d1.listArchived(col.id);
   assert.deepEqual(archivedList.map((d) => d.id), [parent.id], "only the subtree root is listed");
 
   const restored = await d1.restore(parent.id);
   assert.equal(restored!.archivedAt, null);
   const tree = await d1.tree(col.id);
-  assert.equal(tree.length, 1);
-  assert.equal(tree[0]!.children[0]!.id, child.id, "child restored with parent");
+  assert.deepEqual(new Set(tree.map((d) => d.id)), new Set([parent.id, loose.id]));
+  const restoredParent = tree.find((d) => d.id === parent.id)!;
+  assert.equal(restoredParent.children[0]!.id, child.id, "child restored with parent");
+});
+
+test("recent keyset cursor does not skip documents sharing one timestamp", async () => {
+  const collections = new CollectionService(db, user("u1"));
+  const documents = new DocumentService(db, user("u1"));
+  const col = await collections.create({ name: "Bulk import", slug: "bulk-import" });
+  const a = await documents.create({ collectionId: col.id, title: "Imported A" });
+  const b = await documents.create({ collectionId: col.id, title: "Imported B" });
+  // One transaction's now() stamps a whole import with the same instant — at
+  // microsecond precision, which a JS Date cursor could never reproduce.
+  await db.execute(
+    sql`UPDATE documents SET updated_at = '2026-01-01T00:00:00.123456Z' WHERE id IN (${a.id}, ${b.id})`,
+  );
+
+  const first = await documents.recent({ collectionId: col.id, limit: 1 });
+  assert.equal(first.length, 1);
+  const second = await documents.recent({
+    collectionId: col.id,
+    limit: 1,
+    before: { updatedAt: first[0]!.updatedAt, id: first[0]!.id },
+  });
+  assert.equal(second.length, 1, "the row sharing the cursor's timestamp is on the next page");
+  assert.notEqual(second[0]!.id, first[0]!.id);
+  assert.equal(second[0]!.updatedAt.getTime(), first[0]!.updatedAt.getTime());
 });
 
 test("softDelete removes the whole subtree", async () => {

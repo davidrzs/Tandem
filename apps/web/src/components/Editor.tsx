@@ -919,7 +919,7 @@ export function Editor({
       <TagBar
         tags={doc.data.tags}
         canEdit={canEdit}
-        suggestions={tagOptions.data ?? []}
+        suggestions={tagOptions.data?.map((t) => t.tag) ?? []}
         onChange={(tags) => update.mutate({ id: docId, tags })}
         onTagClick={(tag) => openSearch(`#${tag} `)}
       />
