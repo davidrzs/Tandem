@@ -855,7 +855,7 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
   const top = await commentsNa.create({ documentId: doc.id, body: "Thoughts?" });
   const reply = await commentsNb.create({
     documentId: doc.id,
-    body: "Looks good",
+    body: "**Looks** good, see `x`\nand more",
     parentId: top.id,
   });
   await notify.onCommentCreated({
@@ -934,6 +934,11 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
         n.targetId === top.id,
     ),
     "reply notification deep-links to its root thread",
+  );
+  assert.equal(
+    naList.find((n) => n.kind === "comment_reply")!.snippet,
+    "Looks good, see x and more",
+    "comment snippets are the markdown body as one line of plain text",
   );
   assert.ok(
     naList.some(

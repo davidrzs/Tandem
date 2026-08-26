@@ -9,6 +9,7 @@ import {
   type Actor,
   type Database,
 } from "@tandem/db";
+import { markdownToText } from "@tandem/editor";
 import { ForbiddenError } from "../errors.js";
 
 export interface NotificationView {
@@ -237,7 +238,7 @@ export class NotificationService {
         targetType: "comment",
         targetId: comment.parentId ?? comment.id,
         actor,
-        snippet: comment.body,
+        snippet: markdownToText(comment.body),
       });
     }
   }
@@ -258,7 +259,7 @@ export class NotificationService {
       targetType: "comment",
       targetId: input.comment.id,
       actor: input.actor,
-      snippet: input.comment.body,
+      snippet: markdownToText(input.comment.body),
     });
   }
 

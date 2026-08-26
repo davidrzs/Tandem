@@ -910,8 +910,9 @@ export function createMcpServer(
       title: "Add comment",
       description:
         "Comment on a document, or reply to an existing top-level comment by " +
-        "passing its id as parentId. Returns an absolute canonical url that " +
-        "opens the comment thread. Needs only read access to the document.",
+        "passing its id as parentId. The body is Markdown (raw HTML is " +
+        "escaped, images are not rendered). Returns an absolute canonical url " +
+        "that opens the comment thread. Needs only read access to the document.",
       inputSchema: {
         documentId: z.string().uuid(),
         body: z.string().min(1).max(10_000),

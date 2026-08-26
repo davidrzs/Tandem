@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { markdownToHtml } from "@tandem/editor";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
 import { timeAgo } from "./time.js";
@@ -215,6 +216,9 @@ function CommentBody({
   onDelete: (id: string) => void;
   children?: React.ReactNode;
 }) {
+  // Markdown, rendered by a renderer that escapes raw HTML and validates
+  // link targets, so the string is safe to inject.
+  const html = useMemo(() => markdownToHtml(comment.body), [comment.body]);
   return (
     <div className="comment-body">
       <div className="comment-meta">
@@ -242,7 +246,8 @@ function CommentBody({
           )}
         </span>
       </div>
-      <p className="comment-text">{comment.body}</p>
+      {/* biome-ignore lint/security/noDangerouslySetInnerHtml: markdownToHtml escapes raw HTML and validates link targets */}
+      <div className="comment-text" dangerouslySetInnerHTML={{ __html: html }} />
     </div>
   );
 }
