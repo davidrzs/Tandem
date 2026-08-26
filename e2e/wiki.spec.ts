@@ -397,12 +397,14 @@ test("comments: select text, discuss, reply, resolve", async ({ page }) => {
   await page.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
   await page.locator(".bubble-btn", { hasText: "Comment" }).click();
   const composer = page.locator(".comment-composer textarea");
-  await composer.fill("Please expand this before Friday.");
+  await composer.fill("Please **expand** this before Friday.");
   await page.locator(".comment-composer").getByRole("button", { name: "Comment" }).click();
 
   const thread = page.locator(".comment-thread");
   await expect(thread).toContainText("Grace Hopper");
+  // Comment bodies are markdown: the emphasis renders, the asterisks don't.
   await expect(thread).toContainText("Please expand this before Friday.");
+  await expect(thread.locator(".comment-text strong")).toHaveText("expand");
   await expect(page.locator(".comment-span").first()).toBeVisible();
 
   // Reply and resolve.
