@@ -10,7 +10,7 @@ import { PeopleModal } from "./components/PeopleModal.js";
 import { SearchModal } from "./components/SearchModal.js";
 import { SettingsModal } from "./components/SettingsModal.js";
 import { ShareModal } from "./components/ShareModal.js";
-import { Sidebar } from "./components/Sidebar.js";
+import { Sidebar } from "./components/sidebar/Sidebar.js";
 import { trpc } from "./trpc.js";
 import { storageGet, storageSet } from "./storage.js";
 
