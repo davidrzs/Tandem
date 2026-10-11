@@ -95,6 +95,17 @@ test("tools are advertised", async () => {
   ]);
 });
 
+test("oversized inputs are rejected by the shared limits", async () => {
+  const res: any = await client
+    .callTool({
+      name: "create_document",
+      arguments: { collectionId: "00000000-0000-4000-8000-000000000000", title: "x".repeat(501) },
+    })
+    .catch((e: Error) => ({ isError: true, content: [{ text: e.message }] }));
+  assert.ok(res.isError, "title over the limit is refused");
+  assert.match(JSON.stringify(res.content), /500|too_big|at most/i);
+});
+
 test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async () => {
   const col = payload(
     await client.callTool({
@@ -656,7 +667,7 @@ test("upload_image rejects bad mime, bad data, oversize, and foreign workspaces"
       data: Buffer.alloc(MCP_IMAGE_MAX_BYTES + 3).toString("base64"),
       mime: "image/png",
     }),
-    /exceeds 8MB/,
+    /exceeds 3MB/,
   );
   assert.match(
     await errorOf({ data: PNG_1PX, mime: "image/png", workspaceId: randomUUID() }),

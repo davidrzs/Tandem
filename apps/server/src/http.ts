@@ -410,5 +410,13 @@ export async function buildHttpServer(
     });
   }
 
+  // Shutdown: run pending debounced stores now and wait for every in-flight
+  // save, so edits made within the debounce window survive a restart.
+  app.addHook("onClose", async () => {
+    hocuspocus.closeConnections();
+    hocuspocus.flushPendingStores();
+    await Promise.all([...hocuspocus.documents.values()].map((d) => d.saveMutex.waitForUnlock()));
+  });
+
   return app;
 }

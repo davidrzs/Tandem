@@ -3535,6 +3535,42 @@ select.code-lang:hover {
   border-color: var(--accent);
 }
 
+/* --- Shortcuts sheet --- */
+.shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px 28px;
+}
+
+.shortcuts h3 {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  margin: 0 0 6px;
+}
+
+.shortcuts dl {
+  margin: 0;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.shortcut-row dd {
+  display: flex;
+  gap: 3px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 /* --- Toasts --- */
 .toasts {
   position: fixed;
@@ -3563,6 +3599,20 @@ select.code-lang:hover {
 .toast-danger {
   background: var(--danger);
   color: #fff;
+}
+
+.toast-action {
+  pointer-events: auto;
+  margin-left: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 @keyframes toast-in {

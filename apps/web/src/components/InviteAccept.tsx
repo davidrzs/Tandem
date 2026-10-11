@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { WS_KEY } from "../App.js";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
+import { storageSet } from "../storage.js";
 
 // Carries the invite token through signup so the server's registration gate
 // allows the account even in invite-only/closed mode (see registration.ts).
@@ -28,7 +29,7 @@ export function InviteAccept({ token }: { token: string }) {
       .mutateAsync({ token })
       .then((ws) => {
         // Land in the workspace that was just joined, not the previous one.
-        localStorage.setItem(WS_KEY, ws.id);
+        storageSet(WS_KEY, ws.id);
         window.location.assign("/");
       })
       .catch((e: { message?: string }) => {

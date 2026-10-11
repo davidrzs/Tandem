@@ -59,7 +59,7 @@ test("import: wiki zip → tree, tags, rewritten links, uploaded image, importer
 
   const col = (await services.collections.list()).find((c) => c.name === "Handbook")!;
   assert.ok(col, "collection created from the top folder");
-  const tree = await services.documents.tree(col.id);
+  const tree = await services.documentTree.tree(col.id);
   assert.equal(tree.length, 1);
   const onboarding = tree[0]!;
   assert.equal(onboarding.title, "Onboarding");

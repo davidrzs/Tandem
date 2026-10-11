@@ -3,14 +3,16 @@ import { Outlet, useLocation, useMatch, useOutletContext } from "react-router-do
 import { AdminModal } from "./components/AdminModal.js";
 import { Icon } from "./components/Icon.js";
 import { NotificationsModal } from "./components/NotificationsModal.js";
+import { ShortcutsModal } from "./components/ShortcutsModal.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { friendlyError } from "./errors.js";
 import { PeopleModal } from "./components/PeopleModal.js";
 import { SearchModal } from "./components/SearchModal.js";
 import { SettingsModal } from "./components/SettingsModal.js";
 import { ShareModal } from "./components/ShareModal.js";
-import { Sidebar } from "./components/Sidebar.js";
+import { Sidebar } from "./components/sidebar/Sidebar.js";
 import { trpc } from "./trpc.js";
+import { storageGet, storageSet } from "./storage.js";
 
 export interface CollectionInfo {
   id: string;
@@ -41,7 +43,7 @@ export function App() {
   const workspaces = trpc.workspaces.mine.useQuery();
   const collections = trpc.collections.list.useQuery();
   const [workspaceId, setWorkspaceId] = useState<string | null>(
-    () => localStorage.getItem(WS_KEY) || null,
+    () => storageGet(WS_KEY) || null,
   );
 
   // Default to the first workspace once loaded; drop a stale stored id.
@@ -53,7 +55,7 @@ export function App() {
     }
   }, [workspaces.data, workspaceId]);
   useEffect(() => {
-    if (workspaceId) localStorage.setItem(WS_KEY, workspaceId);
+    if (workspaceId) storageSet(WS_KEY, workspaceId);
   }, [workspaceId]);
 
   // A deep link into another workspace's document or collection switches the
@@ -85,14 +87,26 @@ export function App() {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [shareCollectionId, setShareCollectionId] = useState<string | null>(null);
 
-  // Cmd/Ctrl+K opens search from anywhere.
+  // Cmd/Ctrl+K opens search from anywhere; "?" (outside text fields) and
+  // Cmd/Ctrl+/ open the shortcuts sheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setSearchQuery((q) => (q === null ? "" : null));
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      if ((mod && e.key === "/") || (e.key === "?" && !mod && !e.altKey && !typing)) {
+        e.preventDefault();
+        setShortcutsOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -151,6 +165,7 @@ export function App() {
         onOpenPeople={() => setPeopleOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAdmin={() => setAdminOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onShareCollection={setShareCollectionId}
       />
       <main className="main">
@@ -182,6 +197,7 @@ export function App() {
         <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
       )}
       {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
       {shareCollection && (
         <ShareModal
           collection={shareCollection}

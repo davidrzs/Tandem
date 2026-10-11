@@ -3,7 +3,9 @@ import type { AuthorIdentity } from "@tandem/editor";
 import {
   CollectionService,
   CommentService,
+  DocumentQueryService,
   DocumentService,
+  DocumentTreeService,
   FavoriteService,
   GroupService,
   ImageService,
@@ -19,6 +21,8 @@ export interface Services {
   actor: Actor;
   workspaces: WorkspaceService;
   documents: DocumentService;
+  documentTree: DocumentTreeService;
+  documentQueries: DocumentQueryService;
   collections: CollectionService;
   comments: CommentService;
   favorites: FavoriteService;
@@ -46,6 +50,8 @@ export function createServices(
     actor,
     workspaces: new WorkspaceService(db, actor),
     documents: new DocumentService(db, actor, author),
+    documentTree: new DocumentTreeService(db, actor, author),
+    documentQueries: new DocumentQueryService(db, actor, author),
     collections: new CollectionService(db, actor),
     comments: new CommentService(db, actor),
     favorites: new FavoriteService(db, actor),

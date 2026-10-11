@@ -191,6 +191,11 @@ export const documents = pgTable(
     contentJson: jsonb("content_json"),
     // Live WRITE model: persisted Yjs CRDT state. Null until first edit session.
     ydocState: bytea("ydoc_state"),
+    // Lower-cased @handles of task items (`- [ ] @alice ...`) in content_md,
+    // extracted on every content write so "my todos" is an index lookup, not
+    // a scan of every readable body. NULL = written before this column existed
+    // (readers fall back to scanning those rows until their next save).
+    taskAssignees: text("task_assignees").array(),
 
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): any =>
@@ -215,6 +220,7 @@ export const documents = pgTable(
       .using("gin", sql`lower(${t.title}) gin_trgm_ops`)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
     index("documents_tags_idx").using("gin", t.tags),
+    index("documents_task_assignees_idx").using("gin", t.taskAssignees),
     index("documents_recent_idx")
       .on(t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),

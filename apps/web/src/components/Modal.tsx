@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon.js";
 
 /**
@@ -9,22 +9,51 @@ import { Icon, type IconName } from "./Icon.js";
  * library; only the skin (classes below) is ours.
  */
 
+const VISUALLY_HIDDEN = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+} as const;
+
 export function Modal({
   title,
   onClose,
   children,
   wide,
+  className,
+  overlayClassName,
+  bare,
+  style,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  /** Replaces the default "modal" content class. */
+  className?: string;
+  overlayClassName?: string;
+  /** No visible header; the title stays available to assistive tech only. */
+  bare?: boolean;
+  style?: CSSProperties;
 }) {
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className={"modal" + (wide ? " wide" : "")} aria-describedby={undefined}>
+        <Dialog.Overlay className={"modal-overlay" + (overlayClassName ? ` ${overlayClassName}` : "")} />
+        <Dialog.Content
+          className={(className ?? "modal") + (wide ? " wide" : "")}
+          aria-describedby={undefined}
+          style={style}
+        >
+          {bare ? (
+            <Dialog.Title style={VISUALLY_HIDDEN}>{title}</Dialog.Title>
+          ) : (
           <div className="modal-head">
             <Dialog.Title asChild>
               <h2>{title}</h2>
@@ -35,6 +64,7 @@ export function Modal({
               </button>
             </Dialog.Close>
           </div>
+          )}
           {children}
         </Dialog.Content>
       </Dialog.Portal>

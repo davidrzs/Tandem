@@ -4,9 +4,16 @@
 #
 #   docker compose --profile release run --rm migrate   # once per deploy
 #   docker compose up -d --build                          # app + caddy
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   app:
     build: .
+    logging: *logging
     restart: unless-stopped
     # A runaway process degrades, not takes down, the host. Hocuspocus holds
     # open documents in memory — raise this if your instance is very busy.
@@ -37,13 +44,15 @@ services:
   # One-shot release step: `docker compose --profile release run --rm migrate`
   migrate:
     build: .
+    logging: *logging
     profiles: ["release"]
-    command: pnpm db:migrate
+    command: ["node", "--import", "tsx", "node_modules/@tandem/db/src/migrate-run.ts"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
 
   caddy:
-    image: caddy:2
+    image: caddy:2.11
+    logging: *logging
     restart: unless-stopped
     depends_on:
       app:

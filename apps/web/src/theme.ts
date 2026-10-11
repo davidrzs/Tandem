@@ -4,13 +4,15 @@
  * preference (tracked live) when the user never chose.
  */
 
+import { storageGet, storageSet } from "./storage.js";
+
 const KEY = "tandem.theme";
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 
 export type ThemeChoice = "light" | "dark";
 
 export function storedTheme(): ThemeChoice | null {
-  const v = localStorage.getItem(KEY);
+  const v = storageGet(KEY);
   return v === "light" || v === "dark" ? v : null;
 }
 
@@ -23,7 +25,7 @@ function apply(): void {
 }
 
 export function setTheme(choice: ThemeChoice): void {
-  localStorage.setItem(KEY, choice);
+  storageSet(KEY, choice);
   apply();
 }
 

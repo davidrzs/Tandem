@@ -1,0 +1,55 @@
+import { z } from "zod";
+
+/**
+ * Input bounds shared by every API surface (tRPC for the web app, MCP for
+ * agents) so the two can't drift: one place decides how large a title, body
+ * or search query may be. Shapes are plain objects so MCP's `inputSchema`
+ * (a raw shape) and tRPC's `z.object(...)` can both use them.
+ */
+export const INPUT_LIMITS = {
+  title: 500,
+  /** Markdown body, in characters (~1MB of ASCII). */
+  markdown: 1_000_000,
+  searchQuery: 500,
+  tags: 50,
+  tag: 100,
+  name: 200,
+  description: 2_000,
+} as const;
+
+export const titleSchema = z.string().max(INPUT_LIMITS.title);
+export const markdownSchema = z.string().max(INPUT_LIMITS.markdown);
+export const tagSchema = z.string().max(INPUT_LIMITS.tag);
+export const tagsSchema = z.array(tagSchema).max(INPUT_LIMITS.tags);
+export const searchQuerySchema = z.string().max(INPUT_LIMITS.searchQuery);
+export const nameSchema = z.string().min(1).max(INPUT_LIMITS.name);
+export const descriptionSchema = z.string().max(INPUT_LIMITS.description);
+export const positionSchema = z.number().finite();
+
+const uuid = z.string().uuid();
+
+export const documentCreateShape = {
+  collectionId: uuid,
+  title: titleSchema.optional(),
+  markdown: markdownSchema.optional(),
+  parentDocumentId: uuid.optional(),
+};
+
+export const documentUpdateShape = {
+  id: uuid,
+  title: titleSchema.optional(),
+  tags: tagsSchema.optional(),
+};
+
+export const documentMoveShape = {
+  id: uuid,
+  parentDocumentId: uuid.nullable(),
+  position: positionSchema.optional(),
+};
+
+export const documentSearchShape = {
+  query: searchQuerySchema,
+  collectionId: uuid.optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  tag: tagSchema.optional(),
+};

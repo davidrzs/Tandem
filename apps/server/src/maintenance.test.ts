@@ -97,3 +97,52 @@ test("maintenance prunes old snapshots (keeping the newest) and orphaned images"
     await db.$dispose();
   }
 });
+
+test("maintenance thins snapshots older than a week to one per day, keeping pre-restore ones", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  try {
+    const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "U1", slug: "u1" });
+    const col = await new CollectionService(db, { kind: "user", userId: "u1" }).create({ name: "C", slug: "c" });
+    const doc = await new DocumentService(db, { kind: "user", userId: "u1" }).create({
+      collectionId: col.id,
+      title: "Busy",
+    });
+    // (age in days, hour, kind): three auto captures on day 30, one pre-restore
+    // on day 30, two auto on day 2 (recent: all kept).
+    const rows: Array<[number, number, string]> = [
+      [30, 9, "auto"],
+      [30, 10, "auto"],
+      [30, 11, "auto"],
+      [30, 10, "pre-restore"],
+      [2, 9, "auto"],
+      [2, 10, "auto"],
+    ];
+    await runAsActor(db, SYSTEM, async (d) => {
+      for (const [i, [days, hour, kind]] of rows.entries()) {
+        const [row] = await d
+          .insert(documentSnapshots)
+          .values({ documentId: doc.id, workspaceId: ws.id, ydocState: new Uint8Array([i]), kind, authors: [] })
+          .returning({ id: documentSnapshots.id });
+        await d.execute(
+          sql`UPDATE document_snapshots SET created_at = date_trunc('day', now()) - (${days} * interval '1 day') + (${hour} * interval '1 hour') WHERE id = ${row!.id}`,
+        );
+      }
+    });
+
+    const result = await runMaintenance(db, { retentionDays: 180, keepPerDoc: 0, fullDays: 7 });
+    assert.equal(result.snapshotsPruned, 2, "two older auto captures on day 30 go");
+    const left = await runAsActor(db, SYSTEM, (d) =>
+      d
+        .select({ kind: documentSnapshots.kind, createdAt: documentSnapshots.createdAt })
+        .from(documentSnapshots)
+        .where(eq(documentSnapshots.documentId, doc.id)),
+    );
+    assert.equal(left.length, 4);
+    assert.equal(left.filter((r) => r.kind === "pre-restore").length, 1, "pre-restore survives");
+    const old = left.filter((r) => r.kind === "auto" && Date.now() - r.createdAt.getTime() > 7 * 86_400_000);
+    assert.equal(old.length, 1, "one auto snapshot per old day");
+  } finally {
+    await db.$dispose();
+  }
+});

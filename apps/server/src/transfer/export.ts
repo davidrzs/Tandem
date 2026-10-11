@@ -54,7 +54,7 @@ export async function buildExportZip(
   // Plan the whole layout first so cross-document links resolve to real paths.
   const collections: ExportCollection[] = [];
   for (const col of chosen) {
-    const tree = await services.documents.tree(col.id);
+    const tree = await services.documentTree.tree(col.id);
     collections.push({ name: col.name, docs: toExportDocs(tree) });
   }
   const pathByDocId = planExportLayout(collections);
