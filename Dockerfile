@@ -2,7 +2,7 @@
 # Hocuspocus (/collab), the MCP endpoint (/mcp), and the built web SPA.
 # The server and its workspace packages are TypeScript run via tsx (a runtime
 # dependency of @tandem/server and @tandem/db); there is no JS build step.
-FROM node:22.23-bookworm-slim AS base
+FROM node:26.10-bookworm-slim AS base
 RUN npm install -g pnpm@11.8.0
 WORKDIR /app
 
@@ -23,7 +23,7 @@ RUN pnpm --filter @tandem/web build
 # --legacy: the non-legacy deploy requires injectWorkspacePackages globally.
 RUN pnpm --filter @tandem/server deploy --prod --legacy /out/server
 
-FROM node:22.23-bookworm-slim AS runtime
+FROM node:26.10-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV PORT=3001
 WORKDIR /app/apps/server
