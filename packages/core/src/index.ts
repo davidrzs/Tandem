@@ -2,6 +2,8 @@ export * from "./errors.js";
 export * from "./markdown.js";
 export * from "./services/collections.js";
 export * from "./services/comments.js";
+export * from "./services/document-queries.js";
+export * from "./services/document-tree.js";
 export * from "./services/documents.js";
 export * from "./services/favorites.js";
 export * from "./services/groups.js";

@@ -305,7 +305,7 @@ export const appRouter = t.router({
   documents: t.router({
     tree: protectedProcedure
       .input(z.object({ collectionId: uuid }))
-      .query(({ ctx, input }) => ctx.services.documents.tree(input.collectionId)),
+      .query(({ ctx, input }) => ctx.services.documentTree.tree(input.collectionId)),
 
     // Metadata only (no body/binary) — what the editor header needs. The body
     // itself always arrives over the Yjs collab channel.
@@ -340,13 +340,13 @@ export const appRouter = t.router({
       )
       .mutation(({ ctx, input }) => {
         const { id, ...target } = input;
-        return ctx.services.documents.move(id, target);
+        return ctx.services.documentTree.move(id, target);
       }),
 
     archive: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(async ({ ctx, input }) => {
-        const doc = await ctx.services.documents.archive(input.id);
+        const doc = await ctx.services.documentTree.archive(input.id);
         if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot archive this document." });
         return doc;
       }),
@@ -354,7 +354,7 @@ export const appRouter = t.router({
     restore: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(async ({ ctx, input }) => {
-        const doc = await ctx.services.documents.restore(input.id);
+        const doc = await ctx.services.documentTree.restore(input.id);
         if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot restore this document." });
         return doc;
       }),
@@ -362,7 +362,7 @@ export const appRouter = t.router({
     delete: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(async ({ ctx, input }) => {
-        const deleted = await ctx.services.documents.softDelete(input.id);
+        const deleted = await ctx.services.documentTree.softDelete(input.id);
         if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
       }),
 
@@ -382,15 +382,15 @@ export const appRouter = t.router({
 
     listArchived: protectedProcedure
       .input(z.object({ collectionId: uuid }))
-      .query(({ ctx, input }) => ctx.services.documents.listArchived(input.collectionId)),
+      .query(({ ctx, input }) => ctx.services.documentTree.listArchived(input.collectionId)),
 
-    myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documents.listMyTodos()),
+    myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documentQueries.listMyTodos()),
 
     hasAny: protectedProcedure
       .input(z.object({ workspaceId: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.hasAnyInWorkspace(input.workspaceId)),
 
-    listTags: protectedProcedure.query(({ ctx }) => ctx.services.documents.listTags()),
+    listTags: protectedProcedure.query(({ ctx }) => ctx.services.documentQueries.listTags()),
 
     listSnapshots: protectedProcedure
       .input(z.object({ documentId: uuid }))
@@ -429,7 +429,7 @@ export const appRouter = t.router({
 
     backlinks: protectedProcedure
       .input(z.object({ id: uuid }))
-      .query(({ ctx, input }) => ctx.services.documents.backlinks(input.id)),
+      .query(({ ctx, input }) => ctx.services.documentQueries.backlinks(input.id)),
 
     search: protectedProcedure
       .input(
@@ -437,7 +437,7 @@ export const appRouter = t.router({
       )
       .query(({ ctx, input }) => {
         const { query, ...opts } = input;
-        return ctx.services.documents.search(query, opts);
+        return ctx.services.documentQueries.search(query, opts);
       }),
   }),
 

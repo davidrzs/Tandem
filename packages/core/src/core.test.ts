@@ -17,6 +17,8 @@ import { InvalidInputError, NotFoundError } from "./errors.js";
 import { CollectionService } from "./services/collections.js";
 import { CommentService } from "./services/comments.js";
 import { NotificationService } from "./services/notifications.js";
+import { DocumentQueryService } from "./services/document-queries.js";
+import { DocumentTreeService } from "./services/document-tree.js";
 import { DocumentService, normalizeTags } from "./services/documents.js";
 import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
@@ -48,6 +50,8 @@ test("markdown round-trips through the document model", () => {
 test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () => {
   const collections = new CollectionService(db, user("u1"));
   const documents = new DocumentService(db, user("u1"));
+  const documentTree = new DocumentTreeService(db, user("u1"));
+  const documentQueries = new DocumentQueryService(db, user("u1"));
 
   const col = await collections.create({ name: "Handbook", slug: "handbook" });
   assert.ok(col.workspaceId, "collection got a workspace");
@@ -75,34 +79,34 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
     "existence check remains RLS-scoped",
   );
 
-  const tree = await documents.tree(col.id);
+  const tree = await documentTree.tree(col.id);
   assert.equal(tree[0]!.children[0]!.id, child.id);
-  const shallowTree = await documents.tree(col.id, 1);
+  const shallowTree = await documentTree.tree(col.id, 1);
   assert.equal(shallowTree[0]!.id, parent.id);
   assert.deepEqual(shallowTree[0]!.children, [], "bounded tree reads omit deeper levels");
 
-  const recent = await documents.recent({ collectionId: col.id, limit: 2 });
+  const recent = await documentQueries.recent({ collectionId: col.id, limit: 2 });
   assert.deepEqual(new Set(recent.map((doc) => doc.id)), new Set([parent.id, child.id]));
   assert.equal(
-    (await new DocumentService(db, user("u2")).recent({ collectionId: col.id })).length,
+    (await new DocumentQueryService(db, user("u2")).recent({ collectionId: col.id })).length,
     0,
     "recent documents remain RLS-scoped",
   );
   assert.equal(
-    (await documents.recent({
+    (await documentQueries.recent({
       collectionId: col.id,
       updatedAfter: new Date(Date.now() + 60_000),
     })).length,
     0,
   );
 
-  const hits = await documents.search("pnpm monorepo", { collectionId: col.id });
+  const hits = await documentQueries.search("pnpm monorepo", { collectionId: col.id });
   assert.ok(hits.some((h) => h.id === child.id));
 
   // Prefix search: a partial word must match the TITLE too ("Onboard[ing]").
-  const titleHits = await documents.search("onboard");
+  const titleHits = await documentQueries.search("onboard");
   assert.ok(titleHits.some((h) => h.id === parent.id), "title prefix matches");
-  assert.equal((await documents.search("   ")).length, 0, "blank query is empty");
+  assert.equal((await documentQueries.search("   ")).length, 0, "blank query is empty");
 
   // Bounded subtree navigation: one document's descendants, with the titles
   // leading to it so callers can print collection-relative paths.
@@ -111,16 +115,16 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
     parentDocumentId: child.id,
     title: "Dotfiles",
   });
-  const sub = await documents.subtree(child.id, 1);
+  const sub = await documentTree.subtree(child.id, 1);
   assert.equal(sub.root.id, child.id);
   assert.deepEqual(sub.ancestry, ["Onboarding", "Laptop setup"]);
   assert.deepEqual(sub.nodes.map((n) => n.id), [grandchild.id]);
   assert.deepEqual(sub.nodes[0]!.children, [], "depth counts from the root");
-  const deeper = await documents.subtree(parent.id, 2);
+  const deeper = await documentTree.subtree(parent.id, 2);
   assert.equal(deeper.nodes[0]!.children[0]!.id, grandchild.id);
-  await assert.rejects(documents.subtree(randomUUID(), 1), NotFoundError);
+  await assert.rejects(documentTree.subtree(randomUUID(), 1), NotFoundError);
   await assert.rejects(
-    new DocumentService(db, user("u2")).subtree(child.id, 1),
+    new DocumentTreeService(db, user("u2")).subtree(child.id, 1),
     NotFoundError,
     "subtree roots are RLS-scoped",
   );
@@ -129,6 +133,7 @@ test("workspace-scoped CRUD, tree, and search (user actor under RLS)", async () 
 test("search retrieves partial terms, ranks precise matches, and tolerates title typos", async () => {
   const collections = new CollectionService(db, user("u1"));
   const documents = new DocumentService(db, user("u1"));
+  const documentQueries = new DocumentQueryService(db, user("u1"));
   const col = await collections.create({ name: "Search Quality", slug: "search-quality" });
   const parent = await documents.create({ collectionId: col.id, title: "Planning" });
   const partial = await documents.create({
@@ -143,7 +148,7 @@ test("search retrieves partial terms, ranks precise matches, and tolerates title
     markdown: "The research agenda for the coming year.",
   });
 
-  const broad = await documents.search("research agenda", { collectionId: col.id });
+  const broad = await documentQueries.search("research agenda", { collectionId: col.id });
   assert.equal(broad[0]!.id, precise.id, "title phrase outranks a partial-term result");
   const partialHit = broad.find((hit) => hit.id === partial.id);
   assert.ok(partialHit, "a one-of-two token match is still retrieved");
@@ -154,13 +159,13 @@ test("search retrieves partial terms, ranks precise matches, and tolerates title
   assert.equal(partialHit.collectionName, "Search Quality");
   assert.equal(partialHit.path, "Search Quality / Planning / Research Proposal");
 
-  const fuzzy = await documents.search("reseach proposl", { collectionId: col.id });
+  const fuzzy = await documentQueries.search("reseach proposl", { collectionId: col.id });
   const fuzzyHit = fuzzy.find((hit) => hit.id === partial.id);
   assert.ok(fuzzyHit, "misspelled title terms are recovered through pg_trgm");
   assert.equal(fuzzyHit.matchKind, "fuzzy_title");
   assert.deepEqual(new Set(fuzzyHit.fuzzyTitleTerms), new Set(["reseach", "proposl"]));
 
-  const deduped = await documents.search("research research", { collectionId: col.id });
+  const deduped = await documentQueries.search("research research", { collectionId: col.id });
   assert.equal(deduped[0]!.totalTerms, 1, "repeated query terms count once");
 });
 
@@ -173,6 +178,7 @@ test("normalizeTags trims, collapses, dedupes case-insensitively, and caps", () 
 test("tags: create/update, RLS-scoped listing, tag search and browse", async () => {
   const collections = new CollectionService(db, user("u1"));
   const documents = new DocumentService(db, user("u1"));
+  const documentQueries = new DocumentQueryService(db, user("u1"));
   const col = await collections.create({ name: "Papers", slug: "papers" });
 
   const draft = await documents.create({
@@ -190,7 +196,7 @@ test("tags: create/update, RLS-scoped listing, tag search and browse", async () 
   const other = await documents.create({ collectionId: col.id, title: "Transformer notes", tags: ["ml"] });
   await documents.update(draft.id, { tags: ["ml", "published"] });
 
-  const tags = await documents.listTags();
+  const tags = await documentQueries.listTags();
   assert.deepEqual(
     tags,
     [
@@ -201,25 +207,25 @@ test("tags: create/update, RLS-scoped listing, tag search and browse", async () 
   );
 
   // Tag filter + text.
-  const mlHits = await documents.search("", { tag: "ml" });
+  const mlHits = await documentQueries.search("", { tag: "ml" });
   assert.deepEqual(new Set(mlHits.map((h) => h.id)), new Set([draft.id, other.id]), "tag browse lists both");
-  const combined = await documents.search("transformer", { tag: "ml" });
+  const combined = await documentQueries.search("transformer", { tag: "ml" });
   assert.deepEqual(combined.map((h) => h.id), [other.id], "text + tag narrows");
-  assert.equal((await documents.search("", { tag: "nope" })).length, 0, "unknown tag is empty");
+  assert.equal((await documentQueries.search("", { tag: "nope" })).length, 0, "unknown tag is empty");
 
   // Exclusions compose with the rest: by id and by tag, in browse and ranked search.
-  const withoutDraft = await documents.search("", { tag: "ml", excludeIds: [draft.id] });
+  const withoutDraft = await documentQueries.search("", { tag: "ml", excludeIds: [draft.id] });
   assert.deepEqual(withoutDraft.map((h) => h.id), [other.id], "excludeIds drops a browse hit");
-  const unpublished = await documents.search("notes", {
+  const unpublished = await documentQueries.search("notes", {
     collectionId: col.id,
     excludeTags: ["published"],
   });
   assert.deepEqual(unpublished.map((h) => h.id), [other.id], "excludeTags drops a ranked hit");
 
   // RLS: u2 sees none of u1's tags.
-  const d2 = new DocumentService(db, user("u2"));
-  assert.equal((await d2.listTags()).length, 0, "u2 cannot see u1's tags");
-  assert.equal((await d2.search("", { tag: "ml" })).length, 0, "u2 tag search is empty");
+  const d2Queries = new DocumentQueryService(db, user("u2"));
+  assert.equal((await d2Queries.listTags()).length, 0, "u2 cannot see u1's tags");
+  assert.equal((await d2Queries.search("", { tag: "ml" })).length, 0, "u2 tag search is empty");
 });
 
 test("tenant isolation: a user cannot see or write another workspace's data", async () => {
@@ -232,12 +238,13 @@ test("tenant isolation: a user cannot see or write another workspace's data", as
   // u2 sees none of it.
   const c2 = new CollectionService(db, user("u2"));
   const d2 = new DocumentService(db, user("u2"));
+  const d2Queries = new DocumentQueryService(db, user("u2"));
   assert.ok(
     !(await c2.list()).some((c) => c.id === col.id),
     "u2 collection list excludes u1's collection",
   );
   assert.equal(await d2.get(doc.id), null, "u2 cannot fetch u1's document");
-  assert.equal((await d2.search("secret")).length, 0, "u2 search finds nothing of u1's");
+  assert.equal((await d2Queries.search("secret")).length, 0, "u2 search finds nothing of u1's");
 
   // u2 cannot create a document inside u1's collection (collection invisible).
   await assert.rejects(
@@ -282,14 +289,15 @@ test("invite: a user who accepts an invite gains access to that workspace", asyn
 test("restore undoes exactly one archive; separately archived children stay archived", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
   const col = await c1.create({ name: "Arc", slug: "archive-undo" });
   const root = await d1.create({ collectionId: col.id, title: "root" });
   const kept = await d1.create({ collectionId: col.id, parentDocumentId: root.id, title: "kept" });
   const earlier = await d1.create({ collectionId: col.id, parentDocumentId: root.id, title: "old" });
 
-  await d1.archive(earlier.id);
-  await d1.archive(root.id);
-  await d1.restore(root.id);
+  await d1Tree.archive(earlier.id);
+  await d1Tree.archive(root.id);
+  await d1Tree.restore(root.id);
 
   const state = async (id: string) =>
     (await db.select({ a: documents.archivedAt }).from(documents).where(eq(documents.id, id)))[0]!.a;
@@ -303,22 +311,24 @@ test("tree queries terminate even if a parent cycle exists", { timeout: 10_000 }
   // API; the CTEs must still not hang if it ever exists in the data.
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
   const col = await c1.create({ name: "Cyc", slug: "cycle" });
   const a = await d1.create({ collectionId: col.id, title: "a" });
   const b = await d1.create({ collectionId: col.id, parentDocumentId: a.id, title: "b" });
   const c = await d1.create({ collectionId: col.id, title: "c" });
   await db.update(documents).set({ parentDocumentId: b.id }).where(eq(documents.id, a.id));
 
-  await assert.rejects(() => d1.move(c.id, { parentDocumentId: b.id }).then(() =>
-    d1.move(a.id, { parentDocumentId: c.id }),
+  await assert.rejects(() => d1Tree.move(c.id, { parentDocumentId: b.id }).then(() =>
+    d1Tree.move(a.id, { parentDocumentId: c.id }),
   ), /own descendant/);
-  await d1.subtree(c.id, 3);
-  assert.ok(await d1.archive(a.id));
+  await d1Tree.subtree(c.id, 3);
+  assert.ok(await d1Tree.archive(a.id));
 });
 
 test("move rejects a cross-collection or self parent", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
   const colA = await c1.create({ name: "A", slug: "move-a" });
   const colB = await c1.create({ name: "B", slug: "move-b" });
   const a1 = await d1.create({ collectionId: colA.id, title: "a1" });
@@ -326,23 +336,23 @@ test("move rejects a cross-collection or self parent", async () => {
   const b1 = await d1.create({ collectionId: colB.id, title: "b1" });
 
   await assert.rejects(
-    () => d1.move(a1.id, { parentDocumentId: b1.id }),
+    () => d1Tree.move(a1.id, { parentDocumentId: b1.id }),
     /same collection/,
     "cross-collection parent rejected",
   );
   await assert.rejects(
-    () => d1.move(a1.id, { parentDocumentId: a1.id }),
+    () => d1Tree.move(a1.id, { parentDocumentId: a1.id }),
     /own parent/,
     "self-parent rejected",
   );
   // Same-collection move is allowed.
-  const moved = await d1.move(a1.id, { parentDocumentId: a2.id });
+  const moved = await d1Tree.move(a1.id, { parentDocumentId: a2.id });
   assert.equal(moved!.parentDocumentId, a2.id);
 
   // Moving a document into its own descendant would create a cycle.
   const a3 = await d1.create({ collectionId: colA.id, parentDocumentId: a1.id, title: "a3" });
   await assert.rejects(
-    () => d1.move(a1.id, { parentDocumentId: a3.id }),
+    () => d1Tree.move(a1.id, { parentDocumentId: a3.id }),
     /own descendant/,
     "indirect cycle rejected",
   );
@@ -405,6 +415,8 @@ test("per-collection ACLs: default none, explicit read, read_write, and groups",
 test("archive and restore apply to the whole subtree; archived docs leave tree and search", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
+  const d1Queries = new DocumentQueryService(db, user("u1"));
   const col = await c1.create({ name: "Lifecycle", slug: "lifecycle" });
   const parent = await d1.create({ collectionId: col.id, title: "P", markdown: "parent zebra" });
   const child = await d1.create({
@@ -414,11 +426,11 @@ test("archive and restore apply to the whole subtree; archived docs leave tree a
     markdown: "child zebra",
   });
 
-  const archived = await d1.archive(parent.id);
+  const archived = await d1Tree.archive(parent.id);
   assert.ok(archived?.archivedAt, "parent archived");
-  assert.equal((await d1.tree(col.id)).length, 0, "subtree gone from tree");
-  assert.equal((await d1.search("zebra")).length, 0, "archived docs not searchable");
-  await assert.rejects(d1.subtree(parent.id, 1), NotFoundError, "archived roots have no subtree");
+  assert.equal((await d1Tree.tree(col.id)).length, 0, "subtree gone from tree");
+  assert.equal((await d1Queries.search("zebra")).length, 0, "archived docs not searchable");
+  await assert.rejects(d1Tree.subtree(parent.id, 1), NotFoundError, "archived roots have no subtree");
   // An archived document takes no new children: they would drop out of the
   // tree (orphans are not promoted) while staying active and searchable.
   await assert.rejects(
@@ -428,16 +440,16 @@ test("archive and restore apply to the whole subtree; archived docs leave tree a
   );
   const loose = await d1.create({ collectionId: col.id, title: "Loose" });
   await assert.rejects(
-    d1.move(loose.id, { parentDocumentId: parent.id }),
+    d1Tree.move(loose.id, { parentDocumentId: parent.id }),
     InvalidInputError,
     "cannot move under an archived parent",
   );
-  const archivedList = await d1.listArchived(col.id);
+  const archivedList = await d1Tree.listArchived(col.id);
   assert.deepEqual(archivedList.map((d) => d.id), [parent.id], "only the subtree root is listed");
 
-  const restored = await d1.restore(parent.id);
+  const restored = await d1Tree.restore(parent.id);
   assert.equal(restored!.archivedAt, null);
-  const tree = await d1.tree(col.id);
+  const tree = await d1Tree.tree(col.id);
   assert.deepEqual(new Set(tree.map((d) => d.id)), new Set([parent.id, loose.id]));
   const restoredParent = tree.find((d) => d.id === parent.id)!;
   assert.equal(restoredParent.children[0]!.id, child.id, "child restored with parent");
@@ -446,6 +458,7 @@ test("archive and restore apply to the whole subtree; archived docs leave tree a
 test("recent keyset cursor does not skip documents sharing one timestamp", async () => {
   const collections = new CollectionService(db, user("u1"));
   const documents = new DocumentService(db, user("u1"));
+  const documentQueries = new DocumentQueryService(db, user("u1"));
   const col = await collections.create({ name: "Bulk import", slug: "bulk-import" });
   const a = await documents.create({ collectionId: col.id, title: "Imported A" });
   const b = await documents.create({ collectionId: col.id, title: "Imported B" });
@@ -455,9 +468,9 @@ test("recent keyset cursor does not skip documents sharing one timestamp", async
     sql`UPDATE documents SET updated_at = '2026-01-01T00:00:00.123456Z' WHERE id IN (${a.id}, ${b.id})`,
   );
 
-  const first = await documents.recent({ collectionId: col.id, limit: 1 });
+  const first = await documentQueries.recent({ collectionId: col.id, limit: 1 });
   assert.equal(first.length, 1);
-  const second = await documents.recent({
+  const second = await documentQueries.recent({
     collectionId: col.id,
     limit: 1,
     before: { updatedAt: first[0]!.updatedAt, id: first[0]!.id },
@@ -470,27 +483,29 @@ test("recent keyset cursor does not skip documents sharing one timestamp", async
 test("softDelete removes the whole subtree", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
   const col = await c1.create({ name: "Del", slug: "del" });
   const parent = await d1.create({ collectionId: col.id, title: "P" });
   const child = await d1.create({ collectionId: col.id, parentDocumentId: parent.id, title: "C" });
 
-  assert.equal(await d1.softDelete(parent.id), true);
+  assert.equal(await d1Tree.softDelete(parent.id), true);
   assert.equal(await d1.get(parent.id), null);
   assert.equal(await d1.get(child.id), null, "child deleted with parent");
-  assert.equal((await d1.tree(col.id)).length, 0);
+  assert.equal((await d1Tree.tree(col.id)).length, 0);
 });
 
 test("a read-only member cannot archive or delete", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
   const d2 = new DocumentService(db, user("u2")); // u2 is a plain member (joined earlier)
+  const d2Tree = new DocumentTreeService(db, user("u2"));
   const col = await c1.create({ name: "RO", slug: "ro" });
   await c1.setDefaultRole(col.id, "read");
   const doc = await d1.create({ collectionId: col.id, title: "Guarded" });
 
   assert.ok(await d2.get(doc.id), "u2 can read it");
-  assert.equal(await d2.archive(doc.id), null, "archive denied");
-  assert.equal(await d2.softDelete(doc.id), false, "delete denied");
+  assert.equal(await d2Tree.archive(doc.id), null, "archive denied");
+  assert.equal(await d2Tree.softDelete(doc.id), false, "delete denied");
   assert.ok(await d1.get(doc.id), "doc still there");
 });
 
@@ -506,6 +521,7 @@ test("listMyTodos: assigned tasks across visible docs, tenant-scoped", async () 
 
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
   const col = await c1.create({ name: "Tasks", slug: "tasks" });
   await c1.setDefaultRole(col.id, "none"); // u1-only
 
@@ -522,7 +538,7 @@ test("listMyTodos: assigned tasks across visible docs, tenant-scoped", async () 
     ].join("\n"),
   });
 
-  const todos = await new DocumentService(db, user("u1")).listMyTodos();
+  const todos = await new DocumentQueryService(db, user("u1")).listMyTodos();
   const mine = todos.filter((t) => t.documentId === doc.id);
   assert.equal(mine.length, 2, "local-part and full-email mentions match");
   assert.deepEqual(
@@ -532,18 +548,19 @@ test("listMyTodos: assigned tasks across visible docs, tenant-scoped", async () 
   assert.equal(mine[0]!.documentTitle, "Sprint");
 
   // u2 can't see u1's private collection, so no leakage through todos.
-  const bobTodos = await new DocumentService(db, user("u2")).listMyTodos();
+  const bobTodos = await new DocumentQueryService(db, user("u2")).listMyTodos();
   assert.ok(!bobTodos.some((t) => t.documentId === doc.id), "RLS scopes the todo scan");
 
   // Archived docs drop out of the todo list.
-  await d1.archive(doc.id);
-  const after = await new DocumentService(db, user("u1")).listMyTodos();
+  await d1Tree.archive(doc.id);
+  const after = await new DocumentQueryService(db, user("u1")).listMyTodos();
   assert.ok(!after.some((t) => t.documentId === doc.id));
 });
 
 test("listMyTodos reads assignees extracted at save time; pre-migration rows still scan", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Queries = new DocumentQueryService(db, user("u1"));
   const col = await c1.create({ name: "Todo index", slug: "todo-index" });
   const md = "- [ ] @alice indexed task\n- [ ] @Bob@Other.org other";
   const indexed = await d1.create({ collectionId: col.id, title: "Indexed", markdown: md });
@@ -557,7 +574,7 @@ test("listMyTodos reads assignees extracted at save time; pre-migration rows sti
     await d.update(documents).set({ taskAssignees: [] }).where(eq(documents.id, stale.id));
   });
 
-  const ids = new Set((await d1.listMyTodos()).map((t) => t.documentId));
+  const ids = new Set((await d1Queries.listMyTodos()).map((t) => t.documentId));
   assert.ok(ids.has(indexed.id), "found via the stored assignees");
   assert.ok(ids.has(legacy.id), "NULL rows fall back to scanning");
   assert.ok(!ids.has(stale.id), "stored assignees are authoritative (no body scan)");
@@ -695,6 +712,8 @@ test("comments: readers can discuss, resolve rides on write access, delete is th
 test("backlinks: pages referencing a doc, RLS-scoped, archived sources excluded", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
+  const d1Tree = new DocumentTreeService(db, user("u1"));
+  const d1Queries = new DocumentQueryService(db, user("u1"));
   const col = await c1.create({ name: "Refs", slug: "refs" });
   await c1.setDefaultRole(col.id, "none"); // u1-only
 
@@ -706,15 +725,15 @@ test("backlinks: pages referencing a doc, RLS-scoped, archived sources excluded"
   });
   await d1.create({ collectionId: col.id, title: "Unrelated", markdown: "No links here." });
 
-  const links = await d1.backlinks(target.id);
+  const links = await d1Queries.backlinks(target.id);
   assert.deepEqual(links.map((l) => l.id), [source.id]);
 
   // Another workspace's user sees no backlinks (can't read the sources).
-  assert.equal((await new DocumentService(db, user("u2")).backlinks(target.id)).length, 0);
+  assert.equal((await new DocumentQueryService(db, user("u2")).backlinks(target.id)).length, 0);
 
   // Archiving the source drops it from the list.
-  await d1.archive(source.id);
-  assert.equal((await d1.backlinks(target.id)).length, 0);
+  await d1Tree.archive(source.id);
+  assert.equal((await d1Queries.backlinks(target.id)).length, 0);
 });
 
 test("settings: MCP kill switch and workspace audit trail", async () => {
