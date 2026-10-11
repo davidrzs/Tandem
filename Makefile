@@ -23,10 +23,10 @@ reset-db: ## Wipe and recreate the local PGlite dev database
 	rm -rf .pglite && pnpm db:migrate
 
 build: ## Production build (web bundle + typecheck)
-	pnpm -r typecheck && pnpm --filter @tandem/web build
+	pnpm typecheck && pnpm --filter @tandem/web build
 
 test: .env migrate ## Run unit/integration tests
-	pnpm --filter @tandem/editor --filter @tandem/core --filter @tandem/server test
+	pnpm test
 
 e2e: ## Run a browser e2e (usage: make e2e T=collab) — default smoke
 	bash apps/web/e2e/run.sh $(or $(T),smoke)
