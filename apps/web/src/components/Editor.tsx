@@ -53,6 +53,7 @@ import { MarkdownPaste } from "./markdown-paste.js";
 import { TagBar } from "./TagBar.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
+import { forgetDoc, persistDoc } from "../offline.js";
 
 /** Shared lowlight instance (common languages) for code-block highlighting. */
 const lowlight = createLowlight(common);
@@ -155,6 +156,9 @@ export function Editor({
   // StrictMode's mount/unmount/mount cycle doesn't destroy the provider the
   // editor extensions hold on to.
   const [ydoc] = useState(() => new Y.Doc());
+  const uid = session.data?.user.id;
+  const uidRef = useRef(uid);
+  uidRef.current = uid;
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [synced, setSynced] = useState(false);
   const [provider] = useState(
@@ -172,6 +176,10 @@ export function Editor({
             status === "connected" ? "live" : status === "connecting" ? "connecting" : "offline",
           ),
         onSynced: () => setSynced(true),
+        // Refused (access revoked, document gone): drop any local copy.
+        onAuthenticationFailed: () => {
+          if (uidRef.current) forgetDoc(uidRef.current, docId);
+        },
         // Server pushes data-free pings on the doc's channel (e.g. someone
         // commented); refetch through our own RLS-scoped queries.
         onStateless: ({ payload }: { payload: string }) => {
@@ -200,9 +208,37 @@ export function Editor({
       provider.disconnect();
       // Real unmount destroys the provider (and its managed socket) a tick
       // later; StrictMode's immediate remount cancels this and reconnects.
-      destroyTimer.current = setTimeout(() => provider.destroy(), 0);
+      destroyTimer.current = setTimeout(() => {
+        provider.destroy();
+        ydoc.destroy();
+      }, 0);
     };
-  }, [provider]);
+  }, [provider, ydoc]);
+
+  // Mirror the doc to IndexedDB so offline edits survive a reload. Writers
+  // only: a reader has nothing to keep, and a cached state from when they
+  // could write would just be refused by the server.
+  const [persisted, setPersisted] = useState(false);
+  useEffect(() => {
+    if (!uid || !canEdit) return;
+    const local = persistDoc(uid, docId, ydoc);
+    if (!local) return;
+    setPersisted(true);
+    return () => {
+      setPersisted(false);
+      void local.destroy();
+    };
+  }, [uid, canEdit, docId, ydoc]);
+
+  // Without a local copy, closing the tab with unsent edits loses them.
+  useEffect(() => {
+    if (persisted) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (provider.hasUnsyncedChanges) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [persisted, provider]);
 
   const user = session.data?.user;
   const me = useMemo(
@@ -652,15 +688,18 @@ export function Editor({
     return <div className="empty">{friendlyError(doc.error, "Couldn't load this document.")}</div>;
   if (!doc.data) return <div className="empty">Document not found, or you don't have access to it.</div>;
 
-  const status: { label: string; tone: string } = !synced
-    ? { label: "Connecting…", tone: "wait" }
-    : connection === "live"
-      ? update.isPending
-        ? { label: "Saving…", tone: "wait" }
-        : { label: "Live", tone: "ok" }
+  const status: { label: string; tone: string } =
+    connection === "live"
+      ? !synced
+        ? { label: "Connecting…", tone: "wait" }
+        : update.isPending
+          ? { label: "Saving…", tone: "wait" }
+          : { label: "Live", tone: "ok" }
       : connection === "connecting"
-        ? { label: "Reconnecting…", tone: "wait" }
-        : { label: "Offline", tone: "bad" };
+        ? { label: synced ? "Reconnecting…" : "Connecting…", tone: "wait" }
+        : persisted
+          ? { label: "Offline · saved on this device", tone: "wait" }
+          : { label: "Offline", tone: "bad" };
 
   return (
     <div className="doc-page">

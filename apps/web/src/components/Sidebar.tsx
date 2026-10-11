@@ -9,6 +9,8 @@ import { Icon } from "./Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "./Modal.js";
 import { effectiveTheme, setTheme, type ThemeChoice } from "../theme.js";
 import { useToast } from "./toast.js";
+import { forgetUserDocs } from "../offline.js";
+import { storageSet } from "../storage.js";
 
 interface Workspace {
   id: string;
@@ -43,6 +45,7 @@ interface Props {
   onOpenInbox: () => void;
   onOpenPeople: () => void;
   onOpenSettings: () => void;
+  onOpenShortcuts: () => void;
   onOpenAdmin: () => void;
   onShareCollection: (id: string) => void;
 }
@@ -96,6 +99,7 @@ export function Sidebar({
   onOpenInbox,
   onOpenPeople,
   onOpenSettings,
+  onOpenShortcuts,
   onOpenAdmin,
   onShareCollection,
 }: Props) {
@@ -117,10 +121,10 @@ export function Sidebar({
   );
 
   useEffect(() => {
-    localStorage.setItem(`${EXPANDED_KEY}:${uid}`, JSON.stringify([...expanded]));
+    storageSet(`${EXPANDED_KEY}:${uid}`, JSON.stringify([...expanded]));
   }, [expanded, uid]);
   useEffect(() => {
-    localStorage.setItem(`${COLLAPSED_DOCS_KEY}:${uid}`, JSON.stringify([...collapsedDocs]));
+    storageSet(`${COLLAPSED_DOCS_KEY}:${uid}`, JSON.stringify([...collapsedDocs]));
   }, [collapsedDocs, uid]);
 
   const sidebarState = trpc.settings.sidebar.useQuery(undefined, { staleTime: Infinity });
@@ -284,6 +288,11 @@ export function Sidebar({
           <Icon name="settings" />
           Settings
         </button>
+        <button type="button" className="nav-row" onClick={onOpenShortcuts}>
+          <Icon name="keyboard" />
+          Shortcuts
+          <kbd>?</kbd>
+        </button>
         {user?.role === "admin" && (
           <button type="button" className="nav-row" onClick={onOpenAdmin}>
             <Icon name="settings" />
@@ -356,7 +365,14 @@ export function Sidebar({
             // Full reload: drops the react-query cache (and any other
             // in-memory state) so the next account can't reconcile against
             // this session's snapshot. Same pattern as the 2FA challenge.
-            onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}
+            onClick={() =>
+              // End the session first (it matters most if the tab closes),
+              // then drop this user's offline document copies.
+              void authClient
+                .signOut()
+                .then(() => forgetUserDocs(uid))
+                .then(() => window.location.assign("/"))
+            }
           >
             <Icon name="signout" />
           </button>
@@ -863,6 +879,7 @@ function DocRow({
   const toast = useToast();
   const move = trpc.documents.move.useMutation();
   const archive = trpc.documents.archive.useMutation();
+  const restore = trpc.documents.restore.useMutation();
   const softDelete = trpc.documents.delete.useMutation();
   const duplicate = trpc.documents.duplicate.useMutation();
   const [dropMode, setDropMode] = useState<DropMode | null>(null);
@@ -883,20 +900,37 @@ function DocRow({
     const mode = dropMode;
     setDropMode(null);
     if (!payload || !mode) return;
-    const dragged = JSON.parse(payload) as { id: string; collectionId: string };
+    const dragged = JSON.parse(payload) as {
+      id: string;
+      collectionId: string;
+      title: string;
+      parentId: string | null;
+      position: number;
+    };
     // Moves stay within one collection (the backend enforces this too).
     if (dragged.collectionId !== collectionId || dragged.id === node.id) return;
     // Nesting into a folded folder unfolds it so the drop stays visible.
     if (mode === "into") onRevealDocs([node.id]);
-    void run(() =>
-      mode === "into"
+    void run(async () => {
+      await (mode === "into"
         ? move.mutateAsync({ id: dragged.id, parentDocumentId: node.id })
         : move.mutateAsync({
             id: dragged.id,
             parentDocumentId: parentId,
             position: positionFor(mode),
-          }),
-    );
+          }));
+      toast(`Moved "${dragged.title || "Untitled"}"`, "ok", {
+        label: "Undo",
+        onClick: () =>
+          void run(() =>
+            move.mutateAsync({
+              id: dragged.id,
+              parentDocumentId: dragged.parentId,
+              position: dragged.position,
+            }),
+          ),
+      });
+    });
   };
 
   const collapsed = collapsedDocs.has(node.id);
@@ -915,7 +949,14 @@ function DocRow({
         onDragStart={(e) => {
           e.dataTransfer.setData(
             "application/x-tandem-doc",
-            JSON.stringify({ id: node.id, collectionId }),
+            JSON.stringify({
+              id: node.id,
+              collectionId,
+              title: node.title,
+              // Where it came from, so the move can be undone.
+              parentId,
+              position: node.position,
+            }),
           );
         }}
         onDragOver={(e) => {
@@ -974,8 +1015,16 @@ function DocRow({
                   onClick: () =>
                     void run(async () => {
                       await archive.mutateAsync({ id: node.id });
-                      toast(`Archived "${node.title || "Untitled"}" — restorable below`);
-                      if (node.id === activeDocId) navigate("/");
+                      const wasActive = node.id === activeDocId;
+                      toast(`Archived "${node.title || "Untitled"}"`, "ok", {
+                        label: "Undo",
+                        onClick: () =>
+                          void run(async () => {
+                            await restore.mutateAsync({ id: node.id });
+                            if (wasActive) navigate(`/d/${node.id}`);
+                          }),
+                      });
+                      if (wasActive) navigate("/");
                     }),
                 },
                 {

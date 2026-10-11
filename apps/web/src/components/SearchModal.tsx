@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { useCreateDocument } from "./create-document.js";
 import { Icon, type IconName } from "./Icon.js";
 import { listRecents } from "./recents.js";
+import { Modal } from "./Modal.js";
 
 /** Highlighted-fragment markers from ts_headline (chr(2)/chr(3) delimiters). */
 function Snippet({ text }: { text: string }) {
@@ -41,6 +42,17 @@ function parseQuery(raw: string): { text: string; tag?: string } {
   return { text: rest.join(" "), tag };
 }
 
+/* Radix renders content beside (not inside) the overlay, so position it the
+ * way .modal does; .search-box keeps the skin. */
+const CONTENT_POSITION = {
+  position: "fixed",
+  top: "14vh",
+  left: "50%",
+  transform: "translateX(-50%)",
+  zIndex: 101,
+  animation: "rise-centered 140ms ease",
+} as const;
+
 export function SearchModal({
   initialQuery = "",
   workspaceId,
@@ -59,6 +71,8 @@ export function SearchModal({
   const [selected, setSelected] = useState(0);
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
+  const optionId = (i: number) => `${listboxId}-opt-${i}`;
   const favorites = trpc.favorites.list.useQuery();
   const openDoc = (id: string) => {
     onClose();
@@ -143,7 +157,6 @@ export function SearchModal({
   useEffect(() => setSelected(0), [debounced]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
     if (e.key === "ArrowDown") {
       e.preventDefault();
       const count = active ? hits.length : zeroItems.length;
@@ -159,11 +172,26 @@ export function SearchModal({
     }
   };
 
+  const optionCount = active ? hits.length : zeroItems.length;
+  const listOpen = optionCount > 0;
+
   return (
-    <div className="modal-overlay search-overlay" onMouseDown={onClose}>
-      <div className="search-box" onMouseDown={(e) => e.stopPropagation()}>
+    <Modal
+      title="Search documents"
+      onClose={onClose}
+      bare
+      className="search-box"
+      overlayClassName="search-overlay"
+      style={CONTENT_POSITION}
+    >
         <input
           ref={inputRef}
+          role="combobox"
+          aria-label="Search documents"
+          aria-expanded={listOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={listOpen && selected < optionCount ? optionId(selected) : undefined}
           className="search-input"
           placeholder="Search documents…  (try #tag)"
           value={query}
@@ -178,11 +206,18 @@ export function SearchModal({
         )}
         {!active && zeroItems.length > 0 && (
           <div className="search-results command-results">
-            <div className="search-section-label">Jump back in or take an action</div>
+            <div className="search-section-label" id={`${listboxId}-label`}>
+              Jump back in or take an action
+            </div>
+            <div role="listbox" id={listboxId} style={{ display: "contents" }} aria-labelledby={`${listboxId}-label`}>
             {zeroItems.map((item, i) => (
               <button
                 type="button"
                 key={item.id}
+                id={optionId(i)}
+                role="option"
+                aria-selected={i === selected}
+                tabIndex={-1}
                 className={"search-hit command-hit" + (i === selected ? " selected" : "")}
                 onMouseEnter={() => setSelected(i)}
                 onClick={item.run}
@@ -194,6 +229,7 @@ export function SearchModal({
                 </span>
               </button>
             ))}
+            </div>
           </div>
         )}
         {results.error && (
@@ -208,10 +244,14 @@ export function SearchModal({
           <div className="search-status">Nothing matches that search.</div>
         )}
         {hits.length > 0 && (
-          <div className="search-results">
+          <div className="search-results" role="listbox" id={listboxId} aria-label="Search results">
             {hits.map((hit, i) => (
               <button type="button"
                 key={hit.id}
+                id={optionId(i)}
+                role="option"
+                aria-selected={i === selected}
+                tabIndex={-1}
                 className={"search-hit" + (i === selected ? " selected" : "")}
                 onMouseEnter={() => setSelected(i)}
                 onClick={() => openDoc(hit.id)}
@@ -231,7 +271,6 @@ export function SearchModal({
             ))}
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

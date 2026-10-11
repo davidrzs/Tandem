@@ -8,6 +8,20 @@ import { expect, test, type Page } from "@playwright/test";
  * tenant isolation between two accounts.
  */
 
+/** A tRPC query as the page's signed-in user (shares the context's cookies).
+ * Lets a test wait for server-side state (debounced stores, title saves)
+ * instead of sleeping a fixed time. */
+async function trpcQuery<T>(page: Page, path: string, input?: unknown): Promise<T> {
+  const qs = input === undefined ? "" : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await page.request.get(`/trpc/${path}${qs}`);
+  expect(res.ok()).toBe(true);
+  return ((await res.json()) as { result: { data: T } }).result.data;
+}
+
+type Todo = { text: string; done: boolean };
+
+const docIdOf = (url: string) => new URL(url).pathname.split("/").pop()!;
+
 async function signUp(page: Page, name: string, email: string) {
   await page.goto("/");
   // A brand-new server shows the first-run setup wizard instead of the
@@ -71,7 +85,10 @@ async function dragNest(page: Page, sourceText: string, targetText: string, inde
           },
           [sourceText, targetText],
         );
-        await page.waitForTimeout(120);
+        // React applied the dragover drop-target state.
+        await expect(page.locator(".doc-row", { hasText: targetText })).toHaveClass(/drop-/, {
+          timeout: 2_000,
+        });
         await page.evaluate((t) => {
           const dst = [...document.querySelectorAll(".doc-row")].find((r) =>
             r.textContent?.includes(t),
@@ -139,8 +156,13 @@ test.describe.serial("wiki journey", () => {
     // The @mention resolves to a member and gets its identity tint.
     await expect(page.locator(".mention")).toContainText("@alice");
 
-    // Let the debounced store persist (server debounce is 2s).
-    await page.waitForTimeout(2600);
+    // Wait for the debounced store (2s) to persist: the task reaches the
+    // server-side todo index only once the body is saved.
+    await expect
+      .poll(async () => (await trpcQuery<Todo[]>(page, "documents.myTodos")).map((t) => t.text), {
+        timeout: 10_000,
+      })
+      .toContain("@alice review the handbook");
 
     // --- deep link survives a full reload ---
     const docUrl = page.url();
@@ -197,7 +219,12 @@ test.describe.serial("wiki journey", () => {
 
     // --- ticking the checkbox completes the task on the start page ---
     await page.locator('.ProseMirror ul[data-type="taskList"] input[type="checkbox"]').click();
-    await page.waitForTimeout(2600); // debounced store
+    // Debounced store persisted the ticked state.
+    await expect
+      .poll(async () => (await trpcQuery<Todo[]>(page, "documents.myTodos")).map((t) => t.done), {
+        timeout: 10_000,
+      })
+      .toEqual([true]);
     await page.getByRole("link", { name: "Home" }).click();
     await expect(page.getByText("No open tasks are assigned to you.")).toBeVisible();
     await page.getByRole("button", { name: "Show 1 completed" }).click();
@@ -382,6 +409,113 @@ test("drag and drop nests a document under another", async ({ page }) => {
   );
 });
 
+test("undo: archive and drag-move are reversible from the toast", async ({ page }) => {
+  await signUp(page, "Uma Undo", "uma@example.com");
+  await createCollection(page, "Undo");
+  await page.getByRole("button", { name: /Undo/ }).first().click();
+  const row = page.locator(".collection-row", { hasText: "Undo" });
+  for (const title of ["Keep", "Mover"]) {
+    const before = page.url();
+    await row.hover();
+    await page.getByTitle("New document").first().click();
+    await expect(page).not.toHaveURL(before);
+    await page.locator(".title-input").fill(title);
+    await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
+  }
+
+  const keep = page.locator(".doc-row", { hasText: "Keep" });
+  await keep.hover();
+  await keep.getByTitle("More actions").click();
+  await page.getByRole("menuitem", { name: "Archive" }).click();
+  await expect(keep).toHaveCount(0);
+  await page.locator(".toast").getByRole("button", { name: "Undo" }).click();
+  await expect(keep).toBeVisible();
+
+  await dragNest(page, "Mover", "Keep", "23px");
+  await page.locator(".toast", { hasText: "Moved" }).getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveCSS("padding-left", "9px");
+  // The undo is persisted, not just local.
+  await page.reload();
+  await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveCSS("padding-left", "9px");
+});
+
+test("shortcuts sheet opens with ? outside text fields", async ({ page }) => {
+  await signUp(page, "Kim Keys", "kim@example.com");
+  await page.locator("body").click({ position: { x: 600, y: 400 } });
+  await page.keyboard.press("?");
+  const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toContainText("Find in document");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  // Typing "?" into a field doesn't open it.
+  await page.getByRole("button", { name: "Search ⌘K", exact: true }).click();
+  await page.getByPlaceholder("Search documents…").fill("what?");
+  await expect(sheet).toHaveCount(0);
+});
+
+test("offline edits survive a reload and sync when back online", async ({ page, context }) => {
+  await signUp(page, "Otto Offline", "otto@example.com");
+  await createCollection(page, "Field");
+  await page.getByRole("button", { name: /Field/ }).click();
+  await page.locator(".collection-row", { hasText: "Field" }).hover();
+  await page.getByTitle("New document").first().click();
+  await page.locator(".title-input").fill("Notes");
+  await page.locator(".ProseMirror").click();
+  await page.keyboard.type("Written online.");
+  await expect(page.locator(".save-state").last()).toHaveText(/Live/);
+  const docUrl = page.url();
+
+  // The collab server becomes unreachable (HTTP still works, so the page loads).
+  await page.routeWebSocket(/\/collab/, (ws) => ws.close());
+  await page.reload();
+  await expect(page.locator(".ProseMirror")).toContainText("Written online.");
+  await expect(page.locator(".save-state").last()).toHaveText(/Offline · saved on this device/);
+  // y-indexeddb stores one record per update (one per keystroke here); wait
+  // until all of them are written rather than racing the reload.
+  const storedUpdates = () =>
+    page.evaluate(async (docId) => {
+      const info = (await indexedDB.databases()).find((d) => d.name?.endsWith(`:${docId}`));
+      if (!info?.name) return 0;
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const req = indexedDB.open(info.name!);
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const count = await new Promise<number>((res) => {
+        const req = db.transaction("updates").objectStore("updates").count();
+        req.onsuccess = () => res(req.result);
+      });
+      db.close();
+      return count;
+    }, docIdOf(docUrl));
+  const typed = " Zebracorn typed offline.";
+  const before = await storedUpdates();
+  await page.locator(".ProseMirror").click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.type(typed);
+  await expect.poll(storedUpdates).toBeGreaterThanOrEqual(before + typed.length);
+
+  // Still unreachable: the offline edit comes back from this device.
+  await page.reload();
+  await expect(page.locator(".ProseMirror")).toContainText("Zebracorn typed offline.");
+
+  // Back online in a fresh tab: the edit reaches the server.
+  await page.close();
+  const online = await context.newPage();
+  await online.goto(docUrl);
+  await expect(online.locator(".save-state").last()).toHaveText(/Live/);
+  await expect
+    .poll(
+      async () =>
+        (await trpcQuery<{ id: string }[]>(online, "documents.search", { query: "zebracorn" })).map(
+          (h) => h.id,
+        ),
+      { timeout: 10_000 },
+    )
+    .toContain(docIdOf(docUrl));
+});
+
 test("comments: select text, discuss, reply, resolve", async ({ page }) => {
   await signUp(page, "Grace Hopper", "grace@example.com");
   await createCollection(page, "Reviews");
@@ -444,7 +578,10 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   };
   await mkDoc("Alpha notes");
   const urlB = await mkDoc("Beta results");
-  await page.waitForTimeout(600); // title save debounce before searching
+  // Title save (debounced) landed before searching for it.
+  await expect
+    .poll(async () => (await trpcQuery<{ title: string }>(page, "documents.getMeta", { id: docIdOf(urlB) })).title)
+    .toBe("Beta results");
 
   // In Alpha, "@" links the Beta page as a first-class reference chip.
   await page.locator(".doc-row", { hasText: "Alpha notes" }).click();
@@ -452,7 +589,16 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   await page.keyboard.type("Compare with @beta");
   await page.getByRole("button", { name: /Beta results/ }).click();
   await expect(page.locator(".page-ref")).toContainText("Beta results");
-  await page.waitForTimeout(2600); // persist (debounced store)
+  // Debounced store persisted the reference (backlinks read the saved body).
+  await expect
+    .poll(
+      async () =>
+        (await trpcQuery<{ title: string }[]>(page, "documents.backlinks", { id: docIdOf(urlB) })).map(
+          (d) => d.title,
+        ),
+      { timeout: 10_000 },
+    )
+    .toContain("Alpha notes");
 
   // The chip navigates by ID.
   await page.locator(".page-ref").click();
@@ -461,7 +607,9 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   // Rename the target -> the reference shows the new title (live, no edit).
   await expect(page.locator(".title-input")).toHaveValue("Beta results");
   await page.locator(".title-input").fill("Beta results v2");
-  await page.waitForTimeout(800); // title save debounce
+  await expect
+    .poll(async () => (await trpcQuery<{ title: string }>(page, "documents.getMeta", { id: docIdOf(urlB) })).title)
+    .toBe("Beta results v2");
   await page.locator(".doc-row", { hasText: "Alpha notes" }).click();
   await expect(page.locator(".page-ref")).toContainText("Beta results v2");
 
