@@ -1,62 +1,31 @@
-import { HocuspocusProvider, type HocuspocusProviderConfiguration } from "@hocuspocus/provider";
-import Collaboration from "@tiptap/extension-collaboration";
-import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import Link from "@tiptap/extension-link";
-import Placeholder from "@tiptap/extension-placeholder";
-import Table from "@tiptap/extension-table";
-import TableCell from "@tiptap/extension-table-cell";
-import TableHeader from "@tiptap/extension-table-header";
-import TableRow from "@tiptap/extension-table-row";
-import TaskItem from "@tiptap/extension-task-item";
-import TaskList from "@tiptap/extension-task-list";
 import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
-import StarterKit from "@tiptap/starter-kit";
-import { createLowlight, common } from "lowlight";
-import { getAuthors, ToggleSummary, ToggleContent } from "@tandem/editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useSearchParams } from "react-router-dom";
-import * as Y from "yjs";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
-import { authorLabel, blamePluginKey, createBlameExtension } from "./blame.js";
 import { Breadcrumbs } from "./Breadcrumbs.js";
 import { RowMenu } from "./Modal.js";
-import { useToast } from "./toast.js";
-import {
-  anchorRange,
-  commentsPluginKey,
-  createCommentsExtension,
-  selectionAnchor,
-  type CommentAnchor,
-} from "./comments.js";
-import { CommentsPanel, type CommentItem, type PendingComment } from "./CommentsPanel.js";
-import { HistoryPanel, type HistorySession } from "./HistoryPanel.js";
+import { CommentsPanel } from "./CommentsPanel.js";
+import { HistoryPanel } from "./HistoryPanel.js";
 import { SnapshotPreview } from "./SnapshotPreview.js";
 import { TocRail } from "./TocRail.js";
 import { authorColor, authorKey } from "./colors.js";
-import { ClientImage } from "./image-node.js";
-import { ClientCallout } from "./callout-node.js";
-import { ClientToggle } from "./toggle-node.js";
-import { createCodeBlock } from "./code-block-node.js";
-import { Find } from "./find.js";
 import { FindBar } from "./FindBar.js";
 import { Icon } from "./Icon.js";
-import { createMentionExtension, type MentionCandidate } from "./mention.js";
-import { createMentionHighlight, mentionHighlightKey } from "./mention-highlight.js";
-import { ClientPageRef } from "./page-ref.js";
+import type { MentionCandidate } from "./mention.js";
+import { mentionHighlightKey } from "./mention-highlight.js";
 import { timeAgo } from "./time.js";
-import { SlashCommand } from "./slash-command.js";
-import { TaskListInputRule } from "./task-input-rule.js";
-import { createMathExtension } from "./math.js";
-import { MarkdownPaste } from "./markdown-paste.js";
 import { TagBar } from "./TagBar.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
-import { forgetDoc, persistDoc } from "../offline.js";
-
-/** Shared lowlight instance (common languages) for code-block highlighting. */
-const lowlight = createLowlight(common);
+import { buildExtensions } from "./editor/extensions.js";
+import { useBlame } from "./editor/useBlame.js";
+import { useCollabDoc } from "./editor/useCollabDoc.js";
+import { useCommentNavigation, useComments } from "./editor/useComments.js";
+import { useDocActions } from "./editor/useDocActions.js";
+import { usePresence } from "./editor/usePresence.js";
+import { useSnapshots } from "./editor/useSnapshots.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
 async function uploadAndInsert(view: EditorView, file: File, docId: string) {
@@ -90,19 +59,6 @@ function useDebounced<A extends unknown[]>(fn: (...args: A) => void, delay: numb
   );
 }
 
-function collabUrl(): string {
-  const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}/collab`;
-}
-
-type ConnectionState = "connecting" | "live" | "offline";
-
-interface PresencePeer {
-  clientId: number;
-  name: string;
-  color: string;
-}
-
 export function Editor({
   docId,
   canEdit,
@@ -113,8 +69,6 @@ export function Editor({
   workspaceId: string;
 }) {
   const utils = trpc.useUtils();
-  const utilsRef = useRef(utils);
-  utilsRef.current = utils;
   const session = authClient.useSession();
   const [searchParams] = useSearchParams();
   const commentTarget = searchParams.get("comment");
@@ -151,94 +105,8 @@ export function Editor({
     }));
   }, [members.data]);
 
-  // Stable Y.Doc + provider for the editor binding (Editor is keyed by docId).
-  // Both are created once; the effect below only manages the connection so
-  // StrictMode's mount/unmount/mount cycle doesn't destroy the provider the
-  // editor extensions hold on to.
-  const [ydoc] = useState(() => new Y.Doc());
   const uid = session.data?.user.id;
-  const uidRef = useRef(uid);
-  uidRef.current = uid;
-  const [connection, setConnection] = useState<ConnectionState>("connecting");
-  const [synced, setSynced] = useState(false);
-  const [provider] = useState(
-    () =>
-      new HocuspocusProvider({
-        url: collabUrl(),
-        name: docId,
-        token: "cookie", // real auth is the session cookie on the handshake
-        document: ydoc,
-        // autoConnect is a (managed) websocket option the provider forwards at
-        // runtime; the narrower provider config type just doesn't declare it.
-        autoConnect: false,
-        onStatus: ({ status }) =>
-          setConnection(
-            status === "connected" ? "live" : status === "connecting" ? "connecting" : "offline",
-          ),
-        onSynced: () => setSynced(true),
-        // Refused (access revoked, document gone): drop any local copy.
-        onAuthenticationFailed: () => {
-          if (uidRef.current) forgetDoc(uidRef.current, docId);
-        },
-        // Server pushes data-free pings on the doc's channel (e.g. someone
-        // commented); refetch through our own RLS-scoped queries.
-        onStateless: ({ payload }: { payload: string }) => {
-          try {
-            const message = JSON.parse(payload) as { topic?: string };
-            if (message.topic === "comments") {
-              void utilsRef.current.comments.list.invalidate({ documentId: docId });
-            } else if (message.topic === "snapshots") {
-              void utilsRef.current.documents.listSnapshots.invalidate({ documentId: docId });
-            } else if (message.topic === "meta") {
-              // Someone renamed the doc (the title lives outside the CRDT).
-              void utilsRef.current.documents.getMeta.invalidate({ id: docId });
-              void utilsRef.current.documents.tree.invalidate();
-            }
-          } catch {
-            // Unknown payloads are ignored.
-          }
-        },
-      } as HocuspocusProviderConfiguration),
-  );
-  const destroyTimer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    clearTimeout(destroyTimer.current);
-    void provider.connect();
-    return () => {
-      provider.disconnect();
-      // Real unmount destroys the provider (and its managed socket) a tick
-      // later; StrictMode's immediate remount cancels this and reconnects.
-      destroyTimer.current = setTimeout(() => {
-        provider.destroy();
-        ydoc.destroy();
-      }, 0);
-    };
-  }, [provider, ydoc]);
-
-  // Mirror the doc to IndexedDB so offline edits survive a reload. Writers
-  // only: a reader has nothing to keep, and a cached state from when they
-  // could write would just be refused by the server.
-  const [persisted, setPersisted] = useState(false);
-  useEffect(() => {
-    if (!uid || !canEdit) return;
-    const local = persistDoc(uid, docId, ydoc);
-    if (!local) return;
-    setPersisted(true);
-    return () => {
-      setPersisted(false);
-      void local.destroy();
-    };
-  }, [uid, canEdit, docId, ydoc]);
-
-  // Without a local copy, closing the tab with unsent edits loses them.
-  useEffect(() => {
-    if (persisted) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (provider.hasUnsyncedChanges) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [persisted, provider]);
+  const { ydoc, provider, connection, synced, persisted } = useCollabDoc(docId, uid, canEdit);
 
   const user = session.data?.user;
   const me = useMemo(
@@ -250,49 +118,10 @@ export function Editor({
   );
 
   const navigate = useNavigate();
-  const toast = useToast();
 
   // --- document actions (the "…" menu) ---
-  const favorites = trpc.favorites.list.useQuery();
-  const isFavorite = (favorites.data ?? []).some((f) => f.id === docId);
-  const favAdd = trpc.favorites.add.useMutation({
-    onSuccess: () => {
-      void utils.favorites.list.invalidate();
-      toast("Added to favorites");
-    },
-  });
-  const favRemove = trpc.favorites.remove.useMutation({
-    onSuccess: () => {
-      void utils.favorites.list.invalidate();
-      toast("Removed from favorites");
-    },
-  });
-  const duplicate = trpc.documents.duplicate.useMutation({
-    onSuccess: (created) => {
-      void utils.documents.tree.invalidate();
-      toast("Duplicated");
-      navigate(`/d/${created.id}`);
-    },
-    onError: (e) => toast(friendlyError(e, "Couldn't duplicate this document."), "danger"),
-  });
-  const copyDocLink = () => {
-    void navigator.clipboard
-      .writeText(`${window.location.origin}/d/${docId}`)
-      .then(() => toast("Link copied"));
-  };
-  const downloadMarkdown = async () => {
-    try {
-      const { title: t, markdown } = await utils.documents.getMarkdown.fetch({ id: docId });
-      const blob = new Blob([markdown], { type: "text/markdown" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${(t || "untitled").replace(/[^\w.-]+/g, "_")}.md`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch {
-      toast("Couldn't export this document.", "danger");
-    }
-  };
+  const { isFavorite, favAdd, favRemove, duplicate, copyDocLink, downloadMarkdown } =
+    useDocActions(docId);
 
   // "@" can link other pages: search titles/bodies as the user types.
   const searchDocs = useCallback(
@@ -309,23 +138,19 @@ export function Editor({
   const backlinks = trpc.documents.backlinks.useQuery({ id: docId });
 
   // --- comments ---
-  const commentsQuery = trpc.comments.list.useQuery({ documentId: docId });
-  const commentItems: CommentItem[] = useMemo(
-    () => commentsQuery.data ?? [],
-    [commentsQuery.data],
-  );
-  const createComment = trpc.comments.create.useMutation({
-    onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
-  });
-  const resolveComment = trpc.comments.setResolved.useMutation({
-    onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
-  });
-  const deleteComment = trpc.comments.delete.useMutation({
-    onSuccess: () => utils.comments.list.invalidate({ documentId: docId }),
-  });
   const [rail, setRail] = useState<null | "comments" | "history">(null);
-  const [pending, setPending] = useState<PendingComment | null>(null);
-  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const {
+    commentItems,
+    createComment,
+    resolveComment,
+    deleteComment,
+    pending,
+    setPending,
+    activeCommentId,
+    setActiveCommentId,
+    anchorsRef,
+    activeCommentRef,
+  } = useComments(docId);
   // Find-in-document; the editor keymap opens it through a ref because
   // editorProps are captured once at editor creation.
   const [findOpen, setFindOpen] = useState(false);
@@ -333,53 +158,19 @@ export function Editor({
   openFindRef.current = () => setFindOpen(true);
   // Link bubble state: null = closed, string = draft href being edited.
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
-  // The decoration plugin reads anchors/active through refs (created once).
-  const anchorsRef = useRef<CommentAnchor[]>([]);
-  const activeCommentRef = useRef<string | null>(null);
-  activeCommentRef.current = activeCommentId;
-  useEffect(() => {
-    anchorsRef.current = commentItems
-      .filter((c) => !c.parentId && !c.resolvedAt && c.anchor && c.head)
-      .map((c) => ({ id: c.id, anchor: c.anchor!, head: c.head! }));
-  }, [commentItems]);
 
   const editor = useEditor(
     {
       editable: canEdit,
-      extensions: [
-        // History is disabled — Collaboration manages undo via Yjs. Code blocks
-        // come from CodeBlockLowlight (syntax highlighting) instead of StarterKit.
-        StarterKit.configure({ history: false, codeBlock: false }),
-        createCodeBlock(lowlight),
-        Link.configure({ openOnClick: false }),
-        // A hint only while the document is empty — not on every blank line.
-        Placeholder.configure({
-          placeholder: ({ editor }) => (editor.isEmpty ? "Write, or type / for commands…" : ""),
-        }),
-        MarkdownPaste,
-        Find,
-        ClientImage,
-        TaskList,
-        TaskItem.configure({ nested: true }),
-        TaskListInputRule,
-        ClientPageRef,
-        ClientCallout,
-        ClientToggle,
-        ToggleSummary,
-        ToggleContent,
-        Table.configure({ resizable: false }),
-        TableRow,
-        TableHeader,
-        TableCell,
-        createMathExtension(),
-        Collaboration.configure({ document: ydoc, field: "default" }),
-        CollaborationCursor.configure({ provider, user: me }),
-        SlashCommand,
-        createMentionExtension(() => membersRef.current, searchDocs),
-        createMentionHighlight(() => membersRef.current),
-        createBlameExtension(ydoc),
-        createCommentsExtension(ydoc, () => anchorsRef.current, () => activeCommentRef.current),
-      ],
+      extensions: buildExtensions({
+        ydoc,
+        provider,
+        me,
+        membersRef,
+        searchDocs,
+        anchorsRef,
+        activeCommentRef,
+      }),
       editorProps: {
         handleKeyDown(_view, event) {
           // Mod+F finds within the document (the browser's find can't see
@@ -422,78 +213,24 @@ export function Editor({
   }, [editor, me, user]);
 
   // --- presence: who else is looking at this document ---
-  const [peers, setPeers] = useState<PresencePeer[]>([]);
-  useEffect(() => {
-    const awareness = provider.awareness;
-    if (!awareness) return;
-    const refresh = () => {
-      const states = [...awareness.getStates().entries()]
-        .filter(([clientId]) => clientId !== awareness.clientID)
-        .flatMap(([clientId, state]) => {
-          const u = (state as { user?: { name?: string; color?: string } }).user;
-          return u ? [{ clientId, name: u.name ?? "?", color: u.color ?? "#888" }] : [];
-        });
-      setPeers(states);
-    };
-    refresh();
-    awareness.on("change", refresh);
-    return () => awareness.off("change", refresh);
-  }, [provider]);
+  const peers = usePresence(provider);
 
   // Members load after the editor mounts; redraw mention tints when they do.
   useEffect(() => {
     if (!editor || !members.data) return;
     editor.view.dispatch(editor.state.tr.setMeta(mentionHighlightKey, true));
   }, [editor, members.data]);
-
-  // Redraw comment highlights when threads or the focused thread change.
-  useEffect(() => {
-    if (!editor) return;
-    editor.view.dispatch(editor.state.tr.setMeta(commentsPluginKey, { recompute: true }));
-  }, [editor, commentItems, activeCommentId]);
-
-  const startComment = useCallback(() => {
-    if (!editor) return;
-    const anchors = selectionAnchor(editor.state);
-    if (!anchors) return;
-    const { from, to } = editor.state.selection;
-    const quote = editor.state.doc.textBetween(from, to, " ").slice(0, 160);
-    setPending({ ...anchors, quote });
-    setRail("comments");
-  }, [editor]);
-
-  const jumpToComment = useCallback(
-    (comment: CommentItem) => {
-      setActiveCommentId(comment.id);
-      if (!editor || !comment.anchor || !comment.head) return true;
-      const range = anchorRange(editor.state, ydoc, comment.anchor, comment.head);
-      if (!range) return false;
-      editor.chain().setTextSelection(range).scrollIntoView().run();
-      return true;
-    },
-    [editor, ydoc],
-  );
-
-  // Collaboration deep links are resolved only after both the editor binding
-  // and the relevant server data are ready. The URL remains shareable; refs
-  // prevent query refetches from repeatedly stealing the user's selection.
-  const handledCommentTarget = useRef<string | null>(null);
-  useEffect(() => {
-    if (!commentTarget || !editor || !synced || handledCommentTarget.current === commentTarget) {
-      return;
-    }
-    const target = commentItems.find((comment) => comment.id === commentTarget);
-    if (!target) return;
-    const thread = target.parentId
-      ? commentItems.find((comment) => comment.id === target.parentId) ?? target
-      : target;
-    setRail("comments");
-    if (!jumpToComment(thread)) return;
-    handledCommentTarget.current = commentTarget;
-    // Focus only for deep links: a click in the panel must not pull the
-    // caret out of a reply the reader is in the middle of typing.
-    editor.commands.focus();
-  }, [commentItems, commentTarget, editor, jumpToComment, synced]);
+  const { startComment, jumpToComment } = useCommentNavigation({
+    editor,
+    ydoc,
+    synced,
+    commentTarget,
+    commentItems,
+    activeCommentId,
+    setPending,
+    setActiveCommentId,
+    setRail,
+  });
 
   const handledTaskTarget = useRef<string | null>(null);
   useEffect(() => {
@@ -537,99 +274,12 @@ export function Editor({
   const openThreadCount = commentItems.filter((c) => !c.parentId && !c.resolvedAt).length;
 
   // --- history / blame view ---
-  const blameOn = rail === "history";
-  const [onlySession, setOnlySession] = useState<number | null>(null);
-  const [sessions, setSessions] = useState<HistorySession[]>([]);
-  const refreshSessions = useCallback(() => {
-    const list: HistorySession[] = [...getAuthors(ydoc).entries()].map(
-      ([clientId, info]) => ({
-        clientId,
-        key: authorKey(info.userId, info.ai),
-        label: authorLabel(info),
-        ai: info.ai,
-        at: info.at,
-      }),
-    );
-    list.sort((a, b) => b.at - a.at);
-    setSessions(list.slice(0, 50));
-  }, [ydoc]);
-
-  useEffect(() => {
-    if (!editor) return;
-    editor.view.dispatch(
-      editor.state.tr.setMeta(blamePluginKey, { enabled: blameOn, only: onlySession }),
-    );
-    if (!blameOn) return;
-    refreshSessions();
-    // Recompute (debounced) whenever the Yjs doc changes — remote or local.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onUpdate = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        refreshSessions();
-        editor.view.dispatch(
-          editor.state.tr.setMeta(blamePluginKey, { recompute: true }),
-        );
-      }, 150);
-    };
-    ydoc.on("update", onUpdate);
-    return () => {
-      clearTimeout(timer);
-      ydoc.off("update", onUpdate);
-    };
-  }, [editor, blameOn, onlySession, ydoc, refreshSessions]);
-
-  useEffect(() => {
-    if (historyTarget) setRail("history");
-  }, [historyTarget]);
-
-  const handledHistoryTarget = useRef<string | null>(null);
-  useEffect(() => {
-    if (!historyTarget || sessions.length === 0 || handledHistoryTarget.current === historyTarget) {
-      return;
-    }
-    const selected =
-      historyTarget === "ai"
-        ? sessions.find((session) => session.ai)
-        : sessions.find((session) => String(session.clientId) === historyTarget);
-    if (!selected) return;
-    handledHistoryTarget.current = historyTarget;
-    setOnlySession(selected.clientId);
-    requestAnimationFrame(() => {
-      document
-        .querySelector(`[data-blame-client="${selected.clientId}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }, [historyTarget, sessions]);
+  const { blameOn, onlySession, setOnlySession, sessions, hover, setHover, onMouseOver } =
+    useBlame({ editor, ydoc, rail, setRail, historyTarget });
 
   // --- version snapshots + preview ---
-  const versions = trpc.documents.listSnapshots.useQuery(
-    { documentId: docId },
-    { enabled: rail === "history" },
-  );
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const preview = trpc.documents.getSnapshot.useQuery(
-    { id: previewId! },
-    { enabled: !!previewId },
-  );
-  const restore = trpc.documents.restoreSnapshot.useMutation({
-    onSuccess: () => {
-      setPreviewId(null);
-      void utils.documents.listSnapshots.invalidate({ documentId: docId });
-    },
-  });
-  // Leaving the history rail exits any preview.
-  useEffect(() => {
-    if (rail !== "history") setPreviewId(null);
-  }, [rail]);
+  const { versions, previewId, setPreviewId, preview, restore } = useSnapshots(docId, rail);
 
-  // Blame hover card (delegated — decorations carry data attributes).
-  const [hover, setHover] = useState<{
-    x: number;
-    y: number;
-    label: string;
-    at: number;
-  } | null>(null);
   const onProseClick = useCallback(
     (e: React.MouseEvent) => {
       const link = (e.target as HTMLElement).closest?.("a[href]");
@@ -642,21 +292,6 @@ export function Editor({
     },
     [canEdit, navigate],
   );
-
-  const onMouseOver = useCallback((e: React.MouseEvent) => {
-    const el = (e.target as HTMLElement).closest?.("[data-blame-label]");
-    if (!(el instanceof HTMLElement)) {
-      setHover(null);
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    setHover({
-      x: rect.left,
-      y: rect.bottom + 6,
-      label: el.dataset.blameLabel ?? "Unknown",
-      at: Number(el.dataset.blameAt ?? 0),
-    });
-  }, []);
 
   // Title is independent of the Yjs body; persist it via tRPC. A collaborator's
   // rename arrives as a refetched getMeta (via the "meta" ping): adopt it unless
