@@ -13,6 +13,7 @@ import {
   notInArray,
   or,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
@@ -161,6 +162,12 @@ export interface TodoItem {
   done: boolean;
 }
 
+/** Distinct lower-cased @handles assigned by task items in `markdown` — the
+ * indexed `task_assignees` column (see listMyTodos). */
+export function taskAssigneesOf(markdown: string): string[] {
+  return [...new Set(scanTaskItems(markdown).flatMap((t) => t.mentions))];
+}
+
 /** Derive the persisted read-model fields (content_md + content_json) from markdown. */
 function deriveContent(markdown: string): { contentMd: string; contentJson: unknown } {
   const contentJson = markdownToJSON(markdown);
@@ -182,6 +189,20 @@ export class DocumentService {
 
   private exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
     return runAsActor(this.db, this.actor, fn);
+  }
+
+  /** exec() that always runs in a transaction (SYSTEM actors otherwise run
+   * without one), for work that holds a transaction-scoped lock. Inside an
+   * actor transaction this is a savepoint; the lock lasts to the outer commit. */
+  private execTx<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+    return this.exec((db) => db.transaction((tx) => fn(tx as unknown as Database)));
+  }
+
+  /** Serialize tree mutations within a collection: without it, two crossing
+   * moves both pass the cycle check, and concurrent creates pick the same
+   * max()+1 position. */
+  private async lockTree(db: Database, collectionId: string): Promise<void> {
+    await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${collectionId}))`);
   }
 
   /** Attribution identity for content this service writes into Yjs state. */
@@ -265,7 +286,7 @@ export class DocumentService {
   }
 
   async create(input: CreateDocumentInput): Promise<Document> {
-    return this.exec(async (db) => {
+    return this.execTx(async (db) => {
       // Inherit the workspace from the (RLS-visible) collection. If the
       // collection isn't visible to this actor, the document can't be created.
       const [col] = await db
@@ -290,6 +311,7 @@ export class DocumentService {
           throw new InvalidInputError("parent must be an active document in the same collection");
         }
       }
+      await this.lockTree(db, input.collectionId);
       const position = await this.nextPosition(db, input.collectionId, parentId);
       // Seed the Yjs write model at creation so the initial content is
       // attributed to its creator (not to whoever opens the doc first).
@@ -308,6 +330,7 @@ export class DocumentService {
           position,
           contentMd,
           contentJson,
+          taskAssignees: taskAssigneesOf(contentMd),
           ydocState: seeded?.ydocState ?? null,
         })
         .returning();
@@ -383,22 +406,38 @@ export class DocumentService {
     id: string,
     transform: (currentMd: string) => string,
   ): Promise<Document> {
-    const doc = await this.get(id);
-    if (!doc) throw new NotFoundError("document not found");
-    if (!(await this.canWrite(id))) throw new DocumentWriteDeniedError();
-    const edited = applyEditToState(
-      doc.ydocState,
-      transform,
-      this.authorInfo(),
-      doc.contentMd,
-    );
-    return this.exec(async (db) => {
+    // Read, transform and write under one row lock: two concurrent fallback
+    // edits would otherwise both start from the same state and the second
+    // write would silently drop the first.
+    return this.execTx(async (db) => {
+      const [doc] = await db
+        .select({ ydocState: documents.ydocState, contentMd: documents.contentMd })
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
+        .for("update");
+      if (!doc) {
+        // FOR UPDATE only sees rows the actor may update: tell "read-only"
+        // apart from "not there / not yours".
+        const [readable] = await db
+          .select({ id: documents.id })
+          .from(documents)
+          .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+        if (readable) throw new DocumentWriteDeniedError();
+        throw new NotFoundError("document not found");
+      }
+      const edited = applyEditToState(
+        doc.ydocState,
+        transform,
+        this.authorInfo(),
+        doc.contentMd,
+      );
       const [row] = await db
         .update(documents)
         .set({
           ydocState: edited.ydocState,
           contentMd: edited.contentMd,
           contentJson: edited.contentJson,
+          taskAssignees: taskAssigneesOf(edited.contentMd),
           updatedAt: new Date(),
         })
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
@@ -408,24 +447,48 @@ export class DocumentService {
     });
   }
 
-  /** Persist the live Yjs state + derived read model (Hocuspocus onStoreDocument). */
+  /** Give a document with no Yjs state (legacy, markdown-only) its first one.
+   * First writer wins and the winner is returned, so every load agrees on one
+   * canonical state: re-seeding per load would hand out unrelated CRDT
+   * histories, and a client merging an old one back duplicates the content.
+   * Only ydoc_state is set; the read model already matches the markdown. */
+  async adoptInitialState(id: string, state: Uint8Array): Promise<Uint8Array> {
+    return this.execTx(async (db) => {
+      const [won] = await db
+        .update(documents)
+        .set({ ydocState: state })
+        .where(and(eq(documents.id, id), isNull(documents.ydocState)))
+        .returning({ ydocState: documents.ydocState });
+      if (won?.ydocState) return won.ydocState;
+      const [row] = await db
+        .select({ ydocState: documents.ydocState })
+        .from(documents)
+        .where(eq(documents.id, id));
+      return row?.ydocState ?? state;
+    });
+  }
+
+  /** Persist the live Yjs state + derived read model (Hocuspocus onStoreDocument).
+   * Returns the markdown/title this write replaced, read under the same row
+   * lock, so a caller diffing old vs new (task notifications) sees exactly the
+   * state its own write superseded even when stores race. */
   async saveCollabSnapshot(
     id: string,
     snapshot: { ydocState: Uint8Array; contentMd: string; contentJson: unknown },
-  ): Promise<{ workspaceId: string } | null> {
-    return this.exec(async (db) => {
-      const rows = await db
-        .update(documents)
-        .set({
-          ydocState: snapshot.ydocState,
-          contentMd: snapshot.contentMd,
-          contentJson: snapshot.contentJson,
-          updatedAt: new Date(),
+  ): Promise<{ workspaceId: string; previousMd: string; title: string } | null> {
+    return this.execTx(async (db) => {
+      // FOR UPDATE: only rows this actor may write. Don't let a debounced
+      // store resurrect a soft-deleted document.
+      const [prev] = await db
+        .select({
+          workspaceId: documents.workspaceId,
+          contentMd: documents.contentMd,
+          title: documents.title,
         })
-        // Don't let a debounced store resurrect a soft-deleted document.
+        .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
-        .returning({ id: documents.id, workspaceId: documents.workspaceId });
-      if (rows.length === 0) {
+        .for("update");
+      if (!prev) {
         // Deleted docs are intentionally skipped. Anything else means RLS
         // filtered the write (read-only actor) — fail loud, don't drop data.
         const [existing] = await db
@@ -435,7 +498,19 @@ export class DocumentService {
         if (existing) throw new DocumentWriteDeniedError();
         return null;
       }
-      return { workspaceId: rows[0]!.workspaceId };
+      const rows = await db
+        .update(documents)
+        .set({
+          ydocState: snapshot.ydocState,
+          contentMd: snapshot.contentMd,
+          contentJson: snapshot.contentJson,
+          taskAssignees: taskAssigneesOf(snapshot.contentMd),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
+        .returning({ id: documents.id });
+      if (rows.length === 0) throw new DocumentWriteDeniedError();
+      return { workspaceId: prev.workspaceId, previousMd: prev.contentMd, title: prev.title };
     });
   }
 
@@ -443,12 +518,13 @@ export class DocumentService {
     id: string,
     target: { parentDocumentId: string | null; position?: number },
   ): Promise<Document | null> {
-    return this.exec(async (db) => {
+    return this.execTx(async (db) => {
       const [doc] = await db
         .select({ collectionId: documents.collectionId })
         .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
       if (!doc) return null;
+      await this.lockTree(db, doc.collectionId);
 
       if (target.parentDocumentId) {
         if (target.parentDocumentId === id) {
@@ -474,7 +550,7 @@ export class DocumentService {
         const result = await db.execute(sql`
           WITH RECURSIVE subtree AS (
             SELECT id FROM documents WHERE id = ${id}
-            UNION ALL
+            UNION
             SELECT d.id FROM documents d JOIN subtree s ON d.parent_document_id = s.id
           )
           SELECT 1 FROM subtree WHERE id = ${target.parentDocumentId} LIMIT 1
@@ -511,6 +587,7 @@ export class DocumentService {
     id: string,
     column: "archived_at" | "deleted_at",
     value: Date | null,
+    only: SQL = sql`TRUE`,
   ): Promise<void> {
     // Raw-SQL params skip drizzle's column mapping, and postgres-js won't
     // serialize a Date it gets that way (PGlite does — tests alone won't catch
@@ -519,12 +596,12 @@ export class DocumentService {
     await db.execute(sql`
       WITH RECURSIVE subtree AS (
         SELECT id FROM documents WHERE id = ${id}
-        UNION ALL
+        UNION
         SELECT d.id FROM documents d JOIN subtree s ON d.parent_document_id = s.id
       )
       UPDATE documents
       SET ${sql.raw(column)} = ${stamp}, updated_at = now()
-      WHERE id IN (SELECT id FROM subtree) AND deleted_at IS NULL
+      WHERE id IN (SELECT id FROM subtree) AND deleted_at IS NULL AND ${only}
     `);
   }
 
@@ -532,7 +609,9 @@ export class DocumentService {
    * recoverable via restore). Returns null if the actor may not write it. */
   async archive(id: string): Promise<Document | null> {
     return this.exec(async (db) => {
-      await this.stampSubtree(db, id, "archived_at", new Date());
+      // Leave already-archived descendants alone: their own archive (and its
+      // timestamp) must survive this one being restored.
+      await this.stampSubtree(db, id, "archived_at", new Date(), sql`archived_at IS NULL`);
       const [row] = await db
         .select()
         .from(documents)
@@ -541,10 +620,17 @@ export class DocumentService {
     });
   }
 
-  /** Un-archive a document and its descendants. */
+  /** Un-archive a document and the descendants archived together with it
+   * (same timestamp); ones archived separately before stay archived. */
   async restore(id: string): Promise<Document | null> {
     return this.exec(async (db) => {
-      await this.stampSubtree(db, id, "archived_at", null);
+      await this.stampSubtree(
+        db,
+        id,
+        "archived_at",
+        null,
+        sql`archived_at = (SELECT archived_at FROM documents WHERE id = ${id})`,
+      );
       const [row] = await db
         .select()
         .from(documents)
@@ -735,7 +821,8 @@ export class DocumentService {
         SELECT
           d.id AS leaf_id,
           d.parent_document_id,
-          ARRAY[coalesce(nullif(d.title, ''), 'Untitled')]::text[] AS parts
+          ARRAY[coalesce(nullif(d.title, ''), 'Untitled')]::text[] AS parts,
+          1 AS depth
         FROM documents d
         WHERE d.id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
           AND d.deleted_at IS NULL
@@ -746,11 +833,14 @@ export class DocumentService {
         SELECT
           path.leaf_id,
           parent.parent_document_id,
-          ARRAY[coalesce(nullif(parent.title, ''), 'Untitled')]::text[] || path.parts
+          ARRAY[coalesce(nullif(parent.title, ''), 'Untitled')]::text[] || path.parts,
+          path.depth + 1
         FROM document_paths path
         JOIN documents parent ON parent.id = path.parent_document_id
         WHERE parent.deleted_at IS NULL
           AND parent.archived_at IS NULL
+          -- Backstop: a parent cycle would otherwise recurse forever.
+          AND path.depth < 100
       )
       SELECT leaf_id, parts
       FROM document_paths
@@ -993,8 +1083,19 @@ export class DocumentService {
           and(
             isNull(documents.deletedAt),
             isNull(documents.archivedAt),
-            // Cheap prefilter; exact matching happens in the parser below.
-            sql`${documents.contentMd} LIKE '%- [%'`,
+            or(
+              // Indexed: handles extracted at save time.
+              sql`${documents.taskAssignees} && ARRAY[${sql.join(
+                [...handles].map((h) => sql`${h}`),
+                sql`, `,
+              )}]::text[]`,
+              // Rows not re-saved since task_assignees was added: cheap
+              // prefilter, exact matching in the parser below.
+              and(
+                isNull(documents.taskAssignees),
+                sql`${documents.contentMd} LIKE '%- [%'`,
+              ),
+            ),
           ),
         ),
     );

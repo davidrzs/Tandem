@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import {
   documentSnapshots,
   runAsActor,
@@ -152,34 +152,36 @@ export class SnapshotService {
     kind: string;
     minAgeMs: number;
   }): Promise<void> {
-    await this.system(async (db) => {
-      // Cheap age gate first (no bytes) — short-circuits the frequent path.
-      const [meta] = await db
-        .select({ createdAt: documentSnapshots.createdAt })
-        .from(documentSnapshots)
-        .where(eq(documentSnapshots.documentId, input.documentId))
-        .orderBy(desc(documentSnapshots.createdAt))
-        .limit(1);
-      if (meta && input.minAgeMs > 0 && Date.now() - meta.createdAt.getTime() < input.minAgeMs) {
-        return;
-      }
-      // Skip if the latest snapshot already holds identical bytes.
-      const [latest] = await db
-        .select({ ydocState: documentSnapshots.ydocState })
-        .from(documentSnapshots)
-        .where(eq(documentSnapshots.documentId, input.documentId))
-        .orderBy(desc(documentSnapshots.createdAt))
-        .limit(1);
-      if (latest && Buffer.from(latest.ydocState).equals(Buffer.from(input.ydocState))) {
-        return;
-      }
-      await db.insert(documentSnapshots).values({
-        workspaceId: input.workspaceId,
-        documentId: input.documentId,
-        ydocState: input.ydocState,
-        authors: labelAuthors(input.sessions, meta?.createdAt ?? null),
-        kind: input.kind,
-      });
-    });
+    await this.system((outer) =>
+      outer.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        // Serialize captures per document: two concurrent captures would both
+        // see the same "latest" and insert the same state twice.
+        await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${input.documentId}))`);
+        // One look at the latest snapshot: its age (rate limit) and whether it
+        // already holds these exact bytes (compared in the database, so the
+        // stored state never travels back).
+        const [latest] = await db
+          .select({
+            createdAt: documentSnapshots.createdAt,
+            same: sql<boolean>`${documentSnapshots.ydocState} = ${Buffer.from(input.ydocState)}`,
+          })
+          .from(documentSnapshots)
+          .where(eq(documentSnapshots.documentId, input.documentId))
+          .orderBy(desc(documentSnapshots.createdAt))
+          .limit(1);
+        if (latest?.same) return;
+        if (latest && input.minAgeMs > 0 && Date.now() - latest.createdAt.getTime() < input.minAgeMs) {
+          return;
+        }
+        await db.insert(documentSnapshots).values({
+          workspaceId: input.workspaceId,
+          documentId: input.documentId,
+          ydocState: input.ydocState,
+          authors: labelAuthors(input.sessions, latest?.createdAt ?? null),
+          kind: input.kind,
+        });
+      }),
+    );
   }
 }

@@ -16,6 +16,9 @@ export interface MaintenanceOptions {
    * of every document survive regardless of age). */
   retentionDays?: number;
   keepPerDoc?: number;
+  /** Snapshots younger than this are all kept; older ones (still inside the
+   * retention window) are thinned to one per document per day. */
+  fullDays?: number;
 }
 
 const rowsOf = (r: unknown): unknown[] =>
@@ -25,7 +28,14 @@ const rowsOf = (r: unknown): unknown[] =>
  * One maintenance pass, system-scoped:
  *
  * 1. Snapshot retention — without it every version of every document is kept
- *    forever (a full Yjs state copy each).
+ *    forever (a full Yjs state copy each; an active document adds one every
+ *    10 minutes of editing). Policy, per document:
+ *      - the newest `keepPerDoc` are always kept, whatever their age;
+ *      - everything younger than `fullDays` (7) is kept;
+ *      - between `fullDays` and `retentionDays` (180), only the newest
+ *        snapshot of each day survives — per kind, so a pre-restore capture
+ *        (the undo of a restore) is never thinned away by an auto one;
+ *      - older than `retentionDays`: pruned.
  * 2. Orphaned-image GC — bytes whose id no live document references. Images
  *    must ALSO be older than the snapshot retention window, so restoring any
  *    still-restorable version can't resurrect a reference to deleted bytes.
@@ -37,6 +47,7 @@ export async function runMaintenance(
   const retentionDays =
     opts.retentionDays ?? Number(process.env.SNAPSHOT_RETENTION_DAYS ?? 180);
   const keepPerDoc = opts.keepPerDoc ?? 10;
+  const fullDays = opts.fullDays ?? 7;
 
   return runAsActor(db, SYSTEM, async (d) => {
     const pruned = rowsOf(
@@ -44,11 +55,21 @@ export async function runMaintenance(
         DELETE FROM document_snapshots WHERE id IN (
           SELECT id FROM (
             SELECT id, created_at,
-                   row_number() OVER (PARTITION BY document_id ORDER BY created_at DESC) AS rn
+                   row_number() OVER (PARTITION BY document_id ORDER BY created_at DESC) AS rn,
+                   row_number() OVER (
+                     PARTITION BY document_id, kind, date_trunc('day', created_at)
+                     ORDER BY created_at DESC
+                   ) AS day_rn
             FROM document_snapshots
           ) ranked
           WHERE ranked.rn > ${keepPerDoc}
-            AND ranked.created_at < now() - (${retentionDays} * interval '1 day')
+            AND (
+              ranked.created_at < now() - (${retentionDays} * interval '1 day')
+              OR (
+                ranked.created_at < now() - (${fullDays} * interval '1 day')
+                AND ranked.day_rn > 1
+              )
+            )
         )
         RETURNING id
       `),

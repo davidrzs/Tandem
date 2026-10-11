@@ -9,6 +9,22 @@ buildHttpServer(db)
   .then((app) => {
     // Daily snapshot retention + orphaned-image GC (see maintenance.ts).
     startMaintenance(db, (msg) => app.log.info(msg));
+    // As PID 1 in a container, node ignores SIGTERM without a handler and gets
+    // SIGKILLed after the stop timeout, dropping unsaved collab edits.
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      process.once(signal, () => {
+        app.log.info(`${signal}: shutting down`);
+        // Stay under docker's 10s stop timeout even if a save hangs.
+        setTimeout(() => process.exit(1), 8000).unref();
+        app.close().then(
+          () => process.exit(0),
+          (err) => {
+            app.log.error(err);
+            process.exit(1);
+          },
+        );
+      });
+    }
     return app.listen({ port, host: "0.0.0.0" });
   })
   .catch((err) => {

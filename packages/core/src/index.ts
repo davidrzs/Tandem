@@ -11,3 +11,4 @@ export * from "./services/notifications.js";
 export * from "./services/settings.js";
 export * from "./services/snapshots.js";
 export * from "./services/workspaces.js";
+export * from "./inputs.js";

@@ -47,19 +47,16 @@ export function createCollabWriter(
         userId: author.userId,
       });
       try {
-        let currentMd = "";
-        await connection.transact((doc) => {
-          const fragment = doc.getXmlFragment(COLLAB_FIELD);
-          currentMd =
-            fragment.length > 0
-              ? jsonToMarkdown(yXmlFragmentToProsemirrorJSON(fragment))
-              : "";
-        });
-        // Run the transform outside the transaction: a bad target (e.g.
-        // old_string not found) must abort cleanly with the doc untouched.
-        const nextJson = markdownToJSON(transform(currentMd));
+        // Read, transform and apply in ONE transaction: nothing can land on
+        // the live doc in between, so the whole-doc diff can't revert a
+        // concurrent human edit. A bad target (e.g. old_string not found)
+        // throws before any mutation, leaving the doc untouched.
         let clientId = 0;
         await connection.transact((doc) => {
+          const fragment = doc.getXmlFragment(COLLAB_FIELD);
+          const currentMd =
+            fragment.length > 0 ? jsonToMarkdown(yXmlFragmentToProsemirrorJSON(fragment)) : "";
+          const nextJson = markdownToJSON(transform(currentMd));
           clientId = applyAttributedEdit(doc, nextJson, { ...author, at: Date.now() });
         });
         return clientId;

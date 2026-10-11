@@ -1,10 +1,18 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
+  descriptionSchema,
+  documentCreateShape,
+  documentMoveShape,
+  documentSearchShape,
+  documentUpdateShape,
   DocumentWriteDeniedError,
   ForbiddenError,
   InvalidInputError,
+  nameSchema,
   NotFoundError,
+  positionSchema,
+  tagsSchema,
 } from "@tandem/core";
 import { stateToJSON } from "@tandem/editor";
 import type { Services } from "./services.js";
@@ -98,7 +106,7 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: uuid }))
       .query(({ ctx, input }) => ctx.services.workspaces.members(input.workspaceId)),
     create: protectedProcedure
-      .input(z.object({ name: z.string().min(1), slug: z.string().min(1) }))
+      .input(z.object({ name: nameSchema, slug: nameSchema }))
       .mutation(async ({ ctx, input }) => {
         // Instance policy: the admin can turn off team-workspace creation for
         // regular members (signup's personal workspace is unaffected — that's
@@ -159,7 +167,7 @@ export const appRouter = t.router({
         return { ...invite, emailed };
       }),
     acceptInvite: protectedProcedure
-      .input(z.object({ token: z.string().min(1) }))
+      .input(z.object({ token: z.string().min(1).max(200) }))
       .mutation(async ({ ctx, input }) => {
         const ws = await ctx.services.workspaces.acceptInvite(input.token);
         await ctx.services.settings.recordAudit({
@@ -178,17 +186,17 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: uuid }))
       .query(({ ctx, input }) => ctx.services.groups.list(input.workspaceId)),
     create: protectedProcedure
-      .input(z.object({ workspaceId: uuid, name: z.string().min(1) }))
+      .input(z.object({ workspaceId: uuid, name: nameSchema }))
       .mutation(({ ctx, input }) =>
         ctx.services.groups.create(input.workspaceId, input.name),
       ),
     addMember: protectedProcedure
-      .input(z.object({ groupId: uuid, userId: z.string().min(1) }))
+      .input(z.object({ groupId: uuid, userId: z.string().min(1).max(200) }))
       .mutation(({ ctx, input }) =>
         ctx.services.groups.addMember(input.groupId, input.userId),
       ),
     removeMember: protectedProcedure
-      .input(z.object({ groupId: uuid, userId: z.string().min(1) }))
+      .input(z.object({ groupId: uuid, userId: z.string().min(1).max(200) }))
       .mutation(({ ctx, input }) =>
         ctx.services.groups.removeMember(input.groupId, input.userId),
       ),
@@ -205,9 +213,9 @@ export const appRouter = t.router({
     create: protectedProcedure
       .input(
         z.object({
-          name: z.string().min(1),
-          slug: z.string().min(1),
-          description: z.string().optional(),
+          name: nameSchema,
+          slug: nameSchema,
+          description: descriptionSchema.optional(),
           workspaceId: uuid.optional(),
         }),
       )
@@ -216,8 +224,8 @@ export const appRouter = t.router({
       .input(
         z.object({
           id: uuid,
-          name: z.string().min(1).optional(),
-          description: z.string().optional(),
+          name: nameSchema.optional(),
+          description: descriptionSchema.optional(),
         }),
       )
       .mutation(({ ctx, input }) => {
@@ -225,7 +233,7 @@ export const appRouter = t.router({
         return ctx.services.collections.update(id, patch);
       }),
     move: protectedProcedure
-      .input(z.object({ id: uuid, position: z.number().finite() }))
+      .input(z.object({ id: uuid, position: positionSchema }))
       .mutation(async ({ ctx, input }) => {
         const col = await ctx.services.collections.move(input.id, input.position);
         // A null row on an RLS-scoped write means denied, not "not found".
@@ -252,7 +260,7 @@ export const appRouter = t.router({
         z.object({
           id: uuid,
           principalType: z.enum(["user", "group"]),
-          principalId: z.string().min(1),
+          principalId: z.string().min(1).max(200),
           role: z.enum(["read", "read_write"]),
         }),
       )
@@ -276,7 +284,7 @@ export const appRouter = t.router({
         z.object({
           id: uuid,
           principalType: z.enum(["user", "group"]),
-          principalId: z.string().min(1),
+          principalId: z.string().min(1).max(200),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -307,23 +315,13 @@ export const appRouter = t.router({
 
     create: protectedProcedure
       .input(
-        z.object({
-          collectionId: uuid,
-          title: z.string().optional(),
-          markdown: z.string().optional(),
-          parentDocumentId: uuid.optional(),
-          tags: z.array(z.string()).optional(),
-        }),
+        z.object({ ...documentCreateShape, tags: tagsSchema.optional() }),
       )
       .mutation(({ ctx, input }) => ctx.services.documents.create(input)),
 
     update: protectedProcedure
       .input(
-        z.object({
-          id: uuid,
-          title: z.string().optional(),
-          tags: z.array(z.string()).optional(),
-        }),
+        z.object(documentUpdateShape),
       )
       .mutation(async ({ ctx, input }) => {
         const { id, ...patch } = input;
@@ -338,11 +336,7 @@ export const appRouter = t.router({
 
     move: protectedProcedure
       .input(
-        z.object({
-          id: uuid,
-          parentDocumentId: uuid.nullable(),
-          position: z.number().optional(),
-        }),
+        z.object(documentMoveShape),
       )
       .mutation(({ ctx, input }) => {
         const { id, ...target } = input;
@@ -439,12 +433,7 @@ export const appRouter = t.router({
 
     search: protectedProcedure
       .input(
-        z.object({
-          query: z.string(),
-          collectionId: uuid.optional(),
-          limit: z.number().int().min(1).max(100).optional(),
-          tag: z.string().optional(),
-        }),
+        z.object(documentSearchShape),
       )
       .query(({ ctx, input }) => {
         const { query, ...opts } = input;
@@ -462,8 +451,8 @@ export const appRouter = t.router({
       .input(
         z.object({
           registrationMode: z.enum(["open", "invite", "domain", "closed"]).optional(),
-          allowedEmailDomains: z.array(z.string()).optional(),
-          instanceName: z.string().min(1).optional(),
+          allowedEmailDomains: z.array(z.string().max(253)).max(100).optional(),
+          instanceName: nameSchema.optional(),
           allowWorkspaceCreation: z.boolean().optional(),
         }),
       )

@@ -153,7 +153,7 @@ test("/mcp body limit fits base64 image uploads but caps runaway payloads", asyn
       method: "POST",
       url: "/mcp",
       headers: { "content-type": "application/json" },
-      payload: rpc(13 * 1024 * 1024),
+      payload: rpc(6 * 1024 * 1024),
     });
     assert.equal(oversized.statusCode, 413);
   } finally {

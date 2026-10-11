@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import {
   createDatabase,
+  documents,
   documentSnapshots,
   migrateDatabase,
   runAsActor,
@@ -278,6 +279,43 @@ test("invite: a user who accepts an invite gains access to that workspace", asyn
   );
 });
 
+test("restore undoes exactly one archive; separately archived children stay archived", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Arc", slug: "archive-undo" });
+  const root = await d1.create({ collectionId: col.id, title: "root" });
+  const kept = await d1.create({ collectionId: col.id, parentDocumentId: root.id, title: "kept" });
+  const earlier = await d1.create({ collectionId: col.id, parentDocumentId: root.id, title: "old" });
+
+  await d1.archive(earlier.id);
+  await d1.archive(root.id);
+  await d1.restore(root.id);
+
+  const state = async (id: string) =>
+    (await db.select({ a: documents.archivedAt }).from(documents).where(eq(documents.id, id)))[0]!.a;
+  assert.equal(await state(root.id), null);
+  assert.equal(await state(kept.id), null);
+  assert.ok(await state(earlier.id), "child archived on its own stays archived");
+});
+
+test("tree queries terminate even if a parent cycle exists", { timeout: 10_000 }, async () => {
+  // move() serializes per collection so this can't be produced through the
+  // API; the CTEs must still not hang if it ever exists in the data.
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Cyc", slug: "cycle" });
+  const a = await d1.create({ collectionId: col.id, title: "a" });
+  const b = await d1.create({ collectionId: col.id, parentDocumentId: a.id, title: "b" });
+  const c = await d1.create({ collectionId: col.id, title: "c" });
+  await db.update(documents).set({ parentDocumentId: b.id }).where(eq(documents.id, a.id));
+
+  await assert.rejects(() => d1.move(c.id, { parentDocumentId: b.id }).then(() =>
+    d1.move(a.id, { parentDocumentId: c.id }),
+  ), /own descendant/);
+  await d1.subtree(c.id, 3);
+  assert.ok(await d1.archive(a.id));
+});
+
 test("move rejects a cross-collection or self parent", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
@@ -501,6 +539,42 @@ test("listMyTodos: assigned tasks across visible docs, tenant-scoped", async () 
   await d1.archive(doc.id);
   const after = await new DocumentService(db, user("u1")).listMyTodos();
   assert.ok(!after.some((t) => t.documentId === doc.id));
+});
+
+test("listMyTodos reads assignees extracted at save time; pre-migration rows still scan", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Todo index", slug: "todo-index" });
+  const md = "- [ ] @alice indexed task\n- [ ] @Bob@Other.org other";
+  const indexed = await d1.create({ collectionId: col.id, title: "Indexed", markdown: md });
+  assert.deepEqual(indexed.taskAssignees?.sort(), ["alice", "bob@other.org"]);
+
+  const legacy = await d1.create({ collectionId: col.id, title: "Legacy", markdown: md });
+  // Written before task_assignees existed, and one whose index says "nobody".
+  const stale = await d1.create({ collectionId: col.id, title: "Stale", markdown: md });
+  await runAsActor(db, SYSTEM, async (d) => {
+    await d.update(documents).set({ taskAssignees: null }).where(eq(documents.id, legacy.id));
+    await d.update(documents).set({ taskAssignees: [] }).where(eq(documents.id, stale.id));
+  });
+
+  const ids = new Set((await d1.listMyTodos()).map((t) => t.documentId));
+  assert.ok(ids.has(indexed.id), "found via the stored assignees");
+  assert.ok(ids.has(legacy.id), "NULL rows fall back to scanning");
+  assert.ok(!ids.has(stale.id), "stored assignees are authoritative (no body scan)");
+});
+
+test("concurrent fallback body edits don't drop each other", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const col = await c1.create({ name: "Edit race", slug: "edit-race" });
+  const d1 = new DocumentService(db, user("u1"));
+  const doc = await d1.create({ collectionId: col.id, title: "Race", markdown: "Start." });
+  await Promise.all([
+    d1.editBody(doc.id, (md) => `${md}\n\nFrom A.`),
+    d1.editBody(doc.id, (md) => `${md}\n\nFrom B.`),
+  ]);
+  const after = (await d1.get(doc.id))!.contentMd;
+  assert.match(after, /From A\./);
+  assert.match(after, /From B\./);
 });
 
 test("workspace members lists identities; non-members are rejected", async () => {

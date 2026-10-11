@@ -100,3 +100,26 @@ test("an admin can read/update settings and manage server invites", async () => 
     await db.$dispose();
   }
 });
+
+test("document inputs are bounded (shared limits with MCP)", async () => {
+  const db = await fresh();
+  try {
+    const caller = callerFor(db, member);
+    const id = "00000000-0000-4000-8000-000000000000";
+    await assert.rejects(
+      () => caller.documents.create({ collectionId: id, title: "x".repeat(501) }),
+      /too_big|at most/i,
+    );
+    await assert.rejects(() => caller.documents.search({ query: "q".repeat(501) }), /too_big|at most/i);
+    await assert.rejects(
+      () => caller.documents.update({ id, tags: Array.from({ length: 51 }, (_, i) => `t${i}`) }),
+      /too_big|at most/i,
+    );
+    await assert.rejects(
+      () => caller.documents.move({ id, parentDocumentId: null, position: Number.POSITIVE_INFINITY }),
+      /finite|not_finite/i,
+    );
+  } finally {
+    await db.$dispose();
+  }
+});

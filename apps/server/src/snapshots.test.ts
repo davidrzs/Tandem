@@ -151,3 +151,17 @@ test("a read-only member cannot restore", async () => {
   const snapRow = (await snapshots.get(snap!.id))!;
   await assert.rejects(() => u2Writer.restoreTo(docId, snapRow), /write access|denied/i);
 });
+
+test("concurrent identical captures insert one snapshot", async () => {
+  const workspaceId = (await documents.getMeta(docId))!.workspaceId;
+  const capture = () =>
+    new SnapshotService(db).captureBoundary({
+      documentId: docId,
+      workspaceId,
+      ydocState: new Uint8Array([7, 7, 7]),
+      sessions: [],
+    });
+  const before = (await snapshots.list(docId)).length;
+  await Promise.all([capture(), capture(), capture()]);
+  assert.equal((await snapshots.list(docId)).length, before + 1);
+});

@@ -108,7 +108,7 @@ each tag with its document count.
 - **Images**: `request_image_upload` (a short-lived signed bearer token — the
   agent POSTs the file bytes directly, e.g. with curl, instead of inlining
   base64; alt text is given up front so it can't be lost in transit; 25MB cap)
-  and `upload_image` (base64 in, for small images; 8MB cap). Both yield a
+  and `upload_image` (base64 in, for small images; 3MB cap). Both yield a
   private workspace image and a `![alt](/api/images/<id>)` snippet to embed
   with the edit tools; raster formats only.
 - **Collaboration**: `list_comments`, `add_comment` (reply via `parentId`),

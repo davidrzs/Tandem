@@ -2,10 +2,19 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as Y from "yjs";
 import { z } from "zod";
 import {
+  descriptionSchema,
+  documentCreateShape,
+  documentMoveShape,
+  documentSearchShape,
+  documentUpdateShape,
   DocumentWriteDeniedError,
   type DocumentMeta,
+  markdownSchema,
+  nameSchema,
   NotFoundError,
   type SearchHit,
+  tagSchema,
+  titleSchema,
 } from "@tandem/core";
 import {
   appendMarkdown,
@@ -31,9 +40,11 @@ import {
 import type { Services } from "./services.js";
 
 /** Decoded-bytes cap for MCP uploads (REST allows 25MB; agents send small images). */
-export const MCP_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
-/** JSON-RPC body ceiling for POST /mcp: base64 of the cap (~4/3) + envelope headroom. */
-export const MCP_BODY_LIMIT = 12 * 1024 * 1024;
+export const MCP_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+/** JSON-RPC body ceiling for POST /mcp. The largest legitimate payloads are a
+ * base64 image at the cap (~4MB) and a markdown body at INPUT_LIMITS.markdown
+ * (1M chars, up to ~4MB as UTF-8); 5MB covers either plus the envelope. */
+export const MCP_BODY_LIMIT = 5 * 1024 * 1024;
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -321,9 +332,9 @@ export function createMcpServer(
         "Create a new collection. workspaceId is required when you belong to " +
         "more than one workspace. Returns its absolute canonical url.",
       inputSchema: {
-        name: z.string().min(1),
-        slug: z.string().min(1),
-        description: z.string().optional(),
+        name: nameSchema,
+        slug: nameSchema,
+        description: descriptionSchema.optional(),
         workspaceId: z.string().uuid().optional(),
       },
     },
@@ -452,12 +463,9 @@ export function createMcpServer(
         "with a tag to list everything carrying that tag). Retry with fewer or " +
         "alternative keywords when no results are returned.",
       inputSchema: {
-        query: z.string(),
-        collectionId: z.string().uuid().optional(),
-        limit: z.number().int().min(1).max(100).optional(),
-        tag: z.string().optional(),
+        ...documentSearchShape,
         excludeDocumentIds: z.array(z.string().uuid()).max(50).optional(),
-        excludeTags: z.array(z.string().min(1)).max(20).optional(),
+        excludeTags: z.array(tagSchema.min(1)).max(20).optional(),
       },
     },
     async ({ query, collectionId, limit, tag, excludeDocumentIds, excludeTags }) => {
@@ -561,12 +569,7 @@ export function createMcpServer(
       description:
         "Create a document in a collection. Body is markdown; parentDocumentId " +
         "nests it. Returns its absolute canonical url.",
-      inputSchema: {
-        collectionId: z.string().uuid(),
-        title: z.string().optional(),
-        markdown: z.string().optional(),
-        parentDocumentId: z.string().uuid().optional(),
-      },
+      inputSchema: documentCreateShape,
     },
     async (args) => {
       const doc = await documents.create(args);
@@ -583,7 +586,7 @@ export function createMcpServer(
         "Upload a SMALL image (base64) and get back a markdown snippet " +
         "`![alt](/api/images/<id>)` to embed with create_document or the edit " +
         "tools. Images are private to workspace members. Raster formats only " +
-        "(no SVG); max 8MB decoded. workspaceId is required when you belong " +
+        "(no SVG); max 3MB decoded. workspaceId is required when you belong " +
         "to more than one workspace. For anything beyond a small icon — or a " +
         "file already on disk — use request_image_upload instead of inlining " +
         "base64.",
@@ -609,7 +612,7 @@ export function createMcpServer(
       const bytes = Buffer.from(b64, "base64");
       if (bytes.length === 0) return toolError("image data is empty");
       if (bytes.length > MCP_IMAGE_MAX_BYTES) {
-        return toolError("image exceeds 8MB — use request_image_upload for large files");
+        return toolError("image exceeds 3MB — use request_image_upload for large files");
       }
       const ws = await resolveWorkspace(workspaceId);
       if ("error" in ws) return ws.error;
@@ -685,11 +688,7 @@ export function createMcpServer(
         "Body edits use the targeted edit tools (edit_document, " +
         "insert_after_heading, replace_section, append_section) so that only what " +
         "actually changed is attributed to this agent.",
-      inputSchema: {
-        id: z.string().uuid(),
-        title: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-      },
+      inputSchema: documentUpdateShape,
     },
     async ({ id, title, tags }) => {
       if (title === undefined && tags === undefined) {
@@ -717,8 +716,8 @@ export function createMcpServer(
         "Prefer this (smallest possible change) over rewriting sections.",
       inputSchema: {
         id: z.string().uuid(),
-        old_string: z.string().min(1),
-        new_string: z.string(),
+        old_string: markdownSchema.min(1),
+        new_string: markdownSchema,
         replace_all: z.boolean().optional(),
       },
     },
@@ -736,8 +735,8 @@ export function createMcpServer(
         "\"## Setup\".",
       inputSchema: {
         id: z.string().uuid(),
-        heading: z.string().min(1),
-        markdown: z.string().min(1),
+        heading: titleSchema.min(1),
+        markdown: markdownSchema.min(1),
       },
     },
     async ({ id, heading, markdown }) =>
@@ -754,8 +753,8 @@ export function createMcpServer(
         "edit_document to change heading text.",
       inputSchema: {
         id: z.string().uuid(),
-        heading: z.string().min(1),
-        markdown: z.string(),
+        heading: titleSchema.min(1),
+        markdown: markdownSchema,
       },
     },
     async ({ id, heading, markdown }) =>
@@ -769,7 +768,7 @@ export function createMcpServer(
       description:
         "Append markdown to the end of a document. Block-scoped, so it merges " +
         "cleanly with concurrent human edits via the live collaborative document.",
-      inputSchema: { id: z.string().uuid(), markdown: z.string().min(1) },
+      inputSchema: { id: z.string().uuid(), markdown: markdownSchema.min(1) },
     },
     async ({ id, markdown }) => editBody("append_section", id, (md) => appendMarkdown(md, markdown)),
   );
@@ -780,11 +779,7 @@ export function createMcpServer(
       title: "Move document",
       description:
         "Reparent a document. parentDocumentId null moves it to the collection root.",
-      inputSchema: {
-        id: z.string().uuid(),
-        parentDocumentId: z.string().uuid().nullable(),
-        position: z.number().optional(),
-      },
+      inputSchema: documentMoveShape,
     },
     async ({ id, parentDocumentId, position }) => {
       const doc = await documents.move(id, { parentDocumentId, position });
