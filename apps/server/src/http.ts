@@ -85,6 +85,12 @@ export async function buildHttpServer(
   const hocuspocus = createHocuspocus(db, auth);
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
+    // Behind a reverse proxy every request would otherwise come from the
+    // proxy's IP, so all users would share one rate-limit bucket. TRUST_PROXY
+    // is the number of proxy hops in front of the app (Caddy or Traefik: 1;
+    // Traefik -> Caddy: 2); 0 when the app is exposed directly, so clients
+    // can't spoof X-Forwarded-For.
+    trustProxy: Number(process.env.TRUST_PROXY ?? 1),
     // tRPC batches procedures into one path segment; the 100-char default
     // 404s any page that batches more than a handful of queries.
     maxParamLength: 5000,

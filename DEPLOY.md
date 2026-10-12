@@ -30,21 +30,24 @@ cp .env.deploy.example .env.deploy
 # optional: SMTP_URL + EMAIL_FROM (see "Email" below)
 ```
 
-## 3. Migrate, then start
+## 3. Start
 ```bash
-# release step — run once per deploy, before (re)starting instances
-docker compose --env-file .env.deploy --profile release run --rm migrate
-
-# build + start app and caddy
 docker compose --env-file .env.deploy up -d --build
 ```
+The app applies pending migrations on boot, before it serves. Running several
+instances? Set `MIGRATE_ON_BOOT=0` and run the release step once per deploy
+instead: `docker compose --env-file .env.deploy --profile release run --rm migrate`.
+
+Rate limits key on the client IP from `X-Forwarded-For`. `TRUST_PROXY` is the
+number of proxies in front of the app: 1 for this compose (Caddy) or a platform
+proxy like Traefik alone, 2 for Traefik in front of Caddy, 0 if the app port is
+exposed directly.
 Caddy obtains a certificate for `$DOMAIN` automatically and reverse-proxies to
 the app (WebSockets upgrade transparently, so `/collab` works over `wss://`).
 
 ## 4. Updates
 ```bash
 git pull
-docker compose --env-file .env.deploy --profile release run --rm migrate
 docker compose --env-file .env.deploy up -d --build
 ```
 Some migrations rewrite a table under an exclusive lock — `0024` retypes

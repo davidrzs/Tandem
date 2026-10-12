@@ -80,11 +80,15 @@ function mapError(err: unknown): TRPCError {
 /** Requires a signed-in user; narrows ctx.user to non-null and maps DB errors. */
 const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
-  try {
-    return await next({ ctx: { ...ctx, user: ctx.user } });
-  } catch (err) {
-    throw mapError(err);
+  // next() doesn't throw: a failed resolver comes back as { ok: false }. A
+  // non-tRPC error arrives wrapped as an INTERNAL_SERVER_ERROR with the
+  // original as its cause; map that. Deliberate TRPCErrors pass unchanged.
+  const result = await next({ ctx: { ...ctx, user: ctx.user } });
+  if (!result.ok) {
+    const { error } = result;
+    throw error.code === "INTERNAL_SERVER_ERROR" && error.cause ? mapError(error.cause) : error;
   }
+  return result;
 });
 
 /** Requires a signed-in *server admin*. Defense-in-depth over the admin()

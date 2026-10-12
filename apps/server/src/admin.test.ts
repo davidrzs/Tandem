@@ -123,3 +123,16 @@ test("document inputs are bounded (shared limits with MCP)", async () => {
     await db.$dispose();
   }
 });
+
+test("domain errors reach clients as their status, not a 500", async () => {
+  const db = await fresh();
+  try {
+    await assert.rejects(
+      () => callerFor(db, member).workspaces.acceptInvite({ token: "no-such-token" }),
+      (err: { code?: string; message?: string }) =>
+        err.code === "BAD_REQUEST" && err.message === "invalid or already-used invite",
+    );
+  } finally {
+    await db.$dispose();
+  }
+});

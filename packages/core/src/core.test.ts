@@ -389,6 +389,11 @@ test("trash: purgeExpired removes batches past retention only", async () => {
   assert.ok(ids.includes(fresh.id));
 });
 
+test("accepting an invalid invite is an input error, not a crash", async () => {
+  const ws = new WorkspaceService(db, user("u2"));
+  await assert.rejects(() => ws.acceptInvite("no-such-token"), InvalidInputError);
+});
+
 test("tree queries terminate even if a parent cycle exists", { timeout: 10_000 }, async () => {
   // move() serializes per collection so this can't be produced through the
   // API; the CTEs must still not hang if it ever exists in the data.

@@ -66,6 +66,29 @@ test("sign-in attempts are rate limited per IP", async () => {
   }
 });
 
+test("behind a proxy, rate limits are per client IP, not per proxy", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const app = await buildHttpServer(db);
+  try {
+    await app.ready();
+    // Every request arrives from the same proxy address (inject's 127.0.0.1).
+    const attempt = (client: string, i: number) =>
+      app.inject({
+        method: "POST",
+        url: "/api/auth/request-password-reset",
+        headers: { "x-forwarded-for": client },
+        payload: { email: `who-${i}@x.com` },
+      });
+    for (let i = 0; i < 5; i++) await attempt("203.0.113.1", i);
+    assert.equal((await attempt("203.0.113.1", 5)).statusCode, 429, "client A is limited");
+    assert.notEqual((await attempt("203.0.113.2", 6)).statusCode, 429, "client B is not");
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
 test("sign-up attempts are rate limited per IP", async () => {
   const db = createDatabase("memory://");
   await migrateDatabase(db);
