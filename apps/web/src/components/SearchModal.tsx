@@ -4,7 +4,7 @@ import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { useCreateDocument } from "./create-document.js";
 import { Icon, type IconName } from "./Icon.js";
-import { listRecents } from "./recents.js";
+import { useRecentDocs } from "./recents.js";
 import { Modal } from "./Modal.js";
 
 /** Highlighted-fragment markers from ts_headline (chr(2)/chr(3) delimiters). */
@@ -74,6 +74,7 @@ export function SearchModal({
   const listboxId = useId();
   const optionId = (i: number) => `${listboxId}-opt-${i}`;
   const favorites = trpc.favorites.list.useQuery();
+  const recents = useRecentDocs(workspaceId, 5);
   const openDoc = (id: string) => {
     onClose();
     navigate(`/d/${id}`);
@@ -110,7 +111,7 @@ export function SearchModal({
   const zeroItems = useMemo<ZeroItem[]>(() => {
     const items: ZeroItem[] = [];
     const seen = new Set<string>();
-    for (const recent of listRecents().filter((r) => r.workspaceId === workspaceId).slice(0, 5)) {
+    for (const recent of recents) {
       seen.add(recent.id);
       items.push({
         id: `recent:${recent.id}`,
@@ -152,7 +153,7 @@ export function SearchModal({
       run: onOpenSettings,
     });
     return items;
-  }, [collections, favorites.data, workspaceId]);
+  }, [collections, favorites.data, recents, workspaceId]);
 
   useEffect(() => setSelected(0), [debounced]);
 

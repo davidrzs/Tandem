@@ -394,6 +394,25 @@ test("accepting an invalid invite is an input error, not a crash", async () => {
   await assert.rejects(() => ws.acceptInvite("no-such-token"), InvalidInputError);
 });
 
+test("getMetaMany returns only live documents the actor can read", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const t1 = new DocumentTreeService(db, user("u1"));
+  const col = await c1.create({ name: "Recents", slug: "meta-many" });
+  const live = await d1.create({ collectionId: col.id, title: "live" });
+  const archived = await d1.create({ collectionId: col.id, title: "archived" });
+  const trashed = await d1.create({ collectionId: col.id, title: "trashed" });
+  await t1.archive(archived.id);
+  await t1.softDelete(trashed.id);
+  const ids = [live.id, archived.id, trashed.id, randomUUID()];
+
+  assert.deepEqual((await d1.getMetaMany(ids)).map((d) => d.title), ["live"]);
+  assert.deepEqual(await d1.getMetaMany([]), []);
+  // Someone outside the workspace sees none of them (u2 joins u1's workspace
+  // in the trash tests, so use a user with no memberships at all).
+  assert.deepEqual(await new DocumentService(db, user("outsider")).getMetaMany(ids), []);
+});
+
 test("tree queries terminate even if a parent cycle exists", { timeout: 10_000 }, async () => {
   // move() serializes per collection so this can't be produced through the
   // API; the CTEs must still not hang if it ever exists in the data.

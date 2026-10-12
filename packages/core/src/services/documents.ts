@@ -1,5 +1,5 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { collections, documents, type Document } from "@tandem/db";
 import { applyEditToState, scanTaskItems, type AuthorInfo } from "@tandem/editor";
 import { jsonToMarkdown, markdownToJSON } from "../markdown.js";
@@ -90,6 +90,25 @@ export class DocumentService extends DocumentServiceBase {
 
   /** Columns safe to ship to clients — excludes content_md/json, ydoc_state, search_vector. */
   static readonly metaColumns = documentMetaColumns;
+
+  /** Metadata of the live (not trashed, not archived) documents among `ids`
+   * that this actor can read; the rest are simply absent. Order is not
+   * preserved — callers key by id. */
+  async getMetaMany(ids: string[]): Promise<DocumentMeta[]> {
+    if (ids.length === 0) return [];
+    return this.exec((db) =>
+      db
+        .select(documentMetaColumns)
+        .from(documents)
+        .where(
+          and(
+            inArray(documents.id, ids),
+            isNull(documents.deletedAt),
+            isNull(documents.archivedAt),
+          ),
+        ),
+    );
+  }
 
   /** Metadata only (no body/binary) — for the editor header. */
   async getMeta(id: string): Promise<DocumentMeta | null> {

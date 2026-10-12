@@ -7,7 +7,7 @@ import { trpc } from "../trpc.js";
 import { useCreateDocument } from "./create-document.js";
 import { Icon } from "./Icon.js";
 import { notificationHref, notificationVerb } from "./notification-link.js";
-import { listRecents } from "./recents.js";
+import { useRecentDocs } from "./recents.js";
 import { timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
 
@@ -87,13 +87,7 @@ export function Home() {
     setReviewed(readOnboarding(workspaceId, "reviewed"));
   }, [workspaceId]);
 
-  const recents = useMemo(
-    () =>
-      listRecents()
-        .filter((r) => r.workspaceId === workspaceId)
-        .slice(0, 8),
-    [workspaceId],
-  );
+  const recents = useRecentDocs(workspaceId, 8);
   const workspaceFavorites = (favorites.data ?? []).filter(
     (document) => document.workspaceId === workspaceId && !document.archivedAt,
   );

@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
   descriptionSchema,
+  documentIdsSchema,
   documentCreateShape,
   documentMoveShape,
   documentSearchShape,
@@ -316,6 +317,10 @@ export const appRouter = t.router({
     getMeta: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.getMeta(input.id)),
+
+    getMetaMany: protectedProcedure
+      .input(z.object({ ids: documentIdsSchema }))
+      .query(({ ctx, input }) => ctx.services.documents.getMetaMany(input.ids)),
 
     create: protectedProcedure
       .input(

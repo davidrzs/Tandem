@@ -28,11 +28,12 @@ export function DocumentPage() {
     },
   });
 
-  // "Recently viewed" on the start page is local — reading leaves no trace
-  // anywhere but this browser.
+  // "Recently viewed" is local — reading leaves no trace anywhere but this
+  // browser (see recents.ts).
+  const viewedId = meta.data?.id;
   useEffect(() => {
-    if (meta.data) recordRecent(meta.data);
-  }, [meta.data]);
+    if (viewedId) recordRecent(viewedId);
+  }, [viewedId]);
   const restore = trpc.documents.restore.useMutation({
     onSuccess: async () => {
       await Promise.all([
