@@ -4,6 +4,34 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # TipTap and ProseMirror share types (prosemirror-model); bumping one
+      # alone splits the copy in node_modules and breaks the build.
+      editor:
+        patterns:
+          - "@tiptap/*"
+          - "prosemirror-*"
+          - "y-prosemirror"
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+        exclude-patterns:
+          - "@tiptap/*"
+          - "prosemirror-*"
+          - "y-prosemirror"
+          - "better-auth"
+    ignore:
+      # Major migrations, done deliberately rather than by bot: TipTap 3,
+      # React 19, and Better Auth 1.7 (drops the mcp/OAuth plugins we use).
+      - dependency-name: "@tiptap/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "better-auth"
+        versions: [">=1.7.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -12,3 +40,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Track the Node major CI and dev use (22); move deliberately.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
