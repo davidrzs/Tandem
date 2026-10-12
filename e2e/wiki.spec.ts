@@ -439,6 +439,55 @@ test("undo: archive and drag-move are reversible from the toast", async ({ page 
   await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveCSS("padding-left", "9px");
 });
 
+test("trash: delete with undo, restore from trash, delete forever", async ({ page }) => {
+  await signUp(page, "Tess Trash", "tess@example.com");
+  await createCollection(page, "Bin");
+  await page.getByRole("button", { name: /Bin/ }).first().click();
+  const row = page.locator(".collection-row", { hasText: "Bin" });
+  for (const title of ["Alpha", "Beta"]) {
+    const before = page.url();
+    await row.hover();
+    await page.getByTitle("New document").first().click();
+    await expect(page).not.toHaveURL(before);
+    await page.locator(".title-input").fill(title);
+    await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
+  }
+  const betaUrl = page.url();
+  const deleteRow = async (title: string) => {
+    const r = page.locator(".doc-row", { hasText: title });
+    await r.hover();
+    await r.getByTitle("More actions").click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+  };
+  const live = (title: string) => page.locator(".doc-row:not(.archived-row)", { hasText: title });
+
+  // Delete -> Undo: no confirm dialog, back in the tree.
+  await deleteRow("Alpha");
+  await expect(live("Alpha")).toHaveCount(0);
+  await page.locator(".toast", { hasText: "to trash" }).getByRole("button", { name: "Undo" }).click();
+  await expect(live("Alpha")).toBeVisible();
+
+  // Delete -> the doc link shows the trash banner -> Restore from the trash list.
+  await deleteRow("Beta");
+  await expect(live("Beta")).toHaveCount(0);
+  await page.goto(betaUrl);
+  await expect(page.getByText(/is in the trash/)).toBeVisible();
+  await page.getByRole("button", { name: /Trash \(1\)/ }).click();
+  await page.locator(".trash-row", { hasText: "Beta" }).hover();
+  await page.locator(".trash-row", { hasText: "Beta" }).getByTitle("Restore").click();
+  await expect(live("Beta")).toBeVisible();
+
+  // Delete forever: confirm, then it's gone from trash and the link is dead.
+  await deleteRow("Beta");
+  // The trash list is still open from the restore above.
+  await page.locator(".trash-row", { hasText: "Beta" }).hover();
+  await page.locator(".trash-row", { hasText: "Beta" }).getByTitle("Delete forever").click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete forever" }).click();
+  await expect(page.getByRole("button", { name: /Trash \(/ })).toHaveCount(0);
+  await page.goto(betaUrl);
+  await expect(page.getByText(/Document not found/)).toBeVisible();
+});
+
 test("shortcuts sheet opens with ? outside text fields", async ({ page }) => {
   await signUp(page, "Kim Keys", "kim@example.com");
   await page.locator("body").click({ position: { x: 600, y: 400 } });

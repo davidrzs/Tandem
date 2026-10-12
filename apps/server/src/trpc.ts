@@ -366,6 +366,29 @@ export const appRouter = t.router({
         if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
       }),
 
+    getTrashed: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(({ ctx, input }) => ctx.services.documentTree.getTrashed(input.id)),
+
+    listTrash: protectedProcedure
+      .input(z.object({ collectionId: uuid }))
+      .query(({ ctx, input }) => ctx.services.documentTree.listTrash(input.collectionId)),
+
+    restoreFromTrash: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const doc = await ctx.services.documentTree.restoreFromTrash(input.id);
+        if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot restore this document." });
+        return doc;
+      }),
+
+    purge: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const purged = await ctx.services.documentTree.purge(input.id);
+        if (!purged) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
+      }),
+
     duplicate: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(({ ctx, input }) => ctx.services.documents.duplicate(input.id)),

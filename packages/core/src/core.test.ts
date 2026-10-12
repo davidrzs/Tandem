@@ -306,6 +306,89 @@ test("restore undoes exactly one archive; separately archived children stay arch
   assert.ok(await state(earlier.id), "child archived on its own stays archived");
 });
 
+test("trash: delete is exactly undoable and restore never hides under a dead parent", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const t1 = new DocumentTreeService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Trash", slug: "trash-restore" });
+  const root = await d1.create({ collectionId: col.id, title: "root" });
+  const kept = await d1.create({ collectionId: col.id, parentDocumentId: root.id, title: "kept" });
+  const earlier = await d1.create({ collectionId: col.id, parentDocumentId: root.id, title: "old" });
+  const deletedAt = async (id: string) =>
+    (await db.select({ d: documents.deletedAt }).from(documents).where(eq(documents.id, id)))[0]!.d;
+
+  await t1.softDelete(earlier.id);
+  await t1.softDelete(root.id);
+  assert.deepEqual(
+    (await t1.listTrash(col.id)).map((d) => d.title).sort(),
+    ["old", "root"],
+    "both batches are trash roots; the child deleted with root is not",
+  );
+
+  await t1.restoreFromTrash(root.id);
+  assert.equal(await deletedAt(root.id), null);
+  assert.equal(await deletedAt(kept.id), null);
+  assert.ok(await deletedAt(earlier.id), "separately trashed child stays in the trash");
+
+  // Its parent went to the trash on its own: restoring the child lands at root.
+  await t1.softDelete(root.id);
+  await t1.restoreFromTrash(earlier.id);
+  const [row] = await db.select().from(documents).where(eq(documents.id, earlier.id));
+  assert.equal(row!.deletedAt, null);
+  assert.equal(row!.parentDocumentId, null, "reattached to the collection root");
+});
+
+test("trash: purge removes only its batch, and readers can't purge or restore", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const t1 = new DocumentTreeService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Purge", slug: "trash-purge" });
+  const parent = await d1.create({ collectionId: col.id, title: "parent" });
+  const child = await d1.create({ collectionId: col.id, parentDocumentId: parent.id, title: "c" });
+  const survivor = await d1.create({ collectionId: col.id, parentDocumentId: parent.id, title: "s" });
+  await t1.softDelete(parent.id);
+  // The survivor is restored on its own; its row still points at the parent.
+  await db.update(documents).set({ deletedAt: null }).where(eq(documents.id, survivor.id));
+
+  const reader = new DocumentTreeService(db, user("u2"));
+  await c1.setDefaultRole(col.id, "read");
+  await db
+    .insert(workspaceMembers)
+    .values({ workspaceId: col.workspaceId, userId: "u2", role: "member" })
+    .onConflictDoNothing();
+  assert.equal((await reader.listTrash(col.id)).length, 1, "reader sees the trash");
+  assert.equal(await reader.purge(parent.id), false, "reader cannot purge");
+  assert.equal(await reader.restoreFromTrash(parent.id), null, "reader cannot restore");
+
+  assert.equal(await t1.purge(parent.id), true);
+  const ids = (await db.select({ id: documents.id }).from(documents)).map((r) => r.id);
+  assert.ok(!ids.includes(parent.id) && !ids.includes(child.id), "batch gone");
+  const [kept] = await db.select().from(documents).where(eq(documents.id, survivor.id));
+  assert.ok(kept, "a child outside the batch survives the cascade");
+  assert.equal(kept!.parentDocumentId, null);
+  assert.equal(await t1.purge(survivor.id), false, "only trash roots can be purged");
+});
+
+test("trash: purgeExpired removes batches past retention only", async () => {
+  const c1 = new CollectionService(db, user("u1"));
+  const t1 = new DocumentTreeService(db, user("u1"));
+  const d1 = new DocumentService(db, user("u1"));
+  const col = await c1.create({ name: "Expire", slug: "trash-expire" });
+  const old = await d1.create({ collectionId: col.id, title: "old" });
+  const fresh = await d1.create({ collectionId: col.id, title: "fresh" });
+  await t1.softDelete(old.id);
+  await t1.softDelete(fresh.id);
+  await db
+    .update(documents)
+    .set({ deletedAt: new Date(Date.now() - 40 * 86_400_000) })
+    .where(eq(documents.id, old.id));
+
+  assert.equal(await new DocumentTreeService(db, SYSTEM).purgeExpired(30), 1);
+  const ids = (await db.select({ id: documents.id }).from(documents)).map((r) => r.id);
+  assert.ok(!ids.includes(old.id));
+  assert.ok(ids.includes(fresh.id));
+});
+
 test("tree queries terminate even if a parent cycle exists", { timeout: 10_000 }, async () => {
   // move() serializes per collection so this can't be produced through the
   // API; the CTEs must still not hang if it ever exists in the data.

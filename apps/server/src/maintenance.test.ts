@@ -7,12 +7,18 @@ import { eq, sql } from "drizzle-orm";
 import {
   createDatabase,
   documentSnapshots,
+  documents,
   images,
   migrateDatabase,
   runAsActor,
   SYSTEM,
 } from "@tandem/db";
-import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
+import {
+  CollectionService,
+  DocumentService,
+  DocumentTreeService,
+  WorkspaceService,
+} from "@tandem/core";
 import { runMaintenance } from "./maintenance.js";
 
 test("maintenance prunes old snapshots (keeping the newest) and orphaned images", async () => {
@@ -91,7 +97,7 @@ test("maintenance prunes old snapshots (keeping the newest) and orphaned images"
 
     // A second pass is a no-op.
     const again = await runMaintenance(db, { retentionDays: 180, keepPerDoc: 10 });
-    assert.deepEqual(again, { snapshotsPruned: 0, imagesPruned: 0 });
+    assert.deepEqual(again, { trashPurged: 0, snapshotsPruned: 0, imagesPruned: 0 });
   } finally {
     delete process.env.UPLOADS_DIR;
     await db.$dispose();
@@ -143,6 +149,51 @@ test("maintenance thins snapshots older than a week to one per day, keeping pre-
     const old = left.filter((r) => r.kind === "auto" && Date.now() - r.createdAt.getTime() > 7 * 86_400_000);
     assert.equal(old.length, 1, "one auto snapshot per old day");
   } finally {
+    await db.$dispose();
+  }
+});
+
+test("maintenance keeps a trashed document's images until the trash is purged", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const dir = await mkdtemp(join(tmpdir(), "tandem-uploads-"));
+  process.env.UPLOADS_DIR = dir;
+  try {
+    const u1 = { kind: "user", userId: "u1" } as const;
+    const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "U1", slug: "u1" });
+    const col = await new CollectionService(db, u1).create({ name: "C", slug: "c" });
+    const [image] = await runAsActor(db, SYSTEM, async (d) => {
+      const rows = await d
+        .insert(images)
+        .values({ workspaceId: ws.id, uploadedBy: "u1", mime: "image/png", size: 3 })
+        .returning({ id: images.id });
+      await d.execute(sql`UPDATE images SET created_at = now() - interval '400 days'`);
+      return rows;
+    });
+    await writeFile(join(dir, image!.id), "png");
+    const doc = await new DocumentService(db, u1).create({
+      collectionId: col.id,
+      title: "Trashed",
+      markdown: `![shot](/api/images/${image!.id})`,
+    });
+    await new DocumentTreeService(db, u1).softDelete(doc.id);
+
+    const inTrash = await runMaintenance(db, { trashDays: 30 });
+    assert.equal(inTrash.trashPurged, 0);
+    assert.equal(inTrash.imagesPruned, 0, "image of a trashed doc survives");
+
+    await runAsActor(db, SYSTEM, (d) =>
+      d
+        .update(documents)
+        .set({ deletedAt: new Date(Date.now() - 40 * 86_400_000) })
+        .where(eq(documents.id, doc.id)),
+    );
+    const expired = await runMaintenance(db, { trashDays: 30 });
+    assert.equal(expired.trashPurged, 1);
+    assert.equal(expired.imagesPruned, 1, "collected once the document is purged");
+    assert.deepEqual(await readdir(dir), []);
+  } finally {
+    delete process.env.UPLOADS_DIR;
     await db.$dispose();
   }
 });

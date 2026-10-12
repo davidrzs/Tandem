@@ -2,11 +2,13 @@ import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { runAsActor, SYSTEM, type Database } from "@tandem/db";
+import { DocumentTreeService } from "@tandem/core";
 import { uploadsDir } from "./images.js";
 
 const DAY_MS = 86_400_000;
 
 export interface MaintenanceResult {
+  trashPurged: number;
   snapshotsPruned: number;
   imagesPruned: number;
 }
@@ -19,6 +21,8 @@ export interface MaintenanceOptions {
   /** Snapshots younger than this are all kept; older ones (still inside the
    * retention window) are thinned to one per document per day. */
   fullDays?: number;
+  /** Trashed documents older than this are deleted for good. */
+  trashDays?: number;
 }
 
 const rowsOf = (r: unknown): unknown[] =>
@@ -36,7 +40,10 @@ const rowsOf = (r: unknown): unknown[] =>
  *        snapshot of each day survives — per kind, so a pre-restore capture
  *        (the undo of a restore) is never thinned away by an auto one;
  *      - older than `retentionDays`: pruned.
- * 2. Orphaned-image GC — bytes whose id no live document references. Images
+ * 0. Trash — batches deleted more than `trashDays` (30) ago are purged for
+ *    good (cascading to their snapshots, comments and favorites).
+ * 2. Orphaned-image GC — bytes whose id no document references (trashed ones
+ *    count: restoring from the trash must not find its images gone). Images
  *    must ALSO be older than the snapshot retention window, so restoring any
  *    still-restorable version can't resurrect a reference to deleted bytes.
  */
@@ -48,6 +55,10 @@ export async function runMaintenance(
     opts.retentionDays ?? Number(process.env.SNAPSHOT_RETENTION_DAYS ?? 180);
   const keepPerDoc = opts.keepPerDoc ?? 10;
   const fullDays = opts.fullDays ?? 7;
+
+  const trashDays = opts.trashDays ?? Number(process.env.TRASH_RETENTION_DAYS ?? 30);
+  // Before the image GC, so a purged document's images are collected this run.
+  const trashPurged = await new DocumentTreeService(db, SYSTEM).purgeExpired(trashDays);
 
   return runAsActor(db, SYSTEM, async (d) => {
     const pruned = rowsOf(
@@ -81,8 +92,7 @@ export async function runMaintenance(
         WHERE i.created_at < now() - (${retentionDays} * interval '1 day')
           AND NOT EXISTS (
             SELECT 1 FROM documents doc
-            WHERE doc.deleted_at IS NULL
-              AND doc.content_md LIKE '%' || i.id::text || '%'
+            WHERE doc.content_md LIKE '%' || i.id::text || '%'
           )
         RETURNING i.id
       `),
@@ -95,7 +105,7 @@ export async function runMaintenance(
       });
     }
 
-    return { snapshotsPruned: pruned.length, imagesPruned: orphans.length };
+    return { trashPurged, snapshotsPruned: pruned.length, imagesPruned: orphans.length };
   });
 }
 
