@@ -34,6 +34,9 @@ export type Auth = ReturnType<typeof createAuth>;
  */
 export function createAuth(db: Database, mailer?: Mailer | null) {
   return betterAuth({
+    // Tests only: Better Auth's own limiter (on in production) ignores the
+    // Fastify allowList, so the same switch turns both off.
+    ...(process.env.DISABLE_RATE_LIMITS === "1" ? { rateLimit: { enabled: false } } : {}),
     database: drizzleAdapter(db, { provider: "pg" }),
     emailAndPassword: {
       enabled: true,

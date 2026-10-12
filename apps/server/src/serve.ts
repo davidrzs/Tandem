@@ -1,11 +1,15 @@
-import { createDatabase } from "@tandem/db";
+import { createDatabase, migrateDatabase } from "@tandem/db";
 import { buildHttpServer } from "./http.js";
 import { startMaintenance } from "./maintenance.js";
 
 const port = Number(process.env.PORT ?? 3001);
 const db = createDatabase(process.env.DATABASE_URL);
 
-buildHttpServer(db)
+// Apply pending migrations before serving, so a deploy can't start new code
+// against an old schema. MIGRATE_ON_BOOT=0 leaves it to a separate release
+// step (e.g. several instances starting at once).
+(process.env.MIGRATE_ON_BOOT === "0" ? Promise.resolve() : migrateDatabase(db))
+  .then(() => buildHttpServer(db))
   .then((app) => {
     // Daily snapshot retention + orphaned-image GC (see maintenance.ts).
     startMaintenance(db, (msg) => app.log.info(msg));

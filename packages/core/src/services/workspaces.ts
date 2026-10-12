@@ -133,6 +133,18 @@ export class WorkspaceService {
    * the read/join — the unguessable token is the capability. The function acts
    * only for app.user_id, so a user can only ever accept an invite as themselves. */
   async acceptInvite(token: string): Promise<Workspace> {
+    try {
+      return await this.redeemInvite(token);
+    } catch (err) {
+      // The function RAISEs the user-facing reasons; surface them as input
+      // errors (4xx) instead of letting a database error become a 500.
+      const message = errorMessages(err).find((m) => INVITE_ERRORS.includes(m));
+      if (message) throw new InvalidInputError(message);
+      throw err;
+    }
+  }
+
+  private async redeemInvite(token: string): Promise<Workspace> {
     return this.exec(async (db) => {
       // Raises on an invalid / expired / already-used token; joins on success.
       const result = await db.execute(
@@ -170,4 +182,16 @@ export class WorkspaceService {
         .orderBy(workspaceMembers.createdAt),
     );
   }
+}
+
+const INVITE_ERRORS = ["invalid or already-used invite", "invite expired"];
+
+/** Messages along an error's cause chain (drivers wrap the Postgres error). */
+function errorMessages(err: unknown): string[] {
+  const out: string[] = [];
+  for (let e = err as { message?: unknown; cause?: unknown } | undefined; e && out.length < 5; ) {
+    if (typeof e.message === "string") out.push(e.message);
+    e = e.cause as typeof e;
+  }
+  return out;
 }
