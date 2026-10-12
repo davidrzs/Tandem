@@ -15,6 +15,8 @@ export const INPUT_LIMITS = {
   tag: 100,
   name: 200,
   description: 2_000,
+  /** Documents per metadata batch (e.g. resolving a recents list). */
+  metaBatch: 50,
 } as const;
 
 export const titleSchema = z.string().max(INPUT_LIMITS.title);
@@ -25,6 +27,7 @@ export const searchQuerySchema = z.string().max(INPUT_LIMITS.searchQuery);
 export const nameSchema = z.string().min(1).max(INPUT_LIMITS.name);
 export const descriptionSchema = z.string().max(INPUT_LIMITS.description);
 export const positionSchema = z.number().finite();
+export const documentIdsSchema = z.array(z.string().uuid()).max(INPUT_LIMITS.metaBatch);
 
 const uuid = z.string().uuid();
 

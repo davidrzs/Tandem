@@ -488,6 +488,73 @@ test("trash: delete with undo, restore from trash, delete forever", async ({ pag
   await expect(page.getByText(/Document not found/)).toBeVisible();
 });
 
+test("recents show current titles and drop documents that are gone", async ({ page }) => {
+  await signUp(page, "Rhea Recent", "rhea@example.com");
+  await createCollection(page, "Recent");
+  await page.getByRole("button", { name: /Recent/ }).first().click();
+  const row = page.locator(".collection-row", { hasText: "Recent" });
+  const urls: string[] = [];
+  for (const title of ["Draft one", "Draft two"]) {
+    const before = page.url();
+    await row.hover();
+    await page.getByTitle("New document").first().click();
+    await expect(page).not.toHaveURL(before);
+    await page.locator(".title-input").fill(title);
+    await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
+    urls.push(page.url());
+  }
+  const [oneId, twoId] = urls.map(docIdOf);
+  const zeroState = page.locator(".search-hit");
+  const openSearch = async () => {
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Search ⌘K", exact: true }).click();
+  };
+
+  // An entry in the old stored format, with a stale title, resolves to the
+  // document's current title.
+  await page.evaluate((id) => {
+    const raw = JSON.parse(localStorage.getItem("tandem.recents") ?? "[]");
+    const rest = raw.filter((r: { id: string }) => r.id !== id);
+    localStorage.setItem(
+      "tandem.recents",
+      JSON.stringify([{ id, title: "Stale title", workspaceId: "x", at: 1 }, ...rest]),
+    );
+  }, oneId);
+  await page.reload();
+  await openSearch();
+  await expect(zeroState.filter({ hasText: "Draft one" })).toBeVisible();
+  await expect(zeroState.filter({ hasText: "Stale title" })).toHaveCount(0);
+
+  // Renamed: the new title shows.
+  await page.keyboard.press("Escape");
+  await page.goto(urls[1]!);
+  await page.locator(".title-input").fill("Draft two, renamed");
+  await expect
+    .poll(async () => (await trpcQuery<{ title: string }>(page, "documents.getMeta", { id: twoId })).title)
+    .toBe("Draft two, renamed");
+  await openSearch();
+  await expect(zeroState.filter({ hasText: "Draft two, renamed" })).toBeVisible();
+
+  // Trashed: it leaves the list, and the stored id is dropped.
+  await page.keyboard.press("Escape");
+  const r = page.locator(".doc-row", { hasText: "Draft one" });
+  await r.hover();
+  await r.getByTitle("More actions").click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await openSearch();
+  await expect(zeroState.filter({ hasText: "Draft two, renamed" })).toBeVisible();
+  await expect(zeroState.filter({ hasText: "Draft one" })).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (JSON.parse(localStorage.getItem("tandem.recents") ?? "[]") as { id: string }[]).map(
+          (e) => e.id,
+        ),
+      ),
+    )
+    .not.toContain(oneId);
+});
+
 test("shortcuts sheet opens with ? outside text fields", async ({ page }) => {
   await signUp(page, "Kim Keys", "kim@example.com");
   await page.locator("body").click({ position: { x: 600, y: 400 } });
