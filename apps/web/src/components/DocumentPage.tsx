@@ -12,6 +12,21 @@ export function DocumentPage() {
   const utils = trpc.useUtils();
   const navigate = useNavigate();
   const meta = trpc.documents.getMeta.useQuery({ id: docId! }, { enabled: !!docId });
+  // Not live: it may be in the trash (the editor can't open a trashed doc).
+  const trashed = trpc.documents.getTrashed.useQuery(
+    { id: docId! },
+    { enabled: !!docId && meta.isSuccess && !meta.data },
+  );
+  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.documents.getMeta.invalidate({ id: docId! }),
+        utils.documents.getTrashed.invalidate({ id: docId! }),
+        utils.documents.tree.invalidate(),
+        utils.documents.listTrash.invalidate(),
+      ]);
+    },
+  });
 
   // "Recently viewed" on the start page is local — reading leaves no trace
   // anywhere but this browser.
@@ -41,7 +56,26 @@ export function DocumentPage() {
       </div>
     );
   }
+  if (!meta.data && trashed.data) {
+    const writable = collections.find((c) => c.id === trashed.data!.collectionId)?.writable;
+    return (
+      <div className="archived-banner">
+        "{trashed.data.title || "Untitled"}" is in the trash and will be deleted for good
+        after a while.
+        {writable && (
+          <button type="button"
+            className="btn"
+            disabled={restoreFromTrash.isPending}
+            onClick={() => restoreFromTrash.mutate({ id: docId })}
+          >
+            {restoreFromTrash.isPending ? "Restoring…" : "Restore"}
+          </button>
+        )}
+      </div>
+    );
+  }
   if (!meta.data) {
+    if (trashed.isLoading) return <div className="empty">Loading…</div>;
     return (
       <div className="empty">
         Document not found, or you don't have access to it.{" "}

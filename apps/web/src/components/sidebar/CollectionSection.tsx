@@ -4,7 +4,7 @@ import { friendlyError } from "../../errors.js";
 import { trpc } from "../../trpc.js";
 import { Icon } from "../Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "../Modal.js";
-import { ArchivedRow, DocTree, ancestorPath } from "./DocTree.js";
+import { ArchivedRow, DocTree, ancestorPath, TrashRow } from "./DocTree.js";
 import type { Collection } from "./types.js";
 
 /** Drag payload type for collection rows (documents use their own). */
@@ -48,11 +48,17 @@ export function CollectionSection({
     { collectionId: collection.id },
     { enabled: expanded },
   );
+  // Trash is for writers: readers could neither restore nor purge.
+  const trash = trpc.documents.listTrash.useQuery(
+    { collectionId: collection.id },
+    { enabled: expanded && collection.writable },
+  );
   const createDoc = trpc.documents.create.useMutation();
   const renameCollection = trpc.collections.update.useMutation();
   const deleteCollection = trpc.collections.delete.useMutation();
   const moveCollection = trpc.collections.move.useMutation();
   const [showArchived, setShowArchived] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const [dropMode, setDropMode] = useState<"before" | "after" | null>(null);
 
   // Unfold the open document's ancestors once per doc; the user can still
@@ -104,6 +110,8 @@ export function CollectionSection({
     Promise.all([
       utils.documents.tree.invalidate({ collectionId: collection.id }),
       utils.documents.listArchived.invalidate({ collectionId: collection.id }),
+      utils.documents.listTrash.invalidate({ collectionId: collection.id }),
+      utils.documents.getTrashed.invalidate(),
       // Archive/restore change a document's archivedAt; a stale getMeta would
       // render the doc page without its archived banner (or with a stale one).
       utils.documents.getMeta.invalidate(),
@@ -268,8 +276,22 @@ export function CollectionSection({
                     doc={d}
                     writable={collection.writable}
                     run={run}
-                    setDialog={setDialog}
                   />
+                ))}
+            </>
+          )}
+          {(trash.data?.length ?? 0) > 0 && (
+            <>
+              <button type="button"
+                className="archived-toggle"
+                onClick={() => setShowTrash((s) => !s)}
+              >
+                <Icon name="chevron" className={"twist" + (showTrash ? " open" : "")} />
+                Trash ({trash.data!.length})
+              </button>
+              {showTrash &&
+                trash.data!.map((d) => (
+                  <TrashRow key={d.id} doc={d} run={run} setDialog={setDialog} />
                 ))}
             </>
           )}

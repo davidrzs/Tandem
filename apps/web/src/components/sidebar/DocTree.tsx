@@ -107,6 +107,7 @@ function DocRow({
   const archive = trpc.documents.archive.useMutation();
   const restore = trpc.documents.restore.useMutation();
   const softDelete = trpc.documents.delete.useMutation();
+  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
   const duplicate = trpc.documents.duplicate.useMutation();
   const [dropMode, setDropMode] = useState<DropMode | null>(null);
 
@@ -257,22 +258,21 @@ function DocRow({
                   label: "Delete",
                   icon: "trash",
                   danger: true,
+                  // Reversible (trash + Undo), so no confirmation step.
                   onClick: () =>
-                    setDialog(
-                      <ConfirmDialog
-                        title="Delete document"
-                        body={`"${node.title || "Untitled"}" and its sub-documents will be deleted.`}
-                        confirmLabel="Delete"
-                        onClose={() => setDialog(null)}
-                        onConfirm={() =>
+                    void run(async () => {
+                      await softDelete.mutateAsync({ id: node.id });
+                      const wasActive = node.id === activeDocId;
+                      toast(`Moved "${node.title || "Untitled"}" to trash`, "ok", {
+                        label: "Undo",
+                        onClick: () =>
                           void run(async () => {
-                            await softDelete.mutateAsync({ id: node.id });
-                            toast("Deleted");
-                            if (node.id === activeDocId) navigate("/");
-                          })
-                        }
-                      />,
-                    ),
+                            await restoreFromTrash.mutateAsync({ id: node.id });
+                            if (wasActive) navigate(`/d/${node.id}`);
+                          }),
+                      });
+                      if (wasActive) navigate("/");
+                    }),
                 },
               ]}
             />
@@ -302,15 +302,14 @@ export function ArchivedRow({
   doc,
   writable,
   run,
-  setDialog,
 }: {
   doc: { id: string; title: string };
   writable: boolean;
   run: (fn: () => Promise<unknown>) => Promise<void>;
-  setDialog: (node: ReactNode) => void;
 }) {
   const restore = trpc.documents.restore.useMutation();
   const softDelete = trpc.documents.delete.useMutation();
+  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
   const toast = useToast();
   return (
     <div className="doc-row archived-row">
@@ -333,23 +332,76 @@ export function ArchivedRow({
           </button>
           <button type="button"
             className="row-action"
-            title="Delete permanently" aria-label="Delete permanently"
+            title="Move to trash" aria-label="Move to trash"
             onClick={() =>
-              setDialog(
-                <ConfirmDialog
-                  title="Delete document"
-                  body={`"${doc.title || "Untitled"}" will be deleted permanently.`}
-                  confirmLabel="Delete"
-                  onClose={() => setDialog(null)}
-                  onConfirm={() => void run(() => softDelete.mutateAsync({ id: doc.id }))}
-                />,
-              )
+              void run(async () => {
+                await softDelete.mutateAsync({ id: doc.id });
+                toast(`Moved "${doc.title || "Untitled"}" to trash`, "ok", {
+                  label: "Undo",
+                  onClick: () => void run(() => restoreFromTrash.mutateAsync({ id: doc.id })),
+                });
+              })
             }
           >
             <Icon name="trash" />
           </button>
         </span>
       )}
+    </div>
+  );
+}
+
+/** A trash root: restore it (with what was deleted together), or delete it
+ * for good. Shown to writers only. */
+export function TrashRow({
+  doc,
+  run,
+  setDialog,
+}: {
+  doc: { id: string; title: string; deletedAt: Date | string };
+  run: (fn: () => Promise<unknown>) => Promise<void>;
+  setDialog: (node: ReactNode) => void;
+}) {
+  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
+  const purge = trpc.documents.purge.useMutation();
+  const toast = useToast();
+  const title = doc.title || "Untitled";
+  return (
+    <div className="doc-row archived-row trash-row">
+      <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
+        {title}
+      </Link>
+      <span className="row-actions">
+        <button type="button"
+          className="row-action"
+          title="Restore" aria-label="Restore"
+          onClick={() =>
+            void run(async () => {
+              await restoreFromTrash.mutateAsync({ id: doc.id });
+              toast(`Restored "${title}"`);
+            })
+          }
+        >
+          <Icon name="restore" />
+        </button>
+        <button type="button"
+          className="row-action"
+          title="Delete forever" aria-label="Delete forever"
+          onClick={() =>
+            setDialog(
+              <ConfirmDialog
+                title="Delete forever"
+                body={`"${title}" and the sub-documents deleted with it will be gone for good. This can't be undone.`}
+                confirmLabel="Delete forever"
+                onClose={() => setDialog(null)}
+                onConfirm={() => void run(() => purge.mutateAsync({ id: doc.id }))}
+              />,
+            )
+          }
+        >
+          <Icon name="trash" />
+        </button>
+      </span>
     </div>
   );
 }

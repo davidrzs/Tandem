@@ -8,6 +8,7 @@ import {
   documentMetaColumns,
   lockTree,
   nextPosition,
+  rowsOf,
   searchPaths,
 } from "./document-tree-internals.js";
 
@@ -21,6 +22,29 @@ export interface DocumentSubtree {
   /** Collection-relative titles from the top-level ancestor to the root itself. */
   ancestry: string[];
   nodes: DocumentNode[];
+}
+
+/** Hard-delete one trash batch. Children outside the batch (restored, or
+ * trashed separately) are detached to the root first: the parent FK cascades,
+ * and must only take the batch itself with it. */
+async function purgeBatch(db: Database, id: string): Promise<boolean> {
+  await db.execute(sql`
+    WITH RECURSIVE batch AS (
+      SELECT id, deleted_at FROM documents WHERE id = ${id} AND deleted_at IS NOT NULL
+      UNION
+      SELECT d.id, d.deleted_at FROM documents d
+      JOIN batch b ON d.parent_document_id = b.id AND d.deleted_at = b.deleted_at
+    )
+    UPDATE documents SET parent_document_id = NULL
+    WHERE parent_document_id IN (SELECT id FROM batch)
+      AND id NOT IN (SELECT id FROM batch)
+  `);
+  const deleted = rowsOf<{ id: string }>(
+    await db.execute(sql`
+      DELETE FROM documents WHERE id = ${id} AND deleted_at IS NOT NULL RETURNING id
+    `),
+  );
+  return deleted.length > 0;
 }
 
 /** Tree structure: placement, archive/restore/delete of subtrees, listings. */
@@ -98,7 +122,7 @@ export class DocumentTreeService extends DocumentServiceBase {
     id: string,
     column: "archived_at" | "deleted_at",
     value: Date | null,
-    only: SQL = sql`TRUE`,
+    only: SQL = sql`deleted_at IS NULL`,
   ): Promise<void> {
     // Raw-SQL params skip drizzle's column mapping, and postgres-js won't
     // serialize a Date it gets that way (PGlite does — tests alone won't catch
@@ -112,7 +136,7 @@ export class DocumentTreeService extends DocumentServiceBase {
       )
       UPDATE documents
       SET ${sql.raw(column)} = ${stamp}, updated_at = now()
-      WHERE id IN (SELECT id FROM subtree) AND deleted_at IS NULL AND ${only}
+      WHERE id IN (SELECT id FROM subtree) AND ${only}
     `);
   }
 
@@ -122,7 +146,13 @@ export class DocumentTreeService extends DocumentServiceBase {
     return this.exec(async (db) => {
       // Leave already-archived descendants alone: their own archive (and its
       // timestamp) must survive this one being restored.
-      await this.stampSubtree(db, id, "archived_at", new Date(), sql`archived_at IS NULL`);
+      await this.stampSubtree(
+        db,
+        id,
+        "archived_at",
+        new Date(),
+        sql`deleted_at IS NULL AND archived_at IS NULL`,
+      );
       const [row] = await db
         .select()
         .from(documents)
@@ -140,7 +170,7 @@ export class DocumentTreeService extends DocumentServiceBase {
         id,
         "archived_at",
         null,
-        sql`archived_at = (SELECT archived_at FROM documents WHERE id = ${id})`,
+        sql`deleted_at IS NULL AND archived_at = (SELECT archived_at FROM documents WHERE id = ${id})`,
       );
       const [row] = await db
         .select()
@@ -150,8 +180,10 @@ export class DocumentTreeService extends DocumentServiceBase {
     });
   }
 
-  /** Soft-delete a document and its descendants. Returns false if nothing was
-   * deleted (missing or not writable). */
+  /** Move a document and its descendants to the trash. Descendants already in
+   * the trash keep their own deletion (and timestamp), so restoring this batch
+   * doesn't bring them back. Returns false if nothing was deleted (missing or
+   * not writable). */
   async softDelete(id: string): Promise<boolean> {
     return this.exec(async (db) => {
       await this.stampSubtree(db, id, "deleted_at", new Date());
@@ -160,6 +192,103 @@ export class DocumentTreeService extends DocumentServiceBase {
         .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
       return !row;
+    });
+  }
+
+  /** Take a trash batch (the document plus descendants deleted with it) out of
+   * the trash. If its parent is no longer active the document moves to the
+   * collection root, so it can't end up hidden under a dead parent. */
+  async restoreFromTrash(id: string): Promise<Document | null> {
+    return this.execTx(async (db) => {
+      const [doc] = await db
+        .select({ collectionId: documents.collectionId, deletedAt: documents.deletedAt })
+        .from(documents)
+        .where(eq(documents.id, id));
+      if (!doc?.deletedAt) return null;
+      await lockTree(db, doc.collectionId);
+      await this.stampSubtree(
+        db,
+        id,
+        "deleted_at",
+        null,
+        sql`deleted_at = (SELECT deleted_at FROM documents WHERE id = ${id})`,
+      );
+      await db.execute(sql`
+        UPDATE documents d SET parent_document_id = NULL
+        WHERE d.id = ${id} AND d.deleted_at IS NULL AND d.parent_document_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM documents p
+            WHERE p.id = d.parent_document_id AND p.deleted_at IS NULL AND p.archived_at IS NULL
+          )
+      `);
+      const [row] = await db
+        .select()
+        .from(documents)
+        .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+      return row ?? null;
+    });
+  }
+
+  /** Metadata of a trashed document (the doc page shows a restore banner). */
+  async getTrashed(id: string): Promise<(DocumentMeta & { deletedAt: Date }) | null> {
+    return this.exec(async (db) => {
+      const [row] = await db
+        .select({ ...documentMetaColumns, deletedAt: documents.deletedAt })
+        .from(documents)
+        .where(and(eq(documents.id, id), sql`${documents.deletedAt} IS NOT NULL`));
+      return (row as (DocumentMeta & { deletedAt: Date }) | undefined) ?? null;
+    });
+  }
+
+  /** Trash roots in a collection: deleted documents that weren't deleted as
+   * part of their parent's batch. Their batch restores or purges with them. */
+  async listTrash(collectionId: string): Promise<Array<DocumentMeta & { deletedAt: Date }>> {
+    return this.exec(async (db) => {
+      const parent = alias(documents, "parent");
+      const rows = await db
+        .select({ ...documentMetaColumns, deletedAt: documents.deletedAt })
+        .from(documents)
+        .leftJoin(parent, eq(parent.id, documents.parentDocumentId))
+        .where(
+          and(
+            eq(documents.collectionId, collectionId),
+            sql`${documents.deletedAt} IS NOT NULL`,
+            sql`${parent.deletedAt} IS DISTINCT FROM ${documents.deletedAt}`,
+          ),
+        )
+        .orderBy(desc(documents.deletedAt));
+      return rows as Array<DocumentMeta & { deletedAt: Date }>;
+    });
+  }
+
+  /** Delete a trash batch for good. Returns false if `id` isn't a trash root
+   * this actor may delete. */
+  async purge(id: string): Promise<boolean> {
+    return this.execTx(async (db) => {
+      const [doc] = await db
+        .select({ collectionId: documents.collectionId, deletedAt: documents.deletedAt })
+        .from(documents)
+        .where(eq(documents.id, id));
+      if (!doc?.deletedAt) return false;
+      await lockTree(db, doc.collectionId);
+      return purgeBatch(db, id);
+    });
+  }
+
+  /** Purge every trash batch deleted more than `days` ago (maintenance). */
+  async purgeExpired(days: number): Promise<number> {
+    return this.execTx(async (db) => {
+      const roots = rowsOf<{ id: string }>(
+        await db.execute(sql`
+          SELECT d.id FROM documents d
+          LEFT JOIN documents p ON p.id = d.parent_document_id
+          WHERE d.deleted_at < now() - (${days} * interval '1 day')
+            AND p.deleted_at IS DISTINCT FROM d.deleted_at
+        `),
+      );
+      let purged = 0;
+      for (const { id } of roots) if (await purgeBatch(db, id)) purged += 1;
+      return purged;
     });
   }
 
