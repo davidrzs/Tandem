@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { trpc } from "../../trpc.js";
 import { effectiveTheme, setTheme, type ThemeChoice } from "../../theme.js";
 import { Icon } from "../Icon.js";
+import { OverflowTooltip } from "../OverflowTooltip.js";
 import type { Workspace } from "./types.js";
 
 export function WorkspaceSwitcher({
@@ -120,7 +121,9 @@ export function FavoritesSection({
           className={"doc-row favorite-row" + (f.id === activeDocId ? " active" : "")}
         >
           <Icon name="star" size={12} />
-          <span className="doc-title">{f.title || "Untitled"}</span>
+          <OverflowTooltip text={f.title || "Untitled"}>
+            <span className="doc-title">{f.title || "Untitled"}</span>
+          </OverflowTooltip>
         </Link>
       ))}
     </div>

@@ -37,7 +37,9 @@ export function Breadcrumbs({
   if (!collection) return null;
   return (
     <nav className="breadcrumbs" aria-label="Location">
-      <span className="crumb crumb-collection">{collection.name}</span>
+      <RouterLink className="crumb crumb-collection" to={`/c/${collectionId}`}>
+        {collection.name}
+      </RouterLink>
       {ancestors.map((a) => (
         <span key={a.id} className="crumb-wrap">
           <span className="crumb-sep" aria-hidden>

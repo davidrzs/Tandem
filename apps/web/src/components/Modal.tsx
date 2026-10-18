@@ -170,16 +170,21 @@ export interface MenuItem {
 }
 
 /** Row-level "…" dropdown. Rendered in a portal with real menu semantics;
- * clicks never leak into the row/link underneath. */
+ * clicks never leak into the row/link underneath. Pass `open` and
+ * `onOpenChange` to open it from elsewhere, such as a row's keyboard shortcut. */
 export function RowMenu({
   items,
   title = "More actions",
+  open,
+  onOpenChange,
 }: {
   items: MenuItem[];
   title?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <DropdownMenu.Root modal={false}>
+    <DropdownMenu.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
         {/* preventDefault marks the event handled so an enclosing router
             <Link> skips navigation; Radix toggles on pointerdown, unaffected. */}

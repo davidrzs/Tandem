@@ -7,10 +7,9 @@ import { authorColor, authorKey } from "../colors.js";
 import { Icon } from "../Icon.js";
 import { PromptDialog } from "../Modal.js";
 import { forgetUserDocs } from "../../offline.js";
-import { CollectionSection } from "./CollectionSection.js";
 import { FavoritesSection, InboxNavRow, ThemeToggle, WorkspaceSwitcher } from "./NavRows.js";
+import { SidebarTree } from "./SidebarTree.js";
 import type { Collection, Workspace } from "./types.js";
-import { useFoldState } from "./useFoldState.js";
 
 interface Props {
   loading: boolean;
@@ -68,8 +67,6 @@ export function Sidebar({
 
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ReactNode>(null);
-  const { expanded, collapsedDocs, foldsReconciled, toggleCollection, toggleDoc, revealDocs } =
-    useFoldState(uid, activeCollectionId);
 
   // Surface failures (RLS denial, duplicate slug, non-admin) instead of a
   // silent unhandled rejection.
@@ -177,37 +174,18 @@ export function Sidebar({
       <div className="sidebar-scroll">
         <FavoritesSection workspaceId={workspaceId} activeDocId={activeDocId} />
 
-        <div className="section">
-          <div className="section-title">
-            <span>Collections</span>
-            <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={newCollection}>
-              <Icon name="plus" />
-            </button>
-          </div>
-          {loading && <div className="side-note">Loading…</div>}
-          {!loading && collections.length === 0 && (
-            <div className="side-note">No collections yet — create one.</div>
-          )}
-          {collections.map((c, i) => (
-            <CollectionSection
-              key={c.id}
-              collection={c}
-              siblings={collections}
-              index={i}
-              expanded={expanded.has(c.id)}
-              activeDocId={activeDocId}
-              collapsedDocs={collapsedDocs}
-              foldsReconciled={foldsReconciled}
-              onToggle={() => toggleCollection(c.id)}
-              onToggleDoc={toggleDoc}
-              onRevealDocs={revealDocs}
-              onShare={() => onShareCollection(c.id)}
-              onError={setError}
-              setDialog={setDialog}
-            />
-          ))}
-          {error && <div className="sidebar-error">{error}</div>}
-        </div>
+        <SidebarTree
+          uid={uid}
+          loading={loading}
+          collections={collections}
+          activeDocId={activeDocId}
+          activeCollectionId={activeCollectionId}
+          onNewCollection={newCollection}
+          onShareCollection={onShareCollection}
+          onError={setError}
+          setDialog={setDialog}
+        />
+        {error && <div className="sidebar-error">{error}</div>}
       </div>
 
       {user && (

@@ -4,9 +4,12 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = IS_MAC ? "⌘" : "Ctrl";
 const ALT = IS_MAC ? "⌥" : "Alt";
 const SHIFT = IS_MAC ? "⇧" : "Shift";
+// The sidebar's keyboard move is Control+Shift+D on every platform.
+const CTRL = IS_MAC ? "⌃" : "Ctrl";
 
-/** Only bindings that exist: app-level ones in App.tsx/Editor.tsx, the rest
- * are TipTap StarterKit/TaskList/Collaboration defaults and our input rules. */
+/** Only bindings that exist: app-level ones in App.tsx/Editor.tsx, the
+ * sidebar tree's in useSidebarTree.ts, the rest are TipTap
+ * StarterKit/TaskList/Collaboration defaults and our input rules. */
 const GROUPS: { title: string; rows: [keys: string[], label: string][] }[] = [
   {
     title: "General",
@@ -15,6 +18,16 @@ const GROUPS: { title: string; rows: [keys: string[], label: string][] }[] = [
       [["?"], "Keyboard shortcuts"],
       [[MOD, "F"], "Find in document"],
       [[MOD, "Enter"], "Send comment"],
+    ],
+  },
+  {
+    title: "Sidebar",
+    rows: [
+      [["↑", "↓"], "Move between rows"],
+      [["←", "→"], "Fold or unfold"],
+      [["Enter"], "Open or toggle"],
+      [[CTRL, SHIFT, "D"], "Move a document (↑↓ to place, Enter to drop)"],
+      [[SHIFT, "F10"], "Row menu"],
     ],
   },
   {

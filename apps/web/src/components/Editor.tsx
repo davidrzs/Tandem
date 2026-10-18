@@ -17,6 +17,7 @@ import type { MentionCandidate } from "./mention.js";
 import { mentionHighlightKey } from "./mention-highlight.js";
 import { timeAgo } from "./time.js";
 import { TagBar } from "./TagBar.js";
+import { SubPages } from "./DocOutline.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { buildExtensions } from "./editor/extensions.js";
@@ -597,6 +598,7 @@ export function Editor({
         onChange={(tags) => update.mutate({ id: docId, tags })}
         onTagClick={(tag) => openSearch(`#${tag} `)}
       />
+      <SubPages docId={docId} collectionId={doc.data.collectionId} canEdit={canEdit} />
       {previewId !== null && (
         <div className="preview-banner">
           <span>

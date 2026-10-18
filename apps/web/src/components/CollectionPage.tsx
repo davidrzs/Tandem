@@ -1,37 +1,9 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
-import { Icon } from "./Icon.js";
-import { timeAgo } from "./time.js";
-
-interface DocumentNode {
-  id: string;
-  title: string;
-  updatedAt: string | Date;
-  children: DocumentNode[];
-}
-
-function documentCount(nodes: DocumentNode[]): number {
-  return nodes.reduce((count, node) => count + 1 + documentCount(node.children), 0);
-}
-
-function DocumentLinks({ nodes, depth = 0 }: { nodes: DocumentNode[]; depth?: number }) {
-  return (
-    <ul className="collection-document-list">
-      {nodes.map((node) => (
-        <li key={node.id}>
-          <Link to={`/d/${node.id}`} style={{ paddingLeft: 14 + depth * 18 }}>
-            <Icon name="page" size={14} />
-            <span className="document-name">{node.title || "Untitled"}</span>
-            <span className="document-when">edited {timeAgo(node.updatedAt)}</span>
-          </Link>
-          {node.children.length > 0 && <DocumentLinks nodes={node.children} depth={depth + 1} />}
-        </li>
-      ))}
-    </ul>
-  );
-}
+import { DocOutline } from "./DocOutline.js";
+import { documentCount } from "./outline.js";
 
 /** Stable, ID-addressed landing page for collection links returned by MCP. */
 export function CollectionPage() {
@@ -79,10 +51,9 @@ export function CollectionPage() {
           </div>
         )}
         {documents.isLoading && <p className="home-empty">Loading documents…</p>}
-        {!documents.isLoading && !documents.error && nodes.length === 0 && (
-          <p className="home-empty">This collection has no documents yet.</p>
+        {documents.data && (
+          <DocOutline nodes={nodes} collectionId={collection.id} canEdit={collection.writable} />
         )}
-        {nodes.length > 0 && <DocumentLinks nodes={nodes} />}
       </section>
     </div>
   );

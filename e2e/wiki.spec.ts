@@ -53,9 +53,11 @@ async function signUp(page: Page, name: string, email: string) {
  * Nest one document row under another via synthetic HTML5 drag events. The
  * mouse-based dragTo doesn't drive HTML5 DnD reliably in headless Chromium, and
  * a single drop occasionally doesn't register — so poll, re-dispatching the
- * dragover+drop until the source row reaches the expected indent.
+ * dragover+drop until the source row reaches the expected aria-level
+ * (collection = 1, root doc = 2). clientX sits mid-row: at the far left of a
+ * last-in-group row the tree reads an outdent instead of a nest.
  */
-async function dragNest(page: Page, sourceText: string, targetText: string, indent: string) {
+async function dragNest(page: Page, sourceText: string, targetText: string, level: string) {
   const source = page.locator(".doc-row", { hasText: sourceText });
   await expect
     .poll(
@@ -79,6 +81,7 @@ async function dragNest(page: Page, sourceText: string, targetText: string, inde
                 bubbles: true,
                 cancelable: true,
                 dataTransfer: dt,
+                clientX: rect.left + rect.width / 2,
                 clientY: rect.top + rect.height / 2,
               }),
             );
@@ -101,15 +104,16 @@ async function dragNest(page: Page, sourceText: string, targetText: string, inde
               bubbles: true,
               cancelable: true,
               dataTransfer: dt,
+              clientX: rect.left + rect.width / 2,
               clientY: rect.top + rect.height / 2,
             }),
           );
         }, targetText);
-        return source.evaluate((el) => getComputedStyle(el).paddingLeft);
+        return source.getAttribute("aria-level");
       },
       { timeout: 12_000, intervals: [300, 400, 600] },
     )
-    .toBe(indent);
+    .toBe(level);
 }
 
 async function createCollection(page: Page, name: string) {
@@ -398,15 +402,13 @@ test("drag and drop nests a document under another", async ({ page }) => {
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
   }
 
-  // Drop "Second" onto the middle of "First" -> nested child (indent 9+14=23px).
-  await dragNest(page, "Second", "First", "23px");
+  // Drop "Second" onto the middle of "First" -> nested child (aria-level 3:
+  // collection = 1, root doc = 2).
+  await dragNest(page, "Second", "First", "3");
 
   // The nesting survives a reload (persisted through documents.move).
   await page.reload();
-  await expect(page.locator(".doc-row", { hasText: "Second" })).toHaveCSS(
-    "padding-left",
-    "23px",
-  );
+  await expect(page.locator(".doc-row", { hasText: "Second" })).toHaveAttribute("aria-level", "3");
 });
 
 test("undo: archive and drag-move are reversible from the toast", async ({ page }) => {
@@ -431,12 +433,12 @@ test("undo: archive and drag-move are reversible from the toast", async ({ page 
   await page.locator(".toast").getByRole("button", { name: "Undo" }).click();
   await expect(keep).toBeVisible();
 
-  await dragNest(page, "Mover", "Keep", "23px");
+  await dragNest(page, "Mover", "Keep", "3");
   await page.locator(".toast", { hasText: "Moved" }).getByRole("button", { name: "Undo" }).click();
-  await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveCSS("padding-left", "9px");
+  await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveAttribute("aria-level", "2");
   // The undo is persisted, not just local.
   await page.reload();
-  await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveCSS("padding-left", "9px");
+  await expect(page.locator(".doc-row", { hasText: "Mover" })).toHaveAttribute("aria-level", "2");
 });
 
 test("trash: delete with undo, restore from trash, delete forever", async ({ page }) => {
@@ -734,7 +736,7 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   await expect(page.locator(".page-ref")).toContainText("Beta results v2");
 
   // Move the target under Alpha (drag) -> the reference still resolves.
-  await dragNest(page, "Beta results v2", "Alpha notes", "23px");
+  await dragNest(page, "Beta results v2", "Alpha notes", "3");
   await page.locator(".page-ref").click();
   await expect(page).toHaveURL(urlB); // same id, new place — still resolves
 
