@@ -1,5 +1,5 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Outlet, useLocation, useMatch, useOutletContext } from "react-router-dom";
 import { authClient } from "./auth-client.js";
@@ -120,6 +120,13 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // The sidebar tree memoises on this array; a fresh filter() per render
+  // would rebuild its index on every navigation.
+  const wsCollections = useMemo(
+    () => (collections.data ?? []).filter((c) => c.workspaceId === workspaceId),
+    [collections.data, workspaceId],
+  );
+
   if (workspaces.error || collections.error) {
     const failed = workspaces.error ? workspaces : collections;
     return (
@@ -133,9 +140,6 @@ export function App() {
     );
   }
 
-  const wsCollections = (collections.data ?? []).filter(
-    (c) => c.workspaceId === workspaceId,
-  );
   const shareCollection =
     (collections.data ?? []).find((c) => c.id === shareCollectionId) ?? null;
   const context: AppContext = {
