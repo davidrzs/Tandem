@@ -137,16 +137,33 @@ try {
   const treeDocs = page.locator(".tree .doc-row");
   await page.locator(".nav-row", { hasText: "Home" }).click();
   await page.waitForURL((url) => url.pathname === "/");
+  const localFolds = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith("tandem.sidebar.expanded:"));
+    return [key, localStorage.getItem(key)];
+  });
+  assert(localFolds[1]?.includes('"'), `the open collection is cached locally (got ${JSON.stringify(localFolds)})`);
   const persisted = page.waitForResponse((r) => r.url().includes("settings.setSidebarNode"));
   await page.getByTitle("Collapse all").click();
   await persisted;
   await treeDocs.first().waitFor({ state: "detached" });
   assert((await collectionRow.getAttribute("aria-expanded")) === "false", "Collapse all folds the collection");
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), localFolds);
+  const serverFolds = page.waitForResponse((r) => r.url().includes("settings.sidebar"));
   await page.reload();
-  await collectionRow.waitFor();
-  await page.waitForTimeout(500);
-  assert((await collectionRow.getAttribute("aria-expanded")) === "false", "the collapsed collection stays folded after a reload");
-  assert((await treeDocs.count()) === 0, "no document rows after a reload of a collapsed tree");
+  await serverFolds;
+  await page
+    .waitForFunction(
+      (name) =>
+        [...document.querySelectorAll(".collection-row")]
+          .find((row) => row.textContent.includes(name))
+          ?.getAttribute("aria-expanded") === "false",
+      c,
+      { timeout: 3000 },
+    )
+    .catch(() => {
+      throw new Error("the server's collapse wins over a stale local cache after a reload");
+    });
+  await treeDocs.first().waitFor({ state: "detached" });
 
   await page.goto(nestedUrl);
   await page.waitForSelector(".ProseMirror");
