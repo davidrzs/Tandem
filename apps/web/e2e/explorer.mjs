@@ -228,17 +228,50 @@ try {
   const findingsUrl = page.url();
   await page.waitForSelector(".ProseMirror");
   await page.fill(".title-input", "Findings");
-  await page.locator(".doc-row", { hasText: "Findings" }).waitFor();
+  const findings = page.locator(".doc-row", { hasText: "Findings" });
+  await findings.waitFor();
+  await findings.hover();
+  await findings.locator('.row-action[title="New sub-document"]').click();
+  await page.waitForURL((url) => url.href !== findingsUrl && url.pathname.startsWith("/d/"));
+  await page.waitForSelector(".ProseMirror");
+  await page.fill(".title-input", "Evidence");
+  await page.locator(".doc-row", { hasText: "Evidence" }).waitFor();
 
   await page.goto(parentUrl);
   const pages = page.locator(".sub-pages");
-  await pages.getByRole("link", { name: /Findings/ }).waitFor();
-  const head = await pages.locator(".sub-pages-toggle").textContent();
-  assert(head.trim() === "1 page", `the Pages section counts the sub-pages (got ${JSON.stringify(head)})`);
-  await pages.locator(".sub-pages-toggle").click();
-  await pages.getByRole("link", { name: /Findings/ }).waitFor({ state: "detached" });
-  await pages.locator(".sub-pages-toggle").click();
-  await pages.getByRole("link", { name: /Findings/ }).click();
+  const table = pages.locator(".outline-table");
+  const count = () => pages.locator(".outline-count").textContent();
+  const rowNames = () => table.locator("tbody .outline-link").allTextContents();
+  await table.getByRole("link", { name: "Findings" }).waitFor();
+  assert((await count()) === "2 pages", `the Contents bar counts every sub-page (got ${JSON.stringify(await count())})`);
+  assert(
+    JSON.stringify(await rowNames()) === '["Findings"]',
+    `nested rows start folded (got ${JSON.stringify(await rowNames())})`,
+  );
+  const findingsRow = table.locator("tr", { has: page.getByRole("link", { name: "Findings" }) });
+  assert((await findingsRow.locator(".outline-pages").textContent()) === "1", "a folder row shows its page count");
+  const twist = table.getByRole("button", { name: "Expand Findings" });
+  await twist.click();
+  await table.getByRole("link", { name: "Evidence" }).waitFor();
+  assert((await table.getByRole("button", { name: "Collapse Findings" }).getAttribute("aria-expanded")) === "true", "the chevron reports the open row");
+  const evidenceRow = table.locator("tr", { has: page.getByRole("link", { name: "Evidence" }) });
+  assert((await evidenceRow.locator(".outline-pages").textContent()) === "—", "a leaf row shows a dash for pages");
+  await table.getByRole("button", { name: "Collapse Findings" }).click();
+  await table.getByRole("link", { name: "Evidence" }).waitFor({ state: "detached" });
+
+  const filter = pages.getByRole("searchbox", { name: "Filter pages" });
+  await filter.fill("EVID");
+  await table.getByRole("link", { name: "Evidence" }).waitFor();
+  assert(
+    JSON.stringify(await rowNames()) === '["Findings","Evidence"]',
+    `filtering keeps the matches and their ancestors (got ${JSON.stringify(await rowNames())})`,
+  );
+  await filter.fill("zzz");
+  await table.getByText("No pages match").waitFor();
+  await filter.fill("");
+  await table.getByRole("link", { name: "Evidence" }).waitFor({ state: "detached" });
+
+  await table.getByRole("link", { name: "Findings" }).click();
   await page.waitForURL(findingsUrl);
 
   await page.goto(parentUrl);
@@ -252,14 +285,34 @@ try {
   const researchLevel = Number(await research.getAttribute("aria-level"));
   assert(Number(freshLevel) === researchLevel + 1, `"New page" files the page under its parent in the sidebar (level ${freshLevel})`);
   await page.goto(parentUrl);
-  await pages.getByRole("link", { name: /Fresh page/ }).waitFor();
-  assert((await pages.locator(".sub-pages-toggle").textContent()).trim() === "2 pages", "the new page joins the Pages section");
+  await table.getByRole("link", { name: "Fresh page" }).waitFor();
+  assert((await count()) === "3 pages", "the new page joins the Contents count");
+  assert(
+    JSON.stringify(await rowNames()) === '["Findings","Fresh page"]',
+    `rows keep the sidebar's order until a header is clicked (got ${JSON.stringify(await rowNames())})`,
+  );
+  const updated = table.getByRole("button", { name: /^Updated/ });
+  await updated.click();
+  assert((await updated.textContent()) === "Updated ↓", "the active column shows its direction");
+  assert(
+    JSON.stringify(await rowNames()) === '["Fresh page","Findings"]',
+    `the Updated header sorts newest first (got ${JSON.stringify(await rowNames())})`,
+  );
+  await updated.click();
+  assert((await updated.textContent()) === "Updated ↑", "a second click flips the direction");
+  assert(
+    JSON.stringify(await rowNames()) === '["Findings","Fresh page"]',
+    `the flipped sort reads oldest first (got ${JSON.stringify(await rowNames())})`,
+  );
 
   const onCollectionPage = async (msg) => {
     await page.waitForURL((url) => url.pathname.startsWith("/c/"));
     const heading = await page.locator(".collection-page h1").textContent();
     assert(heading === c, `${msg} (heading ${JSON.stringify(heading)})`);
-    await page.locator(".collection-page .doc-outline").getByRole("link", { name: /Research/ }).waitFor();
+    const contents = page.locator(".collection-page .outline-table");
+    await contents.getByRole("link", { name: "Research" }).waitFor();
+    assert((await contents.getByRole("link", { name: "Findings" }).count()) === 0, "the collection table starts with nested rows folded");
+    await page.locator(".collection-page .outline-bar").getByRole("button", { name: "New document" }).waitFor();
   };
   await page.locator(".breadcrumbs .crumb-collection").click();
   await onCollectionPage("the collection crumb opens the collection page");
@@ -273,7 +326,7 @@ try {
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; sub-page outline; collection page links",
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; folder-table contents (fold, filter, sort, new page); collection page links",
   );
 } finally {
   await browser.close();

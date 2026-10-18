@@ -1,0 +1,118 @@
+export interface DocumentNode {
+  id: string;
+  title: string;
+  updatedAt: string | Date;
+  children: DocumentNode[];
+}
+
+export type SortKey = "name" | "pages" | "updated";
+export interface OutlineSort {
+  key: SortKey;
+  dir: "asc" | "desc";
+}
+
+/** What the reader has done to the table. `sort: null` keeps the documents'
+ * own position order, the order the sidebar shows. */
+export interface OutlineView {
+  expanded: ReadonlySet<string>;
+  sort: OutlineSort | null;
+  filter: string;
+}
+
+export interface OutlineRow {
+  node: DocumentNode;
+  depth: number;
+  hasChildren: boolean;
+  descendants: number;
+  expanded: boolean;
+}
+
+export const displayTitle = (node: DocumentNode) => node.title || "Untitled";
+
+export function documentCount(nodes: DocumentNode[]): number {
+  return nodes.reduce((count, node) => count + 1 + documentCount(node.children), 0);
+}
+
+export function findDocument(nodes: DocumentNode[], id: string): DocumentNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    const found = findDocument(node.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Names read A to Z first; counts and dates read largest and newest first. */
+const FIRST_DIR: Record<SortKey, OutlineSort["dir"]> = { name: "asc", pages: "desc", updated: "desc" };
+
+/** The sort after clicking a column header: a new column starts in its natural
+ * direction, the active column flips. */
+export function nextSort(sort: OutlineSort | null, key: SortKey): OutlineSort {
+  if (sort?.key === key) return { key, dir: sort.dir === "asc" ? "desc" : "asc" };
+  return { key, dir: FIRST_DIR[key] };
+}
+
+interface Stats {
+  descendants: number;
+  hit: boolean;
+  hitBelow: boolean;
+}
+
+/** The visible rows of a document tree, depth-first. Sorting reorders each
+ * sibling group and never breaks the hierarchy. A filter keeps titles that
+ * contain it (case-insensitively) plus their ancestors, which open to show
+ * the matches regardless of `expanded`. */
+export function outlineRows(nodes: DocumentNode[], view: OutlineView): OutlineRow[] {
+  const query = view.filter.trim().toLowerCase();
+  const stats = new Map<DocumentNode, Stats>();
+  const measure = (node: DocumentNode): Stats => {
+    const s: Stats = {
+      descendants: 0,
+      hit: query !== "" && displayTitle(node).toLowerCase().includes(query),
+      hitBelow: false,
+    };
+    for (const child of node.children) {
+      const c = measure(child);
+      s.descendants += 1 + c.descendants;
+      s.hitBelow ||= c.hit || c.hitBelow;
+    }
+    stats.set(node, s);
+    return s;
+  };
+  nodes.forEach(measure);
+
+  const sortValue: Record<SortKey, (node: DocumentNode) => string | number> = {
+    name: displayTitle,
+    pages: (node) => stats.get(node)!.descendants,
+    updated: (node) => new Date(node.updatedAt).getTime(),
+  };
+  const order = (list: DocumentNode[]) => {
+    const sort = view.sort;
+    if (!sort) return list;
+    const value = sortValue[sort.key];
+    const sign = sort.dir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const va = value(a);
+      const vb = value(b);
+      const cmp =
+        typeof va === "string"
+          ? va.localeCompare(vb as string, undefined, { numeric: true, sensitivity: "base" })
+          : va - (vb as number);
+      return sign * cmp;
+    });
+  };
+
+  const rows: OutlineRow[] = [];
+  const walk = (list: DocumentNode[], depth: number) => {
+    for (const node of order(list)) {
+      const s = stats.get(node)!;
+      if (query && !s.hit && !s.hitBelow) continue;
+      const hasChildren = node.children.length > 0;
+      const expanded = query ? s.hitBelow : hasChildren && view.expanded.has(node.id);
+      rows.push({ node, depth, hasChildren, descendants: s.descendants, expanded });
+      if (expanded) walk(node.children, depth + 1);
+    }
+  };
+  walk(nodes, 0);
+  return rows;
+}

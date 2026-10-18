@@ -2215,40 +2215,122 @@ button.doc-twist:hover .twist {
   gap: 16px;
 }
 
-.doc-outline {
-  --indent: 8px;
-  --pad: 10px;
-  --twist: 18px;
+.outline-panel {
   overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+
+.outline-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--sunken);
+  border-bottom: 1px solid var(--line);
+}
+
+.outline-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.outline-count {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.outline-filter {
+  width: 160px;
+  min-width: 0;
+  padding: 4px 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-m);
   background: var(--surface);
-  list-style: none;
-  margin: 0;
-  padding: 4px 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
 }
 
-.outline-row {
-  position: relative;
+.outline-filter::placeholder {
+  color: var(--ink-3);
+}
+
+.outline-filter:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.outline-new {
+  padding: 4px 10px;
+}
+
+.outline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  table-layout: fixed;
+}
+
+.outline-table th {
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.outline-table th button {
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outline-table th button:hover,
+.outline-table th[aria-sort] button {
+  color: var(--ink);
+}
+
+.outline-table th.outline-col-pages {
+  width: 70px;
+}
+
+.outline-table th.outline-col-updated {
+  width: 100px;
+}
+
+.outline-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.outline-table tr:last-child td {
+  border-bottom: none;
+}
+
+.outline-table tbody tr:hover td {
+  background: var(--hover);
+}
+
+.outline-name {
   display: flex;
   align-items: center;
-  padding-left: calc(var(--pad) + var(--level) * var(--indent));
-}
-
-/* One 1px guide per ancestor level, as in the sidebar tree. */
-.outline-row::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(var(--pad) + var(--twist) / 2 - 1px);
-  width: calc(var(--level) * var(--indent));
-  background: repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px var(--indent));
-  pointer-events: none;
-}
-
-.outline-row:hover {
-  background: var(--hover);
+  gap: 6px;
+  min-width: 0;
+  padding-left: calc(var(--depth) * 16px);
 }
 
 .outline-twist {
@@ -2256,77 +2338,61 @@ button.doc-twist:hover .twist {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--twist);
-  height: var(--twist);
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: none;
   background: none;
-  color: var(--ink-3);
   cursor: pointer;
 }
 
-.outline-link {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.outline-twist:disabled {
+  cursor: default;
+}
+
+button.outline-twist:not(:disabled):hover .twist {
   color: var(--ink);
-  font-size: 13.5px;
-  padding: 6px 14px 6px 4px;
+}
+
+.outline-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.outline-link {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .outline-link:hover {
   color: var(--accent-ink);
 }
 
-.doc-outline .document-name {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.outline-table td.outline-pages {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
-.doc-outline .document-when {
-  flex: none;
+.outline-table td.outline-updated {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.outline-table td.outline-empty {
+  padding: 14px 12px;
+  color: var(--ink-3);
+  font-size: 13px;
 }
 
 .sub-pages {
   margin: 12px 0 20px;
-}
-
-.sub-pages-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.sub-pages-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px;
-  border: none;
-  background: none;
-  color: var(--ink-2);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.sub-pages-new,
-.collection-page .home-heading .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .attention-list {
