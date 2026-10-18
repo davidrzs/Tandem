@@ -35,7 +35,8 @@ COPY --from=build --chown=node:node /app/apps/web/dist /app/apps/web/dist
 RUN mkdir -p /data/uploads && chown node:node /data/uploads
 USER node
 EXPOSE 3001
-# Migrations run as a separate release step (see docker-compose `migrate`
-# service / DEPLOY.md), not on start — safe for multiple instances:
+# serve.ts applies pending migrations on boot. With MIGRATE_ON_BOOT=0 (several
+# instances), run them once per deploy as a release step instead (docker-compose
+# `migrate` service / DEPLOY.md):
 #   node --import tsx node_modules/@tandem/db/src/migrate-run.ts
 CMD ["node", "--import", "tsx", "src/serve.ts"]
