@@ -421,10 +421,37 @@ button.doc-twist:hover .twist {
   visibility: hidden;
 }
 
-.collection-row:hover .row-actions,
-.doc-row:hover .row-actions,
 .group-head:hover .row-actions,
 .row-actions:has([data-state="open"]) {
+  visibility: visible;
+}
+
+/* Tree rows overlay their actions instead of reserving width for them, so a
+   title only truncates when it's actually long. --row-bg tracks the row's
+   current background so the fade under the buttons matches it. */
+.tree-row {
+  position: relative;
+  --row-bg: var(--sunken);
+}
+
+.tree-row:hover {
+  --row-bg: var(--hover);
+}
+
+.doc-row.tree-row.active {
+  --row-bg: var(--surface);
+}
+
+.tree-row .row-actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  translate: 0 -50%;
+  padding-left: 14px;
+  background: linear-gradient(to right, transparent, var(--row-bg) 14px);
+}
+
+.tree-row:is(:hover, :focus-visible, :has(:focus-visible)) .row-actions {
   visibility: visible;
 }
 
@@ -543,6 +570,19 @@ button.doc-twist:hover .twist {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.tooltip {
+  z-index: 300;
+  max-width: 340px;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  box-shadow: var(--shadow-pop);
 }
 
 .sidebar-footer {

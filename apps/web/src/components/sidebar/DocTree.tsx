@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { trpc } from "../../trpc.js";
 import { Icon } from "../Icon.js";
 import { ConfirmDialog, RowMenu } from "../Modal.js";
+import { OverflowTooltip } from "../OverflowTooltip.js";
 import { useToast } from "../toast.js";
 import type { DocNode } from "./types.js";
 
@@ -168,7 +169,7 @@ function DocRow({
         to={`/d/${node.id}`}
         draggable={writable}
         className={
-          "doc-row" +
+          "doc-row tree-row" +
           (node.id === activeDocId ? " active" : "") +
           (dropMode ? ` drop-${dropMode}` : "")
         }
@@ -211,7 +212,9 @@ function DocRow({
         ) : (
           <span className="doc-twist" aria-hidden="true" />
         )}
-        <span className="doc-title">{node.title || "Untitled"}</span>
+        <OverflowTooltip text={node.title || "Untitled"}>
+          <span className="doc-title">{node.title || "Untitled"}</span>
+        </OverflowTooltip>
         {writable && (
           <span className="row-actions">
             <button type="button"
@@ -312,10 +315,12 @@ export function ArchivedRow({
   const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
   const toast = useToast();
   return (
-    <div className="doc-row archived-row">
-      <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
-        {doc.title || "Untitled"}
-      </Link>
+    <div className="doc-row archived-row tree-row">
+      <OverflowTooltip text={doc.title || "Untitled"}>
+        <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
+          {doc.title || "Untitled"}
+        </Link>
+      </OverflowTooltip>
       {writable && (
         <span className="row-actions">
           <button type="button"
@@ -367,10 +372,12 @@ export function TrashRow({
   const toast = useToast();
   const title = doc.title || "Untitled";
   return (
-    <div className="doc-row archived-row trash-row">
-      <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
-        {title}
-      </Link>
+    <div className="doc-row archived-row trash-row tree-row">
+      <OverflowTooltip text={title}>
+        <Link className="doc-title archived-title" to={`/d/${doc.id}`}>
+          {title}
+        </Link>
+      </OverflowTooltip>
       <span className="row-actions">
         <button type="button"
           className="row-action"

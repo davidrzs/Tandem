@@ -4,6 +4,7 @@ import { friendlyError } from "../../errors.js";
 import { trpc } from "../../trpc.js";
 import { Icon } from "../Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "../Modal.js";
+import { OverflowTooltip } from "../OverflowTooltip.js";
 import { ArchivedRow, DocTree, ancestorPath, TrashRow } from "./DocTree.js";
 import type { Collection } from "./types.js";
 
@@ -200,7 +201,7 @@ export function CollectionSection({
     <div className="collection">
       <div
         className={
-          "collection-row" +
+          "collection-row tree-row" +
           (expanded ? " open" : "") +
           (dropMode ? ` drop-${dropMode}` : "")
         }
@@ -219,7 +220,9 @@ export function CollectionSection({
       >
         <button type="button" className="collection-name" onClick={onToggle}>
           <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
-          <span className="collection-label">{collection.name}</span>
+          <OverflowTooltip text={collection.name}>
+            <span className="collection-label">{collection.name}</span>
+          </OverflowTooltip>
         </button>
         <span className="row-actions">
           {collection.writable && (

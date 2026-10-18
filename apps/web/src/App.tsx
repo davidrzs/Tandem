@@ -1,3 +1,4 @@
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { Suspense, useEffect, useState } from "react";
 import { Outlet, useLocation, useMatch, useOutletContext } from "react-router-dom";
 import { AdminModal } from "./components/AdminModal.js";
@@ -140,70 +141,72 @@ export function App() {
   };
 
   return (
-    <div className="app">
-      <button type="button"
-        className="hamburger"
-        aria-label="Open menu"
-        onClick={() => setSidebarOpen(true)}
-      >
-        <Icon name="menu" size={17} />
-      </button>
-      {sidebarOpen && (
-        <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
-      )}
-      <Sidebar
-        open={sidebarOpen}
-        loading={workspaces.isLoading || collections.isLoading}
-        workspaces={workspaces.data ?? []}
-        workspaceId={workspaceId}
-        collections={wsCollections}
-        activeDocId={activeDocId}
-        activeCollectionId={activeMeta.data?.collectionId ?? linkedCollectionId}
-        onSelectWorkspace={setWorkspaceId}
-        onOpenSearch={() => setSearchQuery("")}
-        onOpenInbox={() => setInboxOpen(true)}
-        onOpenPeople={() => setPeopleOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenAdmin={() => setAdminOpen(true)}
-        onOpenShortcuts={() => setShortcutsOpen(true)}
-        onShareCollection={setShareCollectionId}
-      />
-      <main className="main">
-        <ErrorBoundary>
-          {/* The document route is lazy-loaded; the sidebar stays put while its
-              chunk arrives. */}
-          <Suspense fallback={<div className="empty">Loading…</div>}>
-            <Outlet context={context} />
-          </Suspense>
-        </ErrorBoundary>
-      </main>
-      {searchQuery !== null && (
-        <SearchModal
-          initialQuery={searchQuery}
+    <Tooltip.Provider delayDuration={450} skipDelayDuration={250} disableHoverableContent>
+      <div className="app">
+        <button type="button"
+          className="hamburger"
+          aria-label="Open menu"
+          onClick={() => setSidebarOpen(true)}
+        >
+          <Icon name="menu" size={17} />
+        </button>
+        {sidebarOpen && (
+          <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
+        )}
+        <Sidebar
+          open={sidebarOpen}
+          loading={workspaces.isLoading || collections.isLoading}
+          workspaces={workspaces.data ?? []}
           workspaceId={workspaceId}
           collections={wsCollections}
-          onOpenSettings={() => {
-            setSearchQuery(null);
-            setSettingsOpen(true);
-          }}
-          onClose={() => setSearchQuery(null)}
+          activeDocId={activeDocId}
+          activeCollectionId={activeMeta.data?.collectionId ?? linkedCollectionId}
+          onSelectWorkspace={setWorkspaceId}
+          onOpenSearch={() => setSearchQuery("")}
+          onOpenInbox={() => setInboxOpen(true)}
+          onOpenPeople={() => setPeopleOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenAdmin={() => setAdminOpen(true)}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
+          onShareCollection={setShareCollectionId}
         />
-      )}
-      {inboxOpen && <NotificationsModal onClose={() => setInboxOpen(false)} />}
-      {settingsOpen && (
-        <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
-      )}
-      {peopleOpen && workspaceId && (
-        <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
-      )}
-      {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
-      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
-      {shareCollection && (
-        <ShareModal
-          collection={shareCollection}
-          onClose={() => setShareCollectionId(null)}
-        />
-      )}
-    </div>
+        <main className="main">
+          <ErrorBoundary>
+            {/* The document route is lazy-loaded; the sidebar stays put while its
+                chunk arrives. */}
+            <Suspense fallback={<div className="empty">Loading…</div>}>
+              <Outlet context={context} />
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+        {searchQuery !== null && (
+          <SearchModal
+            initialQuery={searchQuery}
+            workspaceId={workspaceId}
+            collections={wsCollections}
+            onOpenSettings={() => {
+              setSearchQuery(null);
+              setSettingsOpen(true);
+            }}
+            onClose={() => setSearchQuery(null)}
+          />
+        )}
+        {inboxOpen && <NotificationsModal onClose={() => setInboxOpen(false)} />}
+        {settingsOpen && (
+          <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
+        )}
+        {peopleOpen && workspaceId && (
+          <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
+        )}
+        {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
+        {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+        {shareCollection && (
+          <ShareModal
+            collection={shareCollection}
+            onClose={() => setShareCollectionId(null)}
+          />
+        )}
+      </div>
+    </Tooltip.Provider>
   );
 }
