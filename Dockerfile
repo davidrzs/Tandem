@@ -3,7 +3,9 @@
 # The server and its workspace packages are TypeScript run via tsx (a runtime
 # dependency of @tandem/server and @tandem/db); there is no JS build step.
 FROM node:22.23-bookworm-slim AS base
-RUN npm install -g pnpm@11.8.0
+# Corepack runs the pnpm version pinned in package.json's packageManager.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 WORKDIR /app
 
 FROM base AS build
