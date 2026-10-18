@@ -91,9 +91,10 @@ instance (SMTP_URL without EMAIL_FROM) refuses to boot.
 - **MCP clients** point at `https://<domain>/mcp`; OAuth discovery lives at
   `https://<domain>/.well-known/oauth-authorization-server` (Better Auth).
 - **Scaling past one instance:** add Redis + `@hocuspocus/extension-redis` so
-  Yjs updates broadcast across instances; migrations are already a separate
-  release step, so multiple app instances are safe. Caddy can load-balance, but
-  sticky sessions aren't required (Hocuspocus syncs via Redis).
+  Yjs updates broadcast across instances, and set `MIGRATE_ON_BOOT=0` with the
+  release step from section 3 so instances don't race to migrate on boot.
+  Caddy can load-balance, but sticky sessions aren't required (Hocuspocus
+  syncs via Redis).
 - **Backups:** Neon handles Postgres backups/branching. Document content lives
   in `documents.ydoc_state` (+ derived `content_md`). Uploaded image bytes live
   on the `uploads` Docker volume (`UPLOADS_DIR=/data/uploads`) — include that
