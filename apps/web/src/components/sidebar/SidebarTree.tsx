@@ -1,3 +1,4 @@
+import { AssistiveTreeDescription } from "@headless-tree/react";
 import type { CSSProperties } from "react";
 import { Icon } from "../Icon.js";
 import { TreeRow } from "./TreeRows.js";
@@ -53,6 +54,7 @@ export function SidebarTree({
           ))}
           <div className="tree-drag-line" style={tree.getDragLineStyle(-1, ROW_PAD_PX)} />
         </div>
+        <AssistiveTreeDescription tree={tree} />
       </SidebarTreeContext.Provider>
     </div>
   );

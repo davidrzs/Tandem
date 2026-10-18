@@ -13,9 +13,14 @@
  *   library's expandedItems is derived from it, never stored.
  * - Indent: `INDENT_PX` is the only number; it feeds the library's drop
  *   geometry and the CSS variable `--tree-indent`.
+ * - Keys: arrows, Home/End and Ctrl+Shift+D (keyboard move) come from the
+ *   library; Enter and the row-menu keys are the `custom*` hotkeys. Keep the
+ *   "Sidebar" group in ShortcutsModal.tsx in step.
  */
 import {
   dragAndDropFeature,
+  hotkeysCoreFeature,
+  keyboardDragAndDropFeature,
   syncDataLoaderFeature,
   type DragTarget,
   type ItemInstance,
@@ -23,6 +28,7 @@ import {
 } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { trpc } from "../../trpc.js";
 import { canDragNode, planDrop, type DropSlot } from "./drop.js";
 import { deriveExpandedItems, diffExpandedItems, revealChanges } from "./folds.js";
@@ -64,6 +70,9 @@ export interface SidebarTreeModel {
   actions: SidebarActions;
   activeDocId: string | null;
   canRevealActive: boolean;
+  /** The row whose "More actions" menu is open, by node id. */
+  menuFor: string | null;
+  setMenuFor(id: string | null): void;
   /** Collapses every expanded collection and every open folder or group
    * inside them, persisted in one batched round of writes. */
   collapseAll(): void;
@@ -97,8 +106,34 @@ function toDropSlot(target: DragTarget<SidebarNode>): DropSlot {
     : { kind: "into", targetId: target.item.getId() };
 }
 
+/** Row hotkeys act only when the row itself has focus, not a button inside it. */
+function rowHasFocus(tree: TreeInstance<SidebarNode>): boolean {
+  return !tree.getState().dnd && tree.getFocusedItem().getElement() === document.activeElement;
+}
+
+function activate(item: ItemInstance<SidebarNode>, navigate: (to: string) => void): void {
+  const node = item.getItemData();
+  switch (node.kind) {
+    case "collection":
+    case "group":
+      toggle(item);
+      break;
+    case "doc":
+    case "archived":
+    case "trash":
+      navigate(`/d/${node.id}`);
+      break;
+    case "root":
+    case "gone":
+      break;
+    default:
+      node satisfies never;
+  }
+}
+
 export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
   const utils = trpc.useUtils();
+  const navigate = useNavigate();
   const folds = useFoldState(p.uid, p.activeCollectionId);
   const actions = useSidebarActions({
     folds,
@@ -141,6 +176,16 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
   // A focused id that vanished would leave the tree without a tab stop.
   const [focusRaw, setFocusRaw] = useState<string | null>(null);
   const focusedItem = focusRaw && index.nodes.has(focusRaw) ? focusRaw : null;
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const openRowMenu = {
+    preventDefault: true,
+    // Mirrors which rows render a RowMenu in TreeRows.tsx.
+    isEnabled: (t: TreeInstance<SidebarNode>) => {
+      const node = t.getFocusedItem().getItemData();
+      return rowHasFocus(t) && (node.kind === "collection" || (node.kind === "doc" && node.writable));
+    },
+    handler: (_e: KeyboardEvent, t: TreeInstance<SidebarNode>) => setMenuFor(t.getFocusedItem().getId()),
+  };
 
   const tree = useTree<SidebarNode>({
     rootItemId: ROOT_ID,
@@ -171,7 +216,20 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
       data: items[0]!.getId(),
       effectAllowed: "move",
     }),
-    features: [syncDataLoaderFeature, dragAndDropFeature],
+    hotkeys: {
+      // Doc rows are links, but archived and trash rows aren't, so one
+      // handler opens every document kind rather than relying on the native
+      // Enter of an <a>.
+      customActivate: {
+        hotkey: "Enter",
+        preventDefault: true,
+        isEnabled: rowHasFocus,
+        handler: (_e, t) => activate(t.getFocusedItem(), navigate),
+      },
+      customRowMenu: { hotkey: "Shift+F10", ...openRowMenu },
+      customRowMenuKey: { hotkey: "ContextMenu", ...openRowMenu },
+    },
+    features: [syncDataLoaderFeature, hotkeysCoreFeature, dragAndDropFeature, keyboardDragAndDropFeature],
   });
 
   // Unfold the open document's ancestors once per doc; the user can still
@@ -225,6 +283,8 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
     actions,
     activeDocId: p.activeDocId,
     canRevealActive: !!p.activeDocId && !!p.activeCollectionId && index.nodes.has(p.activeCollectionId),
+    menuFor,
+    setMenuFor,
     collapseAll: () => folds.apply(diffExpandedItems(index, expandedItems, [])),
     revealActive,
   };
@@ -251,13 +311,16 @@ export function toggle(item: ItemInstance<SidebarNode>): void {
 }
 
 /** The library's row props minus its click-to-toggle: doc rows navigate, and
- * collections and groups toggle through their own button. */
+ * collections and groups toggle through their own button. Focus landing
+ * anywhere in a row (a screen reader's cursor, a menu button) makes it the
+ * row the arrow keys move from. */
 export function treeRowProps(item: ItemInstance<SidebarNode>, draggable: boolean) {
   const { onClick: _toggles, ...props } = item.getProps();
   return {
     ...props,
     draggable,
     onClick: () => item.setFocused(),
+    onFocus: () => item.setFocused(),
     style: { "--level": item.getItemMeta().level } as CSSProperties,
   };
 }

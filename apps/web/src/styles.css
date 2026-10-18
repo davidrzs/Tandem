@@ -591,6 +591,12 @@ button.doc-twist:hover .twist {
   padding-left: calc(var(--row-pad) + var(--level) * var(--tree-indent));
 }
 
+/* Inset, so the ring isn't clipped by the scroll pane or hidden under the
+   neighbouring rows. */
+.tree-row:focus-visible {
+  outline-offset: -2px;
+}
+
 /* One 1px guide per ancestor level, centred on that ancestor's twist; it
    spans the borders so the lines join from row to row. */
 .tree-row::before {

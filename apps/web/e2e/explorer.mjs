@@ -1,6 +1,7 @@
 // The Obsidian-style explorer: a resizable, persisted sidebar pane that turns
-// back into a drawer on narrow screens, and a compact tree whose row actions
-// overlay the title instead of reserving width. Needs web+api (run.sh).
+// back into a drawer on narrow screens, and a compact, keyboard-driven tree
+// whose row actions overlay the title instead of reserving width. Needs
+// web+api (run.sh).
 import { chromium } from "playwright";
 import { createCollection, newDocument, signUp } from "./_helpers.mjs";
 
@@ -176,8 +177,49 @@ try {
   await page.getByTitle("Reveal active document").click();
   await archivedRow.waitFor();
 
+  const isActive = async (locator, msg) => {
+    const el = await locator.elementHandle();
+    await page.waitForFunction((el) => document.activeElement === el, el, { timeout: 3000 }).catch(() => {
+      throw new Error(msg);
+    });
+  };
+  const treeItems = page.locator('.tree [role="treeitem"]');
+  await page.locator(".tree .collection-row").first().focus();
+  await page.keyboard.press("ArrowDown");
+  await isActive(treeItems.nth(1), "ArrowDown on the first collection focuses the next tree row");
+
+  await collectionRow.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((el) => el.getAttribute("aria-expanded") === "false", await collectionRow.elementHandle());
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((el) => el.getAttribute("aria-expanded") === "true", await collectionRow.elementHandle());
+
+  await short.focus();
+  await page.keyboard.press("ArrowRight");
+  await nested.waitFor();
+  await page.keyboard.press("ArrowDown");
+  await isActive(nested, "ArrowRight unfolds a document and ArrowDown reaches its child");
+  assert((await nested.getAttribute("aria-level")) === "3", "the child starts nested under its parent");
+  await page.keyboard.press("Control+Shift+KeyD");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await page.getByText('Moved "Nested"').waitFor();
+  await page.waitForFunction((el) => el.getAttribute("aria-level") === "2", await nested.elementHandle());
+
+  await isActive(nested, "the moved row keeps focus");
+  await page.keyboard.press("Enter");
+  await page.waitForURL(nestedUrl);
+
+  await nested.focus();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("menuitem", { name: "New sub-document" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("menu").waitFor({ state: "detached" });
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active");
+  console.log(
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu",
+  );
 } finally {
   await browser.close();
 }

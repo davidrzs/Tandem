@@ -36,7 +36,7 @@ export function TreeRow({ item }: { item: ItemInstance<SidebarNode> }) {
 }
 
 function CollectionRow({ item, node }: RowProps<"collection">) {
-  const { actions, index } = useSidebarTreeContext();
+  const { actions, index, menuFor, setMenuFor } = useSidebarTreeContext();
   const c = node.collection;
   const expanded = item.isExpanded();
   const hasDocs = node.childIds.some((id) => index.nodes.get(id)?.kind === "doc");
@@ -64,6 +64,8 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
             </button>
           )}
           <RowMenu
+            open={menuFor === node.id}
+            onOpenChange={(open) => setMenuFor(open ? node.id : null)}
             items={[
               ...(c.writable
                 ? [
@@ -102,7 +104,7 @@ function TreeNote({ children }: { children: React.ReactNode }) {
 }
 
 function DocRow({ item, node }: RowProps<"doc">) {
-  const { actions, activeDocId } = useSidebarTreeContext();
+  const { actions, activeDocId, menuFor, setMenuFor } = useSidebarTreeContext();
   const active = node.id === activeDocId;
   const title = node.title || "Untitled";
   return (
@@ -130,7 +132,10 @@ function DocRow({ item, node }: RowProps<"doc">) {
             <Icon name="plus" />
           </button>
           <RowMenu
+            open={menuFor === node.id}
+            onOpenChange={(open) => setMenuFor(open ? node.id : null)}
             items={[
+              { label: "New sub-document", icon: "plus", onClick: () => void actions.newDoc(node.collectionId, node.id) },
               { label: "Duplicate", icon: "page", onClick: () => void actions.duplicateDoc(node) },
               { label: "Archive", icon: "archive", onClick: () => void actions.archiveDoc(node, active) },
               { label: "Delete", icon: "trash", danger: true, onClick: () => void actions.deleteDoc(node, active) },
