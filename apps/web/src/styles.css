@@ -497,6 +497,23 @@ button.doc-twist:hover .twist {
   opacity: 1;
 }
 
+/* The explorer toolbar is the pane's own chrome, so it stays visible. */
+.tree-toolbar .toolbar-actions {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.tree-toolbar .row-action {
+  opacity: 1;
+  color: var(--ink-3);
+}
+
+.section-title.tree-toolbar .row-action:disabled {
+  opacity: 0.4;
+  background: none;
+  cursor: default;
+}
+
 /* Depth padding comes from the explorer tree rules below; only the vertical
    rhythm lives here. The transparent border keeps the active outline from
    shifting the row. */

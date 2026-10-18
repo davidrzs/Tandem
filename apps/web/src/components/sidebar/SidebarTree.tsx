@@ -19,11 +19,24 @@ export function SidebarTree({
   const container = tree.getContainerProps("Collections");
   return (
     <div className="section">
-      <div className="section-title">
+      <div className="section-title tree-toolbar">
         <span>Collections</span>
-        <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={onNewCollection}>
-          <Icon name="plus" />
-        </button>
+        <span className="toolbar-actions">
+          <button type="button"
+            className="row-action"
+            title="Reveal active document" aria-label="Reveal active document"
+            disabled={!model.canRevealActive}
+            onClick={() => void model.revealActive()}
+          >
+            <Icon name="locate" />
+          </button>
+          <button type="button" className="row-action" title="Collapse all" aria-label="Collapse all" onClick={model.collapseAll}>
+            <Icon name="collapse" />
+          </button>
+          <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={onNewCollection}>
+            <Icon name="plus" />
+          </button>
+        </span>
       </div>
       {loading && <div className="side-note">Loading…</div>}
       {!loading && props.collections.length === 0 && (

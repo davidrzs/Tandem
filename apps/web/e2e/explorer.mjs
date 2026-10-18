@@ -108,6 +108,7 @@ try {
 
   const long = `A deliberately long document title that cannot fit ${"in a sidebar row ".repeat(4)}`.trim();
   await newDocument(page, c);
+  const longUrl = page.url();
   await page.fill(".title-input", long);
   const longRow = page.locator(".doc-row", { hasText: long.slice(0, 30) });
   await longRow.waitFor();
@@ -130,8 +131,53 @@ try {
   const guides = await nested.evaluate((row) => getComputedStyle(row, "::before").width);
   assert(guides === "16px", `two ancestor guides at 8px per level (got ${guides})`);
 
+  const nestedUrl = page.url();
+  const collectionRow = page.locator(".collection-row", { hasText: c });
+  const treeDocs = page.locator(".tree .doc-row");
+  await page.locator(".nav-row", { hasText: "Home" }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  const persisted = page.waitForResponse((r) => r.url().includes("settings.setSidebarNode"));
+  await page.getByTitle("Collapse all").click();
+  await persisted;
+  await treeDocs.first().waitFor({ state: "detached" });
+  assert((await collectionRow.getAttribute("aria-expanded")) === "false", "Collapse all folds the collection");
+  await page.reload();
+  await collectionRow.waitFor();
+  await page.waitForTimeout(500);
+  assert((await collectionRow.getAttribute("aria-expanded")) === "false", "the collapsed collection stays folded after a reload");
+  assert((await treeDocs.count()) === 0, "no document rows after a reload of a collapsed tree");
+
+  await page.goto(nestedUrl);
+  await page.waitForSelector(".ProseMirror");
+  await nested.waitFor();
+  await page.getByTitle("Collapse all").click();
+  await nested.waitFor({ state: "detached" });
+  await page.getByTitle("Reveal active document").click();
+  await nested.waitFor();
+  const inView = await nested.evaluate((row) => {
+    const pane = document.querySelector(".sidebar-scroll").getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    return r.top >= pane.top && r.bottom <= pane.bottom;
+  });
+  assert(inView, "Reveal unfolds the path to the open document and scrolls its row into view");
+  assert((await nested.getAttribute("tabindex")) === "0", "the revealed row is the tree's tab stop");
+
+  await page.goto(longUrl);
+  await page.waitForSelector(".ProseMirror");
+  await longRow.hover();
+  await longRow.getByTitle("More actions").click();
+  await page.getByRole("menuitem", { name: "Archive" }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.goto(longUrl);
+  await page.waitForSelector(".ProseMirror");
+  const archivedRow = page.locator(".archived-row", { hasText: long.slice(0, 30) });
+  await page.getByTitle("Collapse all").click();
+  await archivedRow.waitFor({ state: "detached" });
+  await page.getByTitle("Reveal active document").click();
+  await archivedRow.waitFor();
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides");
+  console.log("EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active");
 } finally {
   await browser.close();
 }

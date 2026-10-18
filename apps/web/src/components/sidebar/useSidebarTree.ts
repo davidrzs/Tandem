@@ -31,6 +31,7 @@ import {
   ancestorPath,
   buildSidebarIndex,
   goneNode,
+  groupId,
   isFolderNode,
   nodeLabel,
   type IndexInput,
@@ -62,6 +63,13 @@ export interface SidebarTreeModel {
   index: SidebarIndex;
   actions: SidebarActions;
   activeDocId: string | null;
+  canRevealActive: boolean;
+  /** Collapses every expanded collection and every open folder or group
+   * inside them, persisted in one batched round of writes. */
+  collapseAll(): void;
+  /** Expands the active doc's collection and ancestors (or its Archived/Trash
+   * group), makes its row the tab stop and scrolls it into view. */
+  revealActive(): Promise<void>;
 }
 
 export const SidebarTreeContext = createContext<SidebarTreeModel | null>(null);
@@ -90,6 +98,7 @@ function toDropSlot(target: DragTarget<SidebarNode>): DropSlot {
 }
 
 export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
+  const utils = trpc.useUtils();
   const folds = useFoldState(p.uid, p.activeCollectionId);
   const actions = useSidebarActions({
     folds,
@@ -182,7 +191,55 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
     folds.apply(revealChanges(path));
   }, [p.activeDocId, activeTree, folds.foldsReconciled]);
 
-  return { tree, index, actions, activeDocId: p.activeDocId };
+  const revealActive = async () => {
+    const { activeDocId: docId, activeCollectionId: cid } = p;
+    const collection = cid ? index.nodes.get(cid) : undefined;
+    if (!docId || !cid || collection?.kind !== "collection") return;
+    folds.apply([{ kind: "collection", id: cid, expanded: true }]);
+    // ensureData shares the in-flight request with the tree's own query.
+    const path = ancestorPath(await utils.documents.tree.ensureData({ collectionId: cid }), docId);
+    if (path) {
+      folds.apply(revealChanges(path));
+    } else {
+      // Not in the live tree: an archived or trashed doc opened directly.
+      const archived = await utils.documents.listArchived.ensureData({ collectionId: cid });
+      const trashed =
+        collection.collection.writable && !archived.some((d) => d.id === docId)
+          ? await utils.documents.listTrash.ensureData({ collectionId: cid })
+          : [];
+      const group = archived.some((d) => d.id === docId)
+        ? groupId("archived", cid)
+        : trashed.some((d) => d.id === docId)
+          ? groupId("trash", cid)
+          : null;
+      if (!group) return;
+      folds.apply([{ kind: "group", id: group, expanded: true }]);
+    }
+    setFocusRaw(docId);
+    (await waitForRowElement(tree, docId))?.scrollIntoView({ block: "nearest" });
+  };
+
+  return {
+    tree,
+    index,
+    actions,
+    activeDocId: p.activeDocId,
+    canRevealActive: !!p.activeDocId && !!p.activeCollectionId && index.nodes.has(p.activeCollectionId),
+    collapseAll: () => folds.apply(diffExpandedItems(index, expandedItems, [])),
+    revealActive,
+  };
+}
+
+/** Polls frames (about a second) until the library has registered the row's
+ * element. The library's own item.scrollTo() can't be used: its poll treats
+ * an unregistered (undefined) element as found and scrolls nothing. */
+async function waitForRowElement(tree: TreeInstance<SidebarNode>, id: string): Promise<HTMLElement | null> {
+  for (let frame = 0; frame < 60; frame++) {
+    const el = tree.getItemInstance(id).getElement();
+    if (el) return el;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  return null;
 }
 
 /** Folds through the library so focus and state stay coherent; the change
