@@ -1,6 +1,6 @@
 import type { ItemInstance } from "@headless-tree/core";
 import type { CSSProperties } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Icon } from "../Icon.js";
 import { RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
@@ -37,6 +37,7 @@ export function TreeRow({ item }: { item: ItemInstance<SidebarNode> }) {
 
 function CollectionRow({ item, node }: RowProps<"collection">) {
   const { actions, index, menuFor, setMenuFor } = useSidebarTreeContext();
+  const navigate = useNavigate();
   const c = node.collection;
   const expanded = item.isExpanded();
   const hasDocs = node.childIds.some((id) => index.nodes.get(id)?.kind === "doc");
@@ -73,6 +74,7 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
                     { label: "Rename", icon: "pen" as const, onClick: () => actions.renameCollection(c) },
                   ]
                 : []),
+              { label: "Open collection page", icon: "page", onClick: () => navigate(`/c/${c.id}`) },
               { label: "Share & access", icon: "share", onClick: () => actions.shareCollection(c) },
               { label: "Export", icon: "download", onClick: () => actions.exportCollection(c) },
               { label: "Delete collection", icon: "trash", danger: true, onClick: () => actions.deleteCollection(c) },

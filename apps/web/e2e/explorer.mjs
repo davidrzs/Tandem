@@ -255,9 +255,25 @@ try {
   await pages.getByRole("link", { name: /Fresh page/ }).waitFor();
   assert((await pages.locator(".sub-pages-toggle").textContent()).trim() === "2 pages", "the new page joins the Pages section");
 
+  const onCollectionPage = async (msg) => {
+    await page.waitForURL((url) => url.pathname.startsWith("/c/"));
+    const heading = await page.locator(".collection-page h1").textContent();
+    assert(heading === c, `${msg} (heading ${JSON.stringify(heading)})`);
+    await page.locator(".collection-page .doc-outline").getByRole("link", { name: /Research/ }).waitFor();
+  };
+  await page.locator(".breadcrumbs .crumb-collection").click();
+  await onCollectionPage("the collection crumb opens the collection page");
+
+  await page.goto(parentUrl);
+  await page.waitForSelector(".ProseMirror");
+  await collectionRow.hover();
+  await collectionRow.getByTitle("More actions").click();
+  await page.getByRole("menuitem", { name: "Open collection page" }).click();
+  await onCollectionPage("the collection menu opens the collection page");
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; sub-page outline",
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; sub-page outline; collection page links",
   );
 } finally {
   await browser.close();
