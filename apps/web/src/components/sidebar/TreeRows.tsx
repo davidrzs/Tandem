@@ -67,6 +67,7 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
           <RowMenu
             open={menuFor === node.id}
             onOpenChange={(open) => setMenuFor(open ? node.id : null)}
+            returnFocus={() => item.getElement()?.focus()}
             items={[
               ...(c.writable
                 ? [
@@ -136,6 +137,7 @@ function DocRow({ item, node }: RowProps<"doc">) {
           <RowMenu
             open={menuFor === node.id}
             onOpenChange={(open) => setMenuFor(open ? node.id : null)}
+            returnFocus={() => item.getElement()?.focus()}
             items={[
               { label: "New sub-document", icon: "plus", onClick: () => void actions.newDoc(node.collectionId, node.id) },
               { label: "Duplicate", icon: "page", onClick: () => void actions.duplicateDoc(node) },

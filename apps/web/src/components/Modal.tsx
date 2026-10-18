@@ -171,18 +171,24 @@ export interface MenuItem {
 
 /** Row-level "…" dropdown. Rendered in a portal with real menu semantics;
  * clicks never leak into the row/link underneath. Pass `open` and
- * `onOpenChange` to open it from elsewhere, such as a row's keyboard shortcut. */
+ * `onOpenChange` to open it from elsewhere, such as a row's keyboard shortcut.
+ * Radix refocuses the trigger on close, but a hover-only trigger is hidden by
+ * then and the focus is lost; `returnFocus` names a visible target instead.
+ * It is skipped after an outside click, or when the chosen item moved focus. */
 export function RowMenu({
   items,
   title = "More actions",
   open,
   onOpenChange,
+  returnFocus,
 }: {
   items: MenuItem[];
   title?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  returnFocus?: () => void;
 }) {
+  const interactedOutside = useRef(false);
   return (
     <DropdownMenu.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
@@ -210,6 +216,16 @@ export function RowMenu({
           align="end"
           sideOffset={4}
           onClick={(e) => e.stopPropagation()}
+          onInteractOutside={() => {
+            interactedOutside.current = true;
+          }}
+          onCloseAutoFocus={(e) => {
+            const outside = interactedOutside.current;
+            interactedOutside.current = false;
+            if (!returnFocus) return;
+            e.preventDefault();
+            if (!outside && document.activeElement === document.body) returnFocus();
+          }}
         >
           {items.map((item) => (
             <DropdownMenu.Item

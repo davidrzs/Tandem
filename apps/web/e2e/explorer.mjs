@@ -215,6 +215,9 @@ try {
   await page.getByRole("menuitem", { name: "New sub-document" }).waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("menu").waitFor({ state: "detached" });
+  await isActive(nested, "Escape from the row menu returns focus to its row");
+  await page.keyboard.press("ArrowUp");
+  await isActive(short, "arrow keys keep working after the row menu closes");
 
   await newDocument(page, c);
   const parentUrl = page.url();
