@@ -52,7 +52,7 @@ export function CollectionPage() {
         )}
         {documents.isLoading && <p className="home-empty">Loading documents…</p>}
         {documents.data && (
-          <DocOutline nodes={nodes} collectionId={collection.id} canEdit={collection.writable} />
+          <DocOutline key={collection.id} nodes={nodes} collectionId={collection.id} canEdit={collection.writable} />
         )}
       </section>
     </div>

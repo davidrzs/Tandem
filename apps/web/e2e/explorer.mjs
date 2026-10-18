@@ -322,14 +322,33 @@ try {
 
   await page.goto(parentUrl);
   await page.waitForSelector(".ProseMirror");
-  await collectionRow.hover();
-  await collectionRow.getByTitle("More actions").click();
-  await page.getByRole("menuitem", { name: "Open collection page" }).click();
+  const openCollectionPage = async (row) => {
+    await row.hover();
+    await row.getByTitle("More actions").click();
+    await page.getByRole("menuitem", { name: "Open collection page" }).click();
+  };
+  await openCollectionPage(collectionRow);
   await onCollectionPage("the collection menu opens the collection page");
+
+  const other = `Other ${Date.now()}`;
+  await createCollection(page, other);
+  await newDocument(page, other);
+  await page.fill(".title-input", "Elsewhere");
+  await page.locator(".doc-row", { hasText: "Elsewhere" }).waitFor();
+  await openCollectionPage(collectionRow);
+  await onCollectionPage("the collection menu opens the collection page from another collection");
+  const collectionPage = page.locator(".collection-page");
+  const pageFilter = collectionPage.getByRole("searchbox", { name: "Filter pages" });
+  await pageFilter.fill("zzz");
+  await collectionPage.getByText("No pages match").waitFor();
+  await openCollectionPage(page.locator(".collection-row", { hasText: other }));
+  await collectionPage.locator("h1", { hasText: other }).waitFor();
+  await collectionPage.getByRole("link", { name: "Elsewhere" }).waitFor({ timeout: 3000 });
+  assert((await pageFilter.inputValue()) === "", "another collection's page opens with an empty filter");
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; folder-table contents (fold, filter, sort, new page); collection page links",
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; folder-table contents (fold, filter, sort, new page); collection page links; contents reset per collection",
   );
 } finally {
   await browser.close();
