@@ -5,7 +5,9 @@ import { Icon } from "../Icon.js";
 import { ConfirmDialog, RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
 import { useToast } from "../toast.js";
+import { revealChanges } from "./folds.js";
 import type { DocNode } from "./types.js";
+import type { Folds } from "./useFoldState.js";
 
 /** Drop position while dragging: before/after = reorder, into = nest. */
 type DropMode = "before" | "after" | "into";
@@ -16,9 +18,7 @@ export function DocTree({
   writable,
   activeDocId,
   depth,
-  collapsedDocs,
-  onToggleDoc,
-  onRevealDocs,
+  folds,
   onNewChild,
   run,
   setDialog,
@@ -29,9 +29,7 @@ export function DocTree({
   writable: boolean;
   activeDocId: string | null;
   depth: number;
-  collapsedDocs: Set<string>;
-  onToggleDoc: (id: string) => void;
-  onRevealDocs: (ids: string[]) => void;
+  folds: Folds;
   onNewChild: (parentId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
   setDialog: (node: ReactNode) => void;
@@ -49,9 +47,7 @@ export function DocTree({
           writable={writable}
           activeDocId={activeDocId}
           depth={depth}
-          collapsedDocs={collapsedDocs}
-          onToggleDoc={onToggleDoc}
-          onRevealDocs={onRevealDocs}
+          folds={folds}
           onNewChild={onNewChild}
           run={run}
           setDialog={setDialog}
@@ -69,9 +65,7 @@ function DocRow({
   writable,
   activeDocId,
   depth,
-  collapsedDocs,
-  onToggleDoc,
-  onRevealDocs,
+  folds,
   onNewChild,
   run,
   setDialog,
@@ -84,9 +78,7 @@ function DocRow({
   writable: boolean;
   activeDocId: string | null;
   depth: number;
-  collapsedDocs: Set<string>;
-  onToggleDoc: (id: string) => void;
-  onRevealDocs: (ids: string[]) => void;
+  folds: Folds;
   onNewChild: (parentId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
   setDialog: (node: ReactNode) => void;
@@ -127,7 +119,7 @@ function DocRow({
     // Moves stay within one collection (the backend enforces this too).
     if (dragged.collectionId !== collectionId || dragged.id === node.id) return;
     // Nesting into a folded folder unfolds it so the drop stays visible.
-    if (mode === "into") onRevealDocs([node.id]);
+    if (mode === "into") folds.apply(revealChanges([node.id]));
     void run(async () => {
       await (mode === "into"
         ? move.mutateAsync({ id: dragged.id, parentDocumentId: node.id })
@@ -150,7 +142,7 @@ function DocRow({
     });
   };
 
-  const collapsed = collapsedDocs.has(node.id);
+  const collapsed = folds.snapshot.collapsedDocs.has(node.id);
 
   return (
     <div>
@@ -193,7 +185,7 @@ function DocRow({
             aria-label={collapsed ? "Expand" : "Collapse"}
             onClick={(e) => {
               e.preventDefault();
-              onToggleDoc(node.id);
+              folds.apply([{ kind: "doc", id: node.id, expanded: collapsed }]);
             }}
           >
             <Icon name="chevron" size={12} className={"twist" + (collapsed ? "" : " open")} />
@@ -279,9 +271,7 @@ function DocRow({
           writable={writable}
           activeDocId={activeDocId}
           depth={depth + 1}
-          collapsedDocs={collapsedDocs}
-          onToggleDoc={onToggleDoc}
-          onRevealDocs={onRevealDocs}
+          folds={folds}
           onNewChild={onNewChild}
           run={run}
           setDialog={setDialog}

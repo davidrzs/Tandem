@@ -6,8 +6,10 @@ import { Icon } from "../Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
 import { ArchivedRow, DocTree, TrashRow } from "./DocTree.js";
-import { ancestorPath } from "./sidebarIndex.js";
+import { revealChanges } from "./folds.js";
+import { ancestorPath, groupId } from "./sidebarIndex.js";
 import type { Collection } from "./types.js";
+import type { Folds } from "./useFoldState.js";
 
 /** Drag payload type for collection rows (documents use their own). */
 const COLLECTION_MIME = "application/x-tandem-collection";
@@ -17,11 +19,7 @@ export function CollectionSection({
   index,
   expanded,
   activeDocId,
-  collapsedDocs,
-  foldsReconciled,
-  onToggle,
-  onToggleDoc,
-  onRevealDocs,
+  folds,
   onShare,
   onError,
   setDialog,
@@ -31,11 +29,7 @@ export function CollectionSection({
   index: number;
   expanded: boolean;
   activeDocId: string | null;
-  collapsedDocs: Set<string>;
-  foldsReconciled: boolean;
-  onToggle: () => void;
-  onToggleDoc: (id: string) => void;
-  onRevealDocs: (ids: string[]) => void;
+  folds: Folds;
   onShare: () => void;
   onError: (msg: string) => void;
   setDialog: (node: ReactNode) => void;
@@ -59,8 +53,10 @@ export function CollectionSection({
   const renameCollection = trpc.collections.update.useMutation();
   const deleteCollection = trpc.collections.delete.useMutation();
   const moveCollection = trpc.collections.move.useMutation();
-  const [showArchived, setShowArchived] = useState(false);
-  const [showTrash, setShowTrash] = useState(false);
+  const archivedGroup = groupId("archived", collection.id);
+  const trashGroup = groupId("trash", collection.id);
+  const showArchived = folds.snapshot.openGroups.has(archivedGroup);
+  const showTrash = folds.snapshot.openGroups.has(trashGroup);
   const [dropMode, setDropMode] = useState<"before" | "after" | null>(null);
 
   // Unfold the open document's ancestors once per doc; the user can still
@@ -71,13 +67,13 @@ export function CollectionSection({
   const revealedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!activeDocId || !tree.data) return;
-    const marker = `${activeDocId}:${foldsReconciled}`;
+    const marker = `${activeDocId}:${folds.foldsReconciled}`;
     if (revealedFor.current === marker) return;
     const path = ancestorPath(tree.data, activeDocId);
     if (!path) return;
     revealedFor.current = marker;
-    if (path.length > 0) onRevealDocs(path);
-  }, [activeDocId, tree.data, foldsReconciled]);
+    folds.apply(revealChanges(path));
+  }, [activeDocId, tree.data, folds.foldsReconciled]);
 
   // Where a dropped sibling lands: midway between this collection and its
   // neighbour (same sparse-position scheme as document rows).
@@ -135,8 +131,10 @@ export function CollectionSection({
         title: "",
         ...(parentDocumentId ? { parentDocumentId } : {}),
       });
-      if (!expanded) onToggle();
-      if (parentDocumentId) onRevealDocs([parentDocumentId]);
+      folds.apply([
+        { kind: "collection", id: collection.id, expanded: true },
+        ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
+      ]);
       navigate(`/d/${doc.id}`);
     });
 
@@ -219,7 +217,11 @@ export function CollectionSection({
         onDragLeave={() => setDropMode(null)}
         onDrop={onDropCollection}
       >
-        <button type="button" className="collection-name" onClick={onToggle}>
+        <button
+          type="button"
+          className="collection-name"
+          onClick={() => folds.apply([{ kind: "collection", id: collection.id, expanded: !expanded }])}
+        >
           <Icon name="chevron" className={"twist" + (expanded ? " open" : "")} />
           <OverflowTooltip text={collection.name}>
             <span className="collection-label">{collection.name}</span>
@@ -256,9 +258,7 @@ export function CollectionSection({
               writable={collection.writable}
               activeDocId={activeDocId}
               depth={0}
-              collapsedDocs={collapsedDocs}
-              onToggleDoc={onToggleDoc}
-              onRevealDocs={onRevealDocs}
+              folds={folds}
               onNewChild={(id) => void newDoc(id)}
               run={run}
               setDialog={setDialog}
@@ -268,7 +268,7 @@ export function CollectionSection({
             <>
               <button type="button"
                 className="archived-toggle"
-                onClick={() => setShowArchived((s) => !s)}
+                onClick={() => folds.apply([{ kind: "group", id: archivedGroup, expanded: !showArchived }])}
               >
                 <Icon name="chevron" className={"twist" + (showArchived ? " open" : "")} />
                 Archived ({archived.data!.length})
@@ -288,7 +288,7 @@ export function CollectionSection({
             <>
               <button type="button"
                 className="archived-toggle"
-                onClick={() => setShowTrash((s) => !s)}
+                onClick={() => folds.apply([{ kind: "group", id: trashGroup, expanded: !showTrash }])}
               >
                 <Icon name="chevron" className={"twist" + (showTrash ? " open" : "")} />
                 Trash ({trash.data!.length})

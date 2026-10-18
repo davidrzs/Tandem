@@ -68,8 +68,7 @@ export function Sidebar({
 
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ReactNode>(null);
-  const { expanded, collapsedDocs, foldsReconciled, toggleCollection, toggleDoc, revealDocs } =
-    useFoldState(uid, activeCollectionId);
+  const folds = useFoldState(uid, activeCollectionId);
 
   // Surface failures (RLS denial, duplicate slug, non-admin) instead of a
   // silent unhandled rejection.
@@ -194,13 +193,9 @@ export function Sidebar({
               collection={c}
               siblings={collections}
               index={i}
-              expanded={expanded.has(c.id)}
+              expanded={folds.snapshot.expandedCollections.has(c.id)}
               activeDocId={activeDocId}
-              collapsedDocs={collapsedDocs}
-              foldsReconciled={foldsReconciled}
-              onToggle={() => toggleCollection(c.id)}
-              onToggleDoc={toggleDoc}
-              onRevealDocs={revealDocs}
+              folds={folds}
               onShare={() => onShareCollection(c.id)}
               onError={setError}
               setDialog={setDialog}
