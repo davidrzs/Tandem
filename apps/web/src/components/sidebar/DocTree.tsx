@@ -7,17 +7,6 @@ import { OverflowTooltip } from "../OverflowTooltip.js";
 import { useToast } from "../toast.js";
 import type { DocNode } from "./types.js";
 
-/** Parent chain (outermost first) leading to docId, excluding docId itself;
- * null when the doc isn't in this tree. */
-export function ancestorPath(nodes: DocNode[], docId: string): string[] | null {
-  for (const node of nodes) {
-    if (node.id === docId) return [];
-    const inChild = ancestorPath(node.children, docId);
-    if (inChild) return [node.id, ...inChild];
-  }
-  return null;
-}
-
 /** Drop position while dragging: before/after = reorder, into = nest. */
 type DropMode = "before" | "after" | "into";
 export function DocTree({

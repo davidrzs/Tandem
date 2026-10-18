@@ -5,7 +5,8 @@ import { trpc } from "../../trpc.js";
 import { Icon } from "../Icon.js";
 import { ConfirmDialog, PromptDialog, RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
-import { ArchivedRow, DocTree, ancestorPath, TrashRow } from "./DocTree.js";
+import { ArchivedRow, DocTree, TrashRow } from "./DocTree.js";
+import { ancestorPath } from "./sidebarIndex.js";
 import type { Collection } from "./types.js";
 
 /** Drag payload type for collection rows (documents use their own). */
