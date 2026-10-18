@@ -332,6 +332,22 @@ try {
 
   const other = `Other ${Date.now()}`;
   await createCollection(page, other);
+  const otherRow = page.locator(".collection-row", { hasText: other });
+  const treeRequests = /\/trpc\/[^?]*documents\.tree/;
+  await page.route(treeRequests, (route) => route.fulfill({ status: 500, body: "down" }));
+  await otherRow.locator(".collection-name").click();
+  await page.locator(".tree-note", { hasText: "Couldn't load documents." }).waitFor({ timeout: 20000 });
+  const describedBy = () => otherRow.evaluate((row) => document.getElementById(row.getAttribute("aria-describedby"))?.textContent);
+  assert((await describedBy()) === "Couldn't load documents.", "a failed load describes its collection row");
+  await page.unroute(treeRequests);
+  await otherRow.focus();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("menuitem", { name: "Retry loading" }).press("Enter");
+  await page.locator(".tree-note", { hasText: "No documents yet." }).waitFor();
+  const description = await describedBy();
+  assert(description === "No documents yet.", `the empty note describes its collection row (got ${JSON.stringify(description)})`);
+  const treeSnapshot = await page.locator(".tree").ariaSnapshot();
+  assert(!treeSnapshot.includes("No documents yet"), `the tree owns only tree items (got ${treeSnapshot})`);
   await newDocument(page, other);
   await page.fill(".title-input", "Elsewhere");
   await page.locator(".doc-row", { hasText: "Elsewhere" }).waitFor();
@@ -341,14 +357,14 @@ try {
   const pageFilter = collectionPage.getByRole("searchbox", { name: "Filter pages" });
   await pageFilter.fill("zzz");
   await collectionPage.getByText("No pages match").waitFor();
-  await openCollectionPage(page.locator(".collection-row", { hasText: other }));
+  await openCollectionPage(otherRow);
   await collectionPage.locator("h1", { hasText: other }).waitFor();
   await collectionPage.getByRole("link", { name: "Elsewhere" }).waitFor({ timeout: 3000 });
   assert((await pageFilter.inputValue()) === "", "another collection's page opens with an empty filter");
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; folder-table contents (fold, filter, sort, new page); collection page links; contents reset per collection",
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; collection notes as row descriptions, keyboard retry; folder-table contents (fold, filter, sort, new page); collection page links; contents reset per collection",
   );
 } finally {
   await browser.close();

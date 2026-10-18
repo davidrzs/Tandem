@@ -1,5 +1,5 @@
 import type { ItemInstance } from "@headless-tree/core";
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Icon } from "../Icon.js";
 import { RowMenu } from "../Modal.js";
@@ -41,10 +41,21 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
   const c = node.collection;
   const expanded = item.isExpanded();
   const hasDocs = node.childIds.some((id) => index.nodes.get(id)?.kind === "doc");
+  const note = !expanded
+    ? null
+    : node.load === "loading"
+      ? "Loading…"
+      : node.load === "error"
+        ? "Couldn't load documents."
+        : node.load === "ready" && !hasDocs
+          ? "No documents yet."
+          : null;
+  const noteId = useId();
   return (
     <>
       <div
         {...treeRowProps(item, c.writable)}
+        aria-describedby={note ? noteId : undefined}
         className={cx("collection-row tree-row", expanded && "open", item.isUnorderedDragTarget() && "drop-into")}
       >
         <button type="button" className="collection-name" tabIndex={-1} onClick={() => toggle(item)}>
@@ -69,6 +80,9 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
             onOpenChange={(open) => setMenuFor(open ? node.id : null)}
             returnFocus={() => item.getElement()?.focus()}
             items={[
+              ...(node.load === "error"
+                ? [{ label: "Retry loading", icon: "restore" as const, onClick: () => actions.retryTree(c.id) }]
+                : []),
               ...(c.writable
                 ? [
                     { label: "New document", icon: "plus" as const, onClick: () => void actions.newDoc(c.id) },
@@ -83,26 +97,22 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
           />
         </span>
       </div>
-      {expanded && node.load === "loading" && <TreeNote>Loading…</TreeNote>}
-      {expanded && node.load === "error" && (
-        <TreeNote>
-          Couldn't load documents.{" "}
-          <button type="button" className="side-link" onClick={() => actions.retryTree(c.id)}>
-            Retry
-          </button>
-        </TreeNote>
+      {/* A tree may only own treeitems: the note reaches assistive tech as the
+          row's description, and Retry through the row menu. */}
+      {note && (
+        <div className="side-note tree-note" aria-hidden="true" style={{ "--level": 1 } as CSSProperties}>
+          <span id={noteId}>{note}</span>
+          {node.load === "error" && (
+            <>
+              {" "}
+              <button type="button" className="side-link" tabIndex={-1} onClick={() => actions.retryTree(c.id)}>
+                Retry
+              </button>
+            </>
+          )}
+        </div>
       )}
-      {expanded && node.load === "ready" && !hasDocs && <TreeNote>No documents yet.</TreeNote>}
     </>
-  );
-}
-
-/** Decoration under a collection row; not a treeitem. */
-function TreeNote({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="side-note tree-note" style={{ "--level": 1 } as CSSProperties}>
-      {children}
-    </div>
   );
 }
 
