@@ -8,6 +8,7 @@ import type { MovePlan } from "./drop.js";
 import { revealChanges } from "./folds.js";
 import type { Collection } from "./types.js";
 import type { Folds } from "./useFoldState.js";
+import { useCreateDocument } from "../useCreateDocument.js";
 
 export interface DocRef {
   id: string;
@@ -51,7 +52,7 @@ export function useSidebarActions({
   const utils = trpc.useUtils();
   const navigate = useNavigate();
   const toast = useToast();
-  const createDoc = trpc.documents.create.useMutation();
+  const createDocument = useCreateDocument();
   const moveDoc = trpc.documents.move.useMutation();
   const duplicate = trpc.documents.duplicate.useMutation();
   const archive = trpc.documents.archive.useMutation();
@@ -94,19 +95,17 @@ export function useSidebarActions({
   };
 
   return {
-    newDoc: (collectionId: string, parentDocumentId?: string) =>
-      run(collectionId, async () => {
-        const doc = await createDoc.mutateAsync({
-          collectionId,
-          title: "",
-          ...(parentDocumentId ? { parentDocumentId } : {}),
-        });
-        folds.apply([
-          { kind: "collection", id: collectionId, expanded: true },
-          ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
-        ]);
-        navigate(`/d/${doc.id}`);
-      }),
+    newDoc: async (collectionId: string, parentDocumentId?: string) => {
+      folds.apply([
+        { kind: "collection", id: collectionId, expanded: true },
+        ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
+      ]);
+      try {
+        await createDocument(collectionId, parentDocumentId);
+      } catch (e) {
+        onError(friendlyError(e));
+      }
+    },
 
     move: (plan: MovePlan) => {
       if (plan.kind === "collection") {

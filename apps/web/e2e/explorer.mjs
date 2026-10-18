@@ -216,9 +216,48 @@ try {
   await page.keyboard.press("Escape");
   await page.getByRole("menu").waitFor({ state: "detached" });
 
+  await newDocument(page, c);
+  const parentUrl = page.url();
+  await page.fill(".title-input", "Research");
+  const research = page.locator(".doc-row", { hasText: "Research" });
+  await research.waitFor();
+  assert((await page.locator(".sub-pages").count()) === 0, "a document without children shows no Pages section");
+  await research.hover();
+  await research.locator('.row-action[title="New sub-document"]').click();
+  await page.waitForURL((url) => url.href !== parentUrl && url.pathname.startsWith("/d/"));
+  const findingsUrl = page.url();
+  await page.waitForSelector(".ProseMirror");
+  await page.fill(".title-input", "Findings");
+  await page.locator(".doc-row", { hasText: "Findings" }).waitFor();
+
+  await page.goto(parentUrl);
+  const pages = page.locator(".sub-pages");
+  await pages.getByRole("link", { name: /Findings/ }).waitFor();
+  const head = await pages.locator(".sub-pages-toggle").textContent();
+  assert(head.trim() === "1 page", `the Pages section counts the sub-pages (got ${JSON.stringify(head)})`);
+  await pages.locator(".sub-pages-toggle").click();
+  await pages.getByRole("link", { name: /Findings/ }).waitFor({ state: "detached" });
+  await pages.locator(".sub-pages-toggle").click();
+  await pages.getByRole("link", { name: /Findings/ }).click();
+  await page.waitForURL(findingsUrl);
+
+  await page.goto(parentUrl);
+  await pages.getByRole("button", { name: "New page" }).click();
+  await page.waitForURL((url) => url.href !== parentUrl && url.href !== findingsUrl && url.pathname.startsWith("/d/"));
+  await page.waitForSelector(".ProseMirror");
+  await page.fill(".title-input", "Fresh page");
+  const fresh = page.locator(".doc-row", { hasText: "Fresh page" });
+  await fresh.waitFor();
+  const freshLevel = await fresh.getAttribute("aria-level");
+  const researchLevel = Number(await research.getAttribute("aria-level"));
+  assert(Number(freshLevel) === researchLevel + 1, `"New page" files the page under its parent in the sidebar (level ${freshLevel})`);
+  await page.goto(parentUrl);
+  await pages.getByRole("link", { name: /Fresh page/ }).waitFor();
+  assert((await pages.locator(".sub-pages-toggle").textContent()).trim() === "2 pages", "the new page joins the Pages section");
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu",
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; sub-page outline",
   );
 } finally {
   await browser.close();

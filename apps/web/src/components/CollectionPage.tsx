@@ -1,43 +1,19 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
+import { DocOutline, documentCount } from "./DocOutline.js";
 import { Icon } from "./Icon.js";
-import { timeAgo } from "./time.js";
-
-interface DocumentNode {
-  id: string;
-  title: string;
-  updatedAt: string | Date;
-  children: DocumentNode[];
-}
-
-function documentCount(nodes: DocumentNode[]): number {
-  return nodes.reduce((count, node) => count + 1 + documentCount(node.children), 0);
-}
-
-function DocumentLinks({ nodes, depth = 0 }: { nodes: DocumentNode[]; depth?: number }) {
-  return (
-    <ul className="collection-document-list">
-      {nodes.map((node) => (
-        <li key={node.id}>
-          <Link to={`/d/${node.id}`} style={{ paddingLeft: 14 + depth * 18 }}>
-            <Icon name="page" size={14} />
-            <span className="document-name">{node.title || "Untitled"}</span>
-            <span className="document-when">edited {timeAgo(node.updatedAt)}</span>
-          </Link>
-          {node.children.length > 0 && <DocumentLinks nodes={node.children} depth={depth + 1} />}
-        </li>
-      ))}
-    </ul>
-  );
-}
+import { useToast } from "./toast.js";
+import { useCreateDocument } from "./useCreateDocument.js";
 
 /** Stable, ID-addressed landing page for collection links returned by MCP. */
 export function CollectionPage() {
   const { collectionId = "" } = useParams();
   const { collections, collectionsLoading } = useAppContext();
   const collection = collections.find((item) => item.id === collectionId);
+  const createDocument = useCreateDocument();
+  const toast = useToast();
   const documents = trpc.documents.tree.useQuery(
     { collectionId },
     { enabled: !!collectionId && !!collection },
@@ -65,6 +41,17 @@ export function CollectionPage() {
               `${count} document${count === 1 ? "" : "s"} in this collection.`}
           </p>
         </div>
+        {collection.writable && (
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() =>
+              void createDocument(collection.id).catch((e) => toast(friendlyError(e), "danger"))
+            }
+          >
+            <Icon name="plus" size={14} /> New document
+          </button>
+        )}
       </div>
 
       <section className="home-section">
@@ -82,7 +69,7 @@ export function CollectionPage() {
         {!documents.isLoading && !documents.error && nodes.length === 0 && (
           <p className="home-empty">This collection has no documents yet.</p>
         )}
-        {nodes.length > 0 && <DocumentLinks nodes={nodes} />}
+        {nodes.length > 0 && <DocOutline nodes={nodes} />}
       </section>
     </div>
   );
