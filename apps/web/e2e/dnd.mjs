@@ -1,5 +1,5 @@
 // Drag-to-reparent: dragging one document row into another nests it. HTML5 DnD
-// carries a custom MIME payload, so we share one DataTransfer across a synthetic
+// carries a payload, so we share one DataTransfer across a synthetic
 // dragstart → dragover → drop (Playwright's dragTo can't populate it). Needs
 // web+api (run.sh).
 import { chromium } from "playwright";
@@ -25,28 +25,29 @@ try {
   const parent = page.locator(".doc-row", { hasText: "Parent Doc" });
   await child.waitFor();
   await parent.waitFor();
-  const childPadBefore = await child.evaluate((el) => el.style.paddingLeft);
+  const childLevelBefore = await child.getAttribute("aria-level");
 
-  // React's onDragStart populates this DataTransfer with the doc payload; reuse
-  // it for the dragover (mid-height row = "into"/reparent) and the drop.
+  // The row's dragstart populates this DataTransfer; reuse it for the dragover
+  // (mid-height row = "into"/reparent) and the drop. clientX sits mid-row: at
+  // the far left of a last-in-group row the tree reads an outdent instead.
   const dt = await page.evaluateHandle(() => new DataTransfer());
   await child.dispatchEvent("dragstart", { dataTransfer: dt });
   const box = await parent.boundingBox();
-  const at = { dataTransfer: dt, clientX: box.x + 40, clientY: box.y + box.height / 2 };
+  const at = { dataTransfer: dt, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
   await parent.dispatchEvent("dragover", at);
   await page.waitForTimeout(60); // React needs a frame between dragover and drop
   await parent.dispatchEvent("drop", at);
 
-  // Child is now indented under Parent: each depth adds 14px, so a nested child's
-  // inline paddingLeft is strictly greater than the top-level sibling's it started at.
+  // Child is now nested under Parent: its treeitem aria-level is one deeper
+  // than the top-level level it started at.
   await page.waitForFunction(
     (before) => {
       const row = [...document.querySelectorAll(".doc-row")].find((r) =>
         r.textContent?.includes("Child Doc"),
       );
-      return !!row && parseInt(row.style.paddingLeft) > parseInt(before);
+      return !!row && Number(row.getAttribute("aria-level")) > Number(before);
     },
-    childPadBefore,
+    childLevelBefore,
     { timeout: 8000 },
   );
 

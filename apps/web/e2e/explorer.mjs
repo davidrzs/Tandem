@@ -1,7 +1,8 @@
 // The Obsidian-style explorer: a resizable, persisted sidebar pane that turns
-// back into a drawer on narrow screens. Needs web+api (run.sh).
+// back into a drawer on narrow screens, and a compact tree whose row actions
+// overlay the title instead of reserving width. Needs web+api (run.sh).
 import { chromium } from "playwright";
-import { signUp } from "./_helpers.mjs";
+import { createCollection, newDocument, signUp } from "./_helpers.mjs";
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -80,8 +81,57 @@ try {
   await page.waitForSelector(".sidebar");
   await expectWidth(247, 249, "the reset width is persisted");
 
+  const c = `Explorer ${Date.now()}`;
+  await createCollection(page, c);
+  await newDocument(page, c);
+  await page.fill(".title-input", "Short");
+  const short = page.locator(".doc-row", { hasText: "Short" });
+  await short.waitFor();
+  const titleGap = () =>
+    short.evaluate((row) => {
+      const r = row.getBoundingClientRect();
+      const padRight = Number.parseFloat(getComputedStyle(row).paddingRight);
+      const borderRight = Number.parseFloat(getComputedStyle(row).borderRightWidth);
+      return r.right - borderRight - padRight - row.querySelector(".doc-title").getBoundingClientRect().right;
+    });
+  await page.mouse.move(900, 400);
+  const idleGap = await titleGap();
+  assert(Math.abs(idleGap) <= 12, `an idle row reserves no width for its actions (gap ${idleGap})`);
+  await short.hover();
+  await short.locator('.row-action[title="New sub-document"]').waitFor({ state: "visible" });
+  const hoverGap = await titleGap();
+  assert(Math.abs(hoverGap) <= 12, `hovered actions overlay the title instead of shrinking it (gap ${hoverGap})`);
+
+  await short.locator(".doc-title").hover();
+  await page.waitForTimeout(800);
+  assert((await page.getByRole("tooltip").count()) === 0, "a short title gets no tooltip");
+
+  const long = `A deliberately long document title that cannot fit ${"in a sidebar row ".repeat(4)}`.trim();
+  await newDocument(page, c);
+  await page.fill(".title-input", long);
+  const longRow = page.locator(".doc-row", { hasText: long.slice(0, 30) });
+  await longRow.waitFor();
+  await page.mouse.move(900, 400);
+  await longRow.locator(".doc-title").hover();
+  await page.getByRole("tooltip").waitFor();
+  const tip = await page.getByRole("tooltip").textContent();
+  assert(tip === long, `hovering a truncated title shows it in full (got ${JSON.stringify(tip)})`);
+
+  const before = new URL(page.url()).pathname;
+  await short.hover();
+  await short.locator('.row-action[title="New sub-document"]').click();
+  await page.waitForURL((url) => url.pathname !== before && url.pathname.startsWith("/d/"));
+  await page.waitForSelector(".ProseMirror");
+  await page.fill(".title-input", "Nested");
+  const nested = page.locator(".doc-row", { hasText: "Nested" });
+  await nested.waitFor();
+  const level = await nested.getAttribute("aria-level");
+  assert(level === "3", `a sub-document sits at aria-level 3 (got ${level})`);
+  const guides = await nested.evaluate((row) => getComputedStyle(row, "::before").width);
+  assert(guides === "16px", `two ancestor guides at 8px per level (got ${guides})`);
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("EXPLORER PASS — resizable, persisted pane; drawer under 900px");
+  console.log("EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides");
 } finally {
   await browser.close();
 }

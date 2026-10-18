@@ -19,6 +19,7 @@ export interface SidebarActions {
   newDoc(collectionId: string, parentDocumentId?: string): Promise<void>;
   /** Doc moves toast with Undo; collection moves don't (as before). */
   move(plan: MovePlan): Promise<void>;
+  retryTree(collectionId: string): void;
   renameCollection(c: Collection): void;
   shareCollection(c: Collection): void;
   exportCollection(c: Collection): void;
@@ -121,6 +122,8 @@ export function useSidebarActions({
         });
       });
     },
+
+    retryTree: (collectionId: string) => void utils.documents.tree.refetch({ collectionId }),
 
     renameCollection: (c: Collection) =>
       setDialog(

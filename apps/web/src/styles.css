@@ -357,10 +357,6 @@ button {
 
 /* collections + docs */
 
-.collection {
-  margin-bottom: 1px;
-}
-
 .collection-row {
   display: flex;
   align-items: center;
@@ -384,11 +380,15 @@ button {
   font-weight: 500;
   color: var(--tree-parent);
   cursor: pointer;
-  padding: 4px 0 4px 6px;
+  padding: 4px 0;
   text-align: left;
 }
 
+/* Spans the row like .doc-title, so its tooltip opens beside the row rather
+   than over the row's actions. */
 .collection-label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -497,14 +497,7 @@ button.doc-twist:hover .twist {
   opacity: 1;
 }
 
-/* Tree-branch line down the collection's document leaves (handoff). */
-.doc-branch {
-  margin-left: 6px;
-  padding-left: 11px;
-  border-left: 1px solid var(--line-strong);
-}
-
-/* Left padding is set inline per tree depth (Sidebar.tsx); only the vertical
+/* Depth padding comes from the explorer tree rules below; only the vertical
    rhythm lives here. The transparent border keeps the active outline from
    shifting the row. */
 .doc-row {
@@ -539,18 +532,8 @@ button.doc-twist:hover .twist {
   text-overflow: ellipsis;
 }
 
-.doc-row.drop-into {
+.tree-row.drop-into {
   box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.doc-row.drop-before,
-.collection-row.drop-before {
-  box-shadow: 0 -2px 0 var(--accent);
-}
-
-.doc-row.drop-after,
-.collection-row.drop-after {
-  box-shadow: 0 2px 0 var(--accent);
 }
 
 .archived-toggle {
@@ -560,19 +543,11 @@ button.doc-twist:hover .twist {
   width: 100%;
   border: none;
   background: none;
-  padding: 5px 8px;
+  padding: 5px 8px 5px 0;
   font-size: 12px;
   color: var(--ink-3);
   cursor: pointer;
   border-radius: var(--radius-s);
-}
-
-.archived-toggle:hover {
-  background: var(--hover);
-}
-
-.archived-row {
-  padding-left: 26px;
 }
 
 .archived-title {
@@ -583,6 +558,47 @@ button.doc-twist:hover .twist {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ---------- explorer tree ---------- */
+
+/* One flat list: depth is --level (set per row) times --tree-indent, and
+   every row starts with a 14px twist (or a spacer of that width). */
+.tree {
+  --twist: 14px;
+}
+
+.tree-row {
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  padding-left: calc(var(--row-pad) + var(--level) * var(--tree-indent));
+}
+
+/* One 1px guide per ancestor level, centred on that ancestor's twist; it
+   spans the borders so the lines join from row to row. */
+.tree-row::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: calc(var(--row-pad) + var(--twist) / 2 - 1px);
+  width: calc(var(--level) * var(--tree-indent));
+  background: repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px var(--tree-indent));
+  pointer-events: none;
+}
+
+.tree-group-row:hover {
+  background: var(--hover);
+}
+
+.tree-note {
+  padding-left: calc(var(--row-pad) + var(--level) * var(--tree-indent) + var(--twist) + 5px);
+}
+
+.tree-drag-line {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 .tooltip {

@@ -1,0 +1,245 @@
+import type { ItemInstance } from "@headless-tree/core";
+import type { CSSProperties } from "react";
+import { Link } from "react-router-dom";
+import { Icon } from "../Icon.js";
+import { RowMenu } from "../Modal.js";
+import { OverflowTooltip } from "../OverflowTooltip.js";
+import type { SidebarNode } from "./sidebarIndex.js";
+import { toggle, treeRowProps, useSidebarTreeContext } from "./useSidebarTree.js";
+
+type RowProps<K extends SidebarNode["kind"]> = {
+  item: ItemInstance<SidebarNode>;
+  node: Extract<SidebarNode, { kind: K }>;
+};
+
+const cx = (...names: (string | false)[]) => names.filter(Boolean).join(" ");
+
+export function TreeRow({ item }: { item: ItemInstance<SidebarNode> }) {
+  const node = item.getItemData();
+  switch (node.kind) {
+    case "collection":
+      return <CollectionRow item={item} node={node} />;
+    case "doc":
+      return <DocRow item={item} node={node} />;
+    case "group":
+      return <GroupRow item={item} node={node} />;
+    case "archived":
+      return <ArchivedRow item={item} node={node} />;
+    case "trash":
+      return <TrashRow item={item} node={node} />;
+    case "root":
+    case "gone":
+      return null;
+    default:
+      return node satisfies never;
+  }
+}
+
+function CollectionRow({ item, node }: RowProps<"collection">) {
+  const { actions, index } = useSidebarTreeContext();
+  const c = node.collection;
+  const expanded = item.isExpanded();
+  const hasDocs = node.childIds.some((id) => index.nodes.get(id)?.kind === "doc");
+  return (
+    <>
+      <div
+        {...treeRowProps(item, c.writable)}
+        className={cx("collection-row tree-row", expanded && "open", item.isUnorderedDragTarget() && "drop-into")}
+      >
+        <button type="button" className="collection-name" tabIndex={-1} onClick={() => toggle(item)}>
+          <Icon name="chevron" size={14} className={"twist" + (expanded ? " open" : "")} />
+          <OverflowTooltip text={c.name}>
+            <span className="collection-label">{c.name}</span>
+          </OverflowTooltip>
+        </button>
+        <span className="row-actions">
+          {c.writable && (
+            <button type="button"
+              className="row-action"
+              tabIndex={-1}
+              title="New document" aria-label="New document"
+              onClick={() => void actions.newDoc(c.id)}
+            >
+              <Icon name="plus" />
+            </button>
+          )}
+          <RowMenu
+            items={[
+              ...(c.writable
+                ? [
+                    { label: "New document", icon: "plus" as const, onClick: () => void actions.newDoc(c.id) },
+                    { label: "Rename", icon: "pen" as const, onClick: () => actions.renameCollection(c) },
+                  ]
+                : []),
+              { label: "Share & access", icon: "share", onClick: () => actions.shareCollection(c) },
+              { label: "Export", icon: "download", onClick: () => actions.exportCollection(c) },
+              { label: "Delete collection", icon: "trash", danger: true, onClick: () => actions.deleteCollection(c) },
+            ]}
+          />
+        </span>
+      </div>
+      {expanded && node.load === "loading" && <TreeNote>Loading…</TreeNote>}
+      {expanded && node.load === "error" && (
+        <TreeNote>
+          Couldn't load documents.{" "}
+          <button type="button" className="side-link" onClick={() => actions.retryTree(c.id)}>
+            Retry
+          </button>
+        </TreeNote>
+      )}
+      {expanded && node.load === "ready" && !hasDocs && <TreeNote>No documents yet.</TreeNote>}
+    </>
+  );
+}
+
+/** Decoration under a collection row; not a treeitem. */
+function TreeNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="side-note tree-note" style={{ "--level": 1 } as CSSProperties}>
+      {children}
+    </div>
+  );
+}
+
+function DocRow({ item, node }: RowProps<"doc">) {
+  const { actions, activeDocId } = useSidebarTreeContext();
+  const active = node.id === activeDocId;
+  const title = node.title || "Untitled";
+  return (
+    <Link
+      to={`/d/${node.id}`}
+      {...treeRowProps(item, node.writable)}
+      className={cx("doc-row tree-row", active && "active", item.isUnorderedDragTarget() && "drop-into")}
+      aria-current={active ? "page" : undefined}
+    >
+      <Twist item={item} />
+      <OverflowTooltip text={title}>
+        <span className="doc-title">{title}</span>
+      </OverflowTooltip>
+      {node.writable && (
+        <span className="row-actions">
+          <button type="button"
+            className="row-action"
+            tabIndex={-1}
+            title="New sub-document" aria-label="New sub-document"
+            onClick={(e) => {
+              e.preventDefault();
+              void actions.newDoc(node.collectionId, node.id);
+            }}
+          >
+            <Icon name="plus" />
+          </button>
+          <RowMenu
+            items={[
+              { label: "Duplicate", icon: "page", onClick: () => void actions.duplicateDoc(node) },
+              { label: "Archive", icon: "archive", onClick: () => void actions.archiveDoc(node, active) },
+              { label: "Delete", icon: "trash", danger: true, onClick: () => void actions.deleteDoc(node, active) },
+            ]}
+          />
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function Twist({ item }: { item: ItemInstance<SidebarNode> }) {
+  if (!item.isFolder()) return <span className="doc-twist" aria-hidden="true" />;
+  const expanded = item.isExpanded();
+  return (
+    <button type="button"
+      className="doc-twist"
+      tabIndex={-1}
+      aria-expanded={expanded}
+      aria-label={expanded ? "Collapse" : "Expand"}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggle(item);
+      }}
+    >
+      <Icon name="chevron" size={12} className={"twist" + (expanded ? " open" : "")} />
+    </button>
+  );
+}
+
+function GroupRow({ item, node }: RowProps<"group">) {
+  const expanded = item.isExpanded();
+  return (
+    <div {...treeRowProps(item, false)} className="tree-group-row tree-row">
+      <button type="button" className="archived-toggle" tabIndex={-1} onClick={() => toggle(item)}>
+        <Icon name="chevron" size={14} className={"twist" + (expanded ? " open" : "")} />
+        {node.group === "archived" ? "Archived" : "Trash"} ({node.childIds.length})
+      </button>
+    </div>
+  );
+}
+
+function ArchivedRow({ item, node }: RowProps<"archived">) {
+  const { actions } = useSidebarTreeContext();
+  const title = node.title || "Untitled";
+  return (
+    <div {...treeRowProps(item, false)} className="doc-row archived-row tree-row">
+      <span className="doc-twist" aria-hidden="true" />
+      <OverflowTooltip text={title}>
+        <Link className="doc-title archived-title" tabIndex={-1} to={`/d/${node.id}`}>
+          {title}
+        </Link>
+      </OverflowTooltip>
+      {node.writable && (
+        <span className="row-actions">
+          <button type="button"
+            className="row-action"
+            tabIndex={-1}
+            title="Restore" aria-label="Restore"
+            onClick={() => void actions.restoreArchived(node)}
+          >
+            <Icon name="restore" />
+          </button>
+          <button type="button"
+            className="row-action"
+            tabIndex={-1}
+            title="Move to trash" aria-label="Move to trash"
+            onClick={() => void actions.trashArchived(node)}
+          >
+            <Icon name="trash" />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A trash root: restore it (with what was deleted together), or delete it
+ * for good. Shown to writers only. */
+function TrashRow({ item, node }: RowProps<"trash">) {
+  const { actions } = useSidebarTreeContext();
+  const title = node.title || "Untitled";
+  return (
+    <div {...treeRowProps(item, false)} className="doc-row archived-row trash-row tree-row">
+      <span className="doc-twist" aria-hidden="true" />
+      <OverflowTooltip text={title}>
+        <Link className="doc-title archived-title" tabIndex={-1} to={`/d/${node.id}`}>
+          {title}
+        </Link>
+      </OverflowTooltip>
+      <span className="row-actions">
+        <button type="button"
+          className="row-action"
+          tabIndex={-1}
+          title="Restore" aria-label="Restore"
+          onClick={() => void actions.restoreTrashed(node)}
+        >
+          <Icon name="restore" />
+        </button>
+        <button type="button"
+          className="row-action"
+          tabIndex={-1}
+          title="Delete forever" aria-label="Delete forever"
+          onClick={() => actions.purgeTrashed(node)}
+        >
+          <Icon name="trash" />
+        </button>
+      </span>
+    </div>
+  );
+}
