@@ -11,6 +11,7 @@ import { CollectionSection } from "./CollectionSection.js";
 import { FavoritesSection, InboxNavRow, ThemeToggle, WorkspaceSwitcher } from "./NavRows.js";
 import type { Collection, Workspace } from "./types.js";
 import { useFoldState } from "./useFoldState.js";
+import { useSidebarActions } from "./useSidebarActions.js";
 
 interface Props {
   loading: boolean;
@@ -69,6 +70,7 @@ export function Sidebar({
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ReactNode>(null);
   const folds = useFoldState(uid, activeCollectionId);
+  const actions = useSidebarActions({ folds, onError: setError, setDialog, onShareCollection });
 
   // Surface failures (RLS denial, duplicate slug, non-admin) instead of a
   // silent unhandled rejection.
@@ -196,9 +198,7 @@ export function Sidebar({
               expanded={folds.snapshot.expandedCollections.has(c.id)}
               activeDocId={activeDocId}
               folds={folds}
-              onShare={() => onShareCollection(c.id)}
-              onError={setError}
-              setDialog={setDialog}
+              actions={actions}
             />
           ))}
           {error && <div className="sidebar-error">{error}</div>}

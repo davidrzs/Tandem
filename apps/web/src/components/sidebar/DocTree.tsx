@@ -1,61 +1,33 @@
-import { useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { trpc } from "../../trpc.js";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Icon } from "../Icon.js";
-import { ConfirmDialog, RowMenu } from "../Modal.js";
+import { RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
-import { useToast } from "../toast.js";
-import { revealChanges } from "./folds.js";
 import type { DocNode } from "./types.js";
 import type { Folds } from "./useFoldState.js";
+import type { DocRef, SidebarActions } from "./useSidebarActions.js";
 
 /** Drop position while dragging: before/after = reorder, into = nest. */
 type DropMode = "before" | "after" | "into";
-export function DocTree({
-  nodes,
-  parentId,
-  collectionId,
-  writable,
-  activeDocId,
-  depth,
-  folds,
-  onNewChild,
-  run,
-  setDialog,
-}: {
-  nodes: DocNode[];
-  parentId: string | null;
+interface TreeProps {
   collectionId: string;
   writable: boolean;
   activeDocId: string | null;
   depth: number;
   folds: Folds;
-  onNewChild: (parentId: string) => void;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
-  setDialog: (node: ReactNode) => void;
-}) {
+  actions: SidebarActions;
+}
+
+export function DocTree({ nodes, parentId, ...rest }: TreeProps & { nodes: DocNode[]; parentId: string | null }) {
   return (
     <>
       {nodes.map((node, i) => (
-        <DocRow
-          key={node.id}
-          node={node}
-          siblings={nodes}
-          index={i}
-          parentId={parentId}
-          collectionId={collectionId}
-          writable={writable}
-          activeDocId={activeDocId}
-          depth={depth}
-          folds={folds}
-          onNewChild={onNewChild}
-          run={run}
-          setDialog={setDialog}
-        />
+        <DocRow key={node.id} node={node} siblings={nodes} index={i} parentId={parentId} {...rest} />
       ))}
     </>
   );
 }
+
 function DocRow({
   node,
   siblings,
@@ -66,31 +38,8 @@ function DocRow({
   activeDocId,
   depth,
   folds,
-  onNewChild,
-  run,
-  setDialog,
-}: {
-  node: DocNode;
-  siblings: DocNode[];
-  index: number;
-  parentId: string | null;
-  collectionId: string;
-  writable: boolean;
-  activeDocId: string | null;
-  depth: number;
-  folds: Folds;
-  onNewChild: (parentId: string) => void;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
-  setDialog: (node: ReactNode) => void;
-}) {
-  const navigate = useNavigate();
-  const toast = useToast();
-  const move = trpc.documents.move.useMutation();
-  const archive = trpc.documents.archive.useMutation();
-  const restore = trpc.documents.restore.useMutation();
-  const softDelete = trpc.documents.delete.useMutation();
-  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
-  const duplicate = trpc.documents.duplicate.useMutation();
+  actions,
+}: TreeProps & { node: DocNode; siblings: DocNode[]; index: number; parentId: string | null }) {
   const [dropMode, setDropMode] = useState<DropMode | null>(null);
 
   // Where a sibling drop lands: midway between this node and its neighbour.
@@ -118,42 +67,30 @@ function DocRow({
     };
     // Moves stay within one collection (the backend enforces this too).
     if (dragged.collectionId !== collectionId || dragged.id === node.id) return;
-    // Nesting into a folded folder unfolds it so the drop stays visible.
-    if (mode === "into") folds.apply(revealChanges([node.id]));
-    void run(async () => {
-      await (mode === "into"
-        ? move.mutateAsync({ id: dragged.id, parentDocumentId: node.id })
-        : move.mutateAsync({
-            id: dragged.id,
-            parentDocumentId: parentId,
-            position: positionFor(mode),
-          }));
-      toast(`Moved "${dragged.title || "Untitled"}"`, "ok", {
-        label: "Undo",
-        onClick: () =>
-          void run(() =>
-            move.mutateAsync({
-              id: dragged.id,
-              parentDocumentId: dragged.parentId,
-              position: dragged.position,
-            }),
-          ),
-      });
+    void actions.move({
+      kind: "doc",
+      id: dragged.id,
+      collectionId,
+      title: dragged.title,
+      to:
+        mode === "into"
+          ? { parentDocumentId: node.id }
+          : { parentDocumentId: parentId, position: positionFor(mode) },
+      from: { parentDocumentId: dragged.parentId, position: dragged.position },
+      reveal: mode === "into" ? node.id : null,
     });
   };
 
   const collapsed = folds.snapshot.collapsedDocs.has(node.id);
+  const active = node.id === activeDocId;
+  const ref: DocRef = { id: node.id, collectionId, title: node.title };
 
   return (
     <div>
       <Link
         to={`/d/${node.id}`}
         draggable={writable}
-        className={
-          "doc-row tree-row" +
-          (node.id === activeDocId ? " active" : "") +
-          (dropMode ? ` drop-${dropMode}` : "")
-        }
+        className={"doc-row tree-row" + (active ? " active" : "") + (dropMode ? ` drop-${dropMode}` : "")}
         style={{ paddingLeft: 9 + depth * 14 }}
         onDragStart={(e) => {
           e.dataTransfer.setData(
@@ -203,60 +140,20 @@ function DocRow({
               title="New sub-document" aria-label="New sub-document"
               onClick={(e) => {
                 e.preventDefault();
-                onNewChild(node.id);
+                void actions.newDoc(collectionId, node.id);
               }}
             >
               <Icon name="plus" />
             </button>
             <RowMenu
               items={[
-                {
-                  label: "Duplicate",
-                  icon: "page",
-                  onClick: () =>
-                    void run(async () => {
-                      const created = await duplicate.mutateAsync({ id: node.id });
-                      toast("Duplicated");
-                      navigate(`/d/${created.id}`);
-                    }),
-                },
-                {
-                  label: "Archive",
-                  icon: "archive",
-                  onClick: () =>
-                    void run(async () => {
-                      await archive.mutateAsync({ id: node.id });
-                      const wasActive = node.id === activeDocId;
-                      toast(`Archived "${node.title || "Untitled"}"`, "ok", {
-                        label: "Undo",
-                        onClick: () =>
-                          void run(async () => {
-                            await restore.mutateAsync({ id: node.id });
-                            if (wasActive) navigate(`/d/${node.id}`);
-                          }),
-                      });
-                      if (wasActive) navigate("/");
-                    }),
-                },
+                { label: "Duplicate", icon: "page", onClick: () => void actions.duplicateDoc(ref) },
+                { label: "Archive", icon: "archive", onClick: () => void actions.archiveDoc(ref, active) },
                 {
                   label: "Delete",
                   icon: "trash",
                   danger: true,
-                  // Reversible (trash + Undo), so no confirmation step.
-                  onClick: () =>
-                    void run(async () => {
-                      await softDelete.mutateAsync({ id: node.id });
-                      const wasActive = node.id === activeDocId;
-                      toast(`Moved "${node.title || "Untitled"}" to trash`, "ok", {
-                        label: "Undo",
-                        onClick: () =>
-                          void run(async () => {
-                            await restoreFromTrash.mutateAsync({ id: node.id });
-                            if (wasActive) navigate(`/d/${node.id}`);
-                          }),
-                      });
-                      if (wasActive) navigate("/");
-                    }),
+                  onClick: () => void actions.deleteDoc(ref, active),
                 },
               ]}
             />
@@ -272,27 +169,22 @@ function DocRow({
           activeDocId={activeDocId}
           depth={depth + 1}
           folds={folds}
-          onNewChild={onNewChild}
-          run={run}
-          setDialog={setDialog}
+          actions={actions}
         />
       )}
     </div>
   );
 }
+
 export function ArchivedRow({
   doc,
   writable,
-  run,
+  actions,
 }: {
-  doc: { id: string; title: string };
+  doc: DocRef;
   writable: boolean;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
+  actions: SidebarActions;
 }) {
-  const restore = trpc.documents.restore.useMutation();
-  const softDelete = trpc.documents.delete.useMutation();
-  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
-  const toast = useToast();
   return (
     <div className="doc-row archived-row tree-row">
       <OverflowTooltip text={doc.title || "Untitled"}>
@@ -305,27 +197,14 @@ export function ArchivedRow({
           <button type="button"
             className="row-action"
             title="Restore" aria-label="Restore"
-            onClick={() =>
-              void run(async () => {
-                await restore.mutateAsync({ id: doc.id });
-                toast(`Restored "${doc.title || "Untitled"}"`);
-              })
-            }
+            onClick={() => void actions.restoreArchived(doc)}
           >
             <Icon name="restore" />
           </button>
           <button type="button"
             className="row-action"
             title="Move to trash" aria-label="Move to trash"
-            onClick={() =>
-              void run(async () => {
-                await softDelete.mutateAsync({ id: doc.id });
-                toast(`Moved "${doc.title || "Untitled"}" to trash`, "ok", {
-                  label: "Undo",
-                  onClick: () => void run(() => restoreFromTrash.mutateAsync({ id: doc.id })),
-                });
-              })
-            }
+            onClick={() => void actions.trashArchived(doc)}
           >
             <Icon name="trash" />
           </button>
@@ -337,18 +216,7 @@ export function ArchivedRow({
 
 /** A trash root: restore it (with what was deleted together), or delete it
  * for good. Shown to writers only. */
-export function TrashRow({
-  doc,
-  run,
-  setDialog,
-}: {
-  doc: { id: string; title: string; deletedAt: Date | string };
-  run: (fn: () => Promise<unknown>) => Promise<void>;
-  setDialog: (node: ReactNode) => void;
-}) {
-  const restoreFromTrash = trpc.documents.restoreFromTrash.useMutation();
-  const purge = trpc.documents.purge.useMutation();
-  const toast = useToast();
+export function TrashRow({ doc, actions }: { doc: DocRef; actions: SidebarActions }) {
   const title = doc.title || "Untitled";
   return (
     <div className="doc-row archived-row trash-row tree-row">
@@ -361,29 +229,14 @@ export function TrashRow({
         <button type="button"
           className="row-action"
           title="Restore" aria-label="Restore"
-          onClick={() =>
-            void run(async () => {
-              await restoreFromTrash.mutateAsync({ id: doc.id });
-              toast(`Restored "${title}"`);
-            })
-          }
+          onClick={() => void actions.restoreTrashed(doc)}
         >
           <Icon name="restore" />
         </button>
         <button type="button"
           className="row-action"
           title="Delete forever" aria-label="Delete forever"
-          onClick={() =>
-            setDialog(
-              <ConfirmDialog
-                title="Delete forever"
-                body={`"${title}" and the sub-documents deleted with it will be gone for good. This can't be undone.`}
-                confirmLabel="Delete forever"
-                onClose={() => setDialog(null)}
-                onConfirm={() => void run(() => purge.mutateAsync({ id: doc.id }))}
-              />,
-            )
-          }
+          onClick={() => actions.purgeTrashed(doc)}
         >
           <Icon name="trash" />
         </button>

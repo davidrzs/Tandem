@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
-import { friendlyError } from "../../errors.js";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "../../trpc.js";
 import { Icon } from "../Icon.js";
-import { ConfirmDialog, PromptDialog, RowMenu } from "../Modal.js";
+import { RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
 import { ArchivedRow, DocTree, TrashRow } from "./DocTree.js";
 import { revealChanges } from "./folds.js";
 import { ancestorPath, groupId } from "./sidebarIndex.js";
 import type { Collection } from "./types.js";
 import type { Folds } from "./useFoldState.js";
+import type { SidebarActions } from "./useSidebarActions.js";
 
 /** Drag payload type for collection rows (documents use their own). */
 const COLLECTION_MIME = "application/x-tandem-collection";
@@ -20,9 +19,7 @@ export function CollectionSection({
   expanded,
   activeDocId,
   folds,
-  onShare,
-  onError,
-  setDialog,
+  actions,
 }: {
   collection: Collection;
   siblings: Collection[];
@@ -30,12 +27,8 @@ export function CollectionSection({
   expanded: boolean;
   activeDocId: string | null;
   folds: Folds;
-  onShare: () => void;
-  onError: (msg: string) => void;
-  setDialog: (node: ReactNode) => void;
+  actions: SidebarActions;
 }) {
-  const utils = trpc.useUtils();
-  const navigate = useNavigate();
   const tree = trpc.documents.tree.useQuery(
     { collectionId: collection.id },
     { enabled: expanded },
@@ -49,10 +42,6 @@ export function CollectionSection({
     { collectionId: collection.id },
     { enabled: expanded && collection.writable },
   );
-  const createDoc = trpc.documents.create.useMutation();
-  const renameCollection = trpc.collections.update.useMutation();
-  const deleteCollection = trpc.collections.delete.useMutation();
-  const moveCollection = trpc.collections.move.useMutation();
   const archivedGroup = groupId("archived", collection.id);
   const trashGroup = groupId("trash", collection.id);
   const showArchived = folds.snapshot.openGroups.has(archivedGroup);
@@ -94,105 +83,23 @@ export function CollectionSection({
     if (!payload || !mode) return;
     const dragged = JSON.parse(payload) as { id: string };
     if (dragged.id === collection.id) return;
-    void (async () => {
-      try {
-        await moveCollection.mutateAsync({ id: dragged.id, position: positionFor(mode) });
-        await utils.collections.list.invalidate();
-      } catch (err) {
-        onError(friendlyError(err));
-      }
-    })();
+    void actions.move({ kind: "collection", id: dragged.id, position: positionFor(mode) });
   };
 
-  const refresh = () =>
-    Promise.all([
-      utils.documents.tree.invalidate({ collectionId: collection.id }),
-      utils.documents.listArchived.invalidate({ collectionId: collection.id }),
-      utils.documents.listTrash.invalidate({ collectionId: collection.id }),
-      utils.documents.getTrashed.invalidate(),
-      // Archive/restore change a document's archivedAt; a stale getMeta would
-      // render the doc page without its archived banner (or with a stale one).
-      utils.documents.getMeta.invalidate(),
-    ]);
-
-  const run = async (fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      await refresh();
-    } catch (e) {
-      onError(friendlyError(e));
-    }
-  };
-
-  const newDoc = (parentDocumentId?: string) =>
-    run(async () => {
-      const doc = await createDoc.mutateAsync({
-        collectionId: collection.id,
-        title: "",
-        ...(parentDocumentId ? { parentDocumentId } : {}),
-      });
-      folds.apply([
-        { kind: "collection", id: collection.id, expanded: true },
-        ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
-      ]);
-      navigate(`/d/${doc.id}`);
-    });
-
-  const closeDialog = () => setDialog(null);
   const menuItems = [
     ...(collection.writable
       ? [
-          { label: "New document", icon: "plus" as const, onClick: () => void newDoc() },
-          {
-            label: "Rename",
-            icon: "pen" as const,
-            onClick: () =>
-              setDialog(
-                <PromptDialog
-                  title="Rename collection"
-                  label="Name"
-                  submitLabel="Rename"
-                  initialValue={collection.name}
-                  onClose={closeDialog}
-                  onSubmit={(name) =>
-                    void run(async () => {
-                      await renameCollection.mutateAsync({ id: collection.id, name });
-                      await utils.collections.list.invalidate();
-                    })
-                  }
-                />,
-              ),
-          },
+          { label: "New document", icon: "plus" as const, onClick: () => void actions.newDoc(collection.id) },
+          { label: "Rename", icon: "pen" as const, onClick: () => actions.renameCollection(collection) },
         ]
       : []),
-    { label: "Share & access", icon: "share" as const, onClick: onShare },
-    {
-      label: "Export",
-      icon: "download" as const,
-      onClick: () => {
-        window.location.href = `/api/export?collection=${collection.id}`;
-      },
-    },
+    { label: "Share & access", icon: "share" as const, onClick: () => actions.shareCollection(collection) },
+    { label: "Export", icon: "download" as const, onClick: () => actions.exportCollection(collection) },
     {
       label: "Delete collection",
       icon: "trash" as const,
       danger: true,
-      onClick: () =>
-        setDialog(
-          <ConfirmDialog
-            title="Delete collection"
-            body={`"${collection.name}" and every document in it will be deleted. Only a workspace owner or admin can do this.`}
-            confirmLabel="Delete collection"
-            onClose={closeDialog}
-            onConfirm={() =>
-              void run(async () => {
-                await deleteCollection.mutateAsync({ id: collection.id });
-                await utils.collections.list.invalidate();
-                navigate("/");
-              })
-            }
-          />,
-        ),
+      onClick: () => actions.deleteCollection(collection),
     },
   ];
 
@@ -229,7 +136,7 @@ export function CollectionSection({
         </button>
         <span className="row-actions">
           {collection.writable && (
-            <button type="button" className="row-action" title="New document" aria-label="New document" onClick={() => void newDoc()}>
+            <button type="button" className="row-action" title="New document" aria-label="New document" onClick={() => void actions.newDoc(collection.id)}>
               <Icon name="plus" />
             </button>
           )}
@@ -259,9 +166,7 @@ export function CollectionSection({
               activeDocId={activeDocId}
               depth={0}
               folds={folds}
-              onNewChild={(id) => void newDoc(id)}
-              run={run}
-              setDialog={setDialog}
+              actions={actions}
             />
           </div>
           {(archived.data?.length ?? 0) > 0 && (
@@ -277,9 +182,9 @@ export function CollectionSection({
                 archived.data!.map((d) => (
                   <ArchivedRow
                     key={d.id}
-                    doc={d}
+                    doc={{ ...d, collectionId: collection.id }}
                     writable={collection.writable}
-                    run={run}
+                    actions={actions}
                   />
                 ))}
             </>
@@ -295,7 +200,7 @@ export function CollectionSection({
               </button>
               {showTrash &&
                 trash.data!.map((d) => (
-                  <TrashRow key={d.id} doc={d} run={run} setDialog={setDialog} />
+                  <TrashRow key={d.id} doc={{ ...d, collectionId: collection.id }} actions={actions} />
                 ))}
             </>
           )}
