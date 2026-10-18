@@ -577,18 +577,9 @@ test("offline edits survive a reload and sync when back online", async ({ page, 
   await page.locator(".collection-row", { hasText: "Field" }).hover();
   await page.getByTitle("New document").first().click();
   await page.locator(".title-input").fill("Notes");
-  await page.locator(".ProseMirror").click();
-  await page.keyboard.type("Written online.");
-  await expect(page.locator(".save-state").last()).toHaveText(/Live/);
   const docUrl = page.url();
-
-  // The collab server becomes unreachable (HTTP still works, so the page loads).
-  await page.routeWebSocket(/\/collab/, (ws) => ws.close());
-  await page.reload();
-  await expect(page.locator(".ProseMirror")).toContainText("Written online.");
-  await expect(page.locator(".save-state").last()).toHaveText(/Offline · saved on this device/);
-  // y-indexeddb stores one record per update (one per keystroke here); wait
-  // until all of them are written rather than racing the reload.
+  // y-indexeddb stores one record per update (one per keystroke here). "Live"
+  // doesn't wait for those writes, so each reload below first waits for them.
   const storedUpdates = () =>
     page.evaluate(async (docId) => {
       const info = (await indexedDB.databases()).find((d) => d.name?.endsWith(`:${docId}`));
@@ -605,6 +596,19 @@ test("offline edits survive a reload and sync when back online", async ({ page, 
       db.close();
       return count;
     }, docIdOf(docUrl));
+  await expect.poll(storedUpdates).toBeGreaterThan(0);
+  const written = "Written online.";
+  const initial = await storedUpdates();
+  await page.locator(".ProseMirror").click();
+  await page.keyboard.type(written);
+  await expect(page.locator(".save-state").last()).toHaveText(/Live/);
+  await expect.poll(storedUpdates).toBeGreaterThanOrEqual(initial + written.length);
+
+  // The collab server becomes unreachable (HTTP still works, so the page loads).
+  await page.routeWebSocket(/\/collab/, (ws) => ws.close());
+  await page.reload();
+  await expect(page.locator(".ProseMirror")).toContainText(written);
+  await expect(page.locator(".save-state").last()).toHaveText(/Offline · saved on this device/);
   const typed = " Zebracorn typed offline.";
   const before = await storedUpdates();
   await page.locator(".ProseMirror").click();
