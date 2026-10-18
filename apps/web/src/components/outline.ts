@@ -1,9 +1,10 @@
-export interface DocumentNode {
-  id: string;
-  title: string;
-  updatedAt: string | Date;
+import type { RouterOutputs } from "@tandem/server/trpc";
+
+/** A `documents.tree` node, narrowed to what the Contents table and the
+ * sidebar read. */
+export type DocumentNode = Pick<RouterOutputs["documents"]["tree"][number], "id" | "title" | "position" | "updatedAt"> & {
   children: DocumentNode[];
-}
+};
 
 export type SortKey = "name" | "pages" | "updated";
 export interface OutlineSort {
@@ -27,7 +28,8 @@ export interface OutlineRow {
   expanded: boolean;
 }
 
-export const displayTitle = (node: DocumentNode) => node.title || "Untitled";
+/** The one fallback for a document without a title. */
+export const displayTitle = (doc: { title: string }) => doc.title || "Untitled";
 
 export function documentCount(nodes: DocumentNode[]): number {
   return nodes.reduce((count, node) => count + 1 + documentCount(node.children), 0);

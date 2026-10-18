@@ -20,12 +20,6 @@ export interface FoldWrite {
   expanded: boolean;
 }
 
-export const EMPTY_FOLDS: FoldSnapshot = {
-  expandedCollections: new Set(),
-  collapsedDocs: new Set(),
-  openGroups: new Set(),
-};
-
 /** Returns the same snapshot object when nothing changed (so React bails out)
  * and one write per persisted bit that ends up different. Changes to one id
  * within a batch coalesce to the last, so a batch never sends two writes for

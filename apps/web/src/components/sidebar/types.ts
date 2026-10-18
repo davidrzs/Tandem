@@ -10,9 +10,3 @@ export interface Collection {
   writable: boolean;
   position: number;
 }
-export interface DocNode {
-  id: string;
-  title: string;
-  position: number;
-  children: DocNode[];
-}

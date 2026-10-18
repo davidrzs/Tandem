@@ -1,5 +1,6 @@
+import type { DocumentNode } from "../outline.js";
 import { buildSidebarIndex, type IndexInput, type Loaded } from "./sidebarIndex.js";
-import type { Collection, DocNode } from "./types.js";
+import type { Collection } from "./types.js";
 
 export const collection = (id: string, position: number, writable = true): Collection => ({
   id,
@@ -10,10 +11,11 @@ export const collection = (id: string, position: number, writable = true): Colle
   position,
 });
 
-export const doc = (id: string, position: number, children: DocNode[] = []): DocNode => ({
+export const doc = (id: string, position: number, children: DocumentNode[] = []): DocumentNode => ({
   id,
   title: id,
   position,
+  updatedAt: "2026-10-01T00:00:00.000Z",
   children,
 });
 

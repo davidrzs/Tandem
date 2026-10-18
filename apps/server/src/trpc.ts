@@ -1,4 +1,4 @@
-import { initTRPC, TRPCError } from "@trpc/server";
+import { initTRPC, TRPCError, type inferRouterOutputs } from "@trpc/server";
 import { z } from "zod";
 import {
   descriptionSchema,
@@ -678,3 +678,5 @@ export const appRouter = t.router({
 });
 
 export type AppRouter = typeof appRouter;
+/** What each procedure returns over the wire (dates arrive as strings). */
+export type RouterOutputs = inferRouterOutputs<AppRouter>;

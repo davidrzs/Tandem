@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { friendlyError } from "../../errors.js";
 import { trpc } from "../../trpc.js";
 import { ConfirmDialog, PromptDialog } from "../Modal.js";
+import { displayTitle } from "../outline.js";
 import { useToast } from "../toast.js";
 import type { MovePlan } from "./drop.js";
 import { revealChanges } from "./folds.js";
@@ -18,7 +19,7 @@ export interface DocRef {
 
 export interface SidebarActions {
   newDoc(collectionId: string, parentDocumentId?: string): Promise<void>;
-  /** Doc moves toast with Undo; collection moves don't (as before). */
+  /** Doc moves toast with Undo; collection moves apply silently. */
   move(plan: MovePlan): Promise<void>;
   retryTree(collectionId: string): void;
   renameCollection(c: Collection): void;
@@ -33,8 +34,6 @@ export interface SidebarActions {
   restoreTrashed(d: DocRef): Promise<void>;
   purgeTrashed(d: DocRef): void;
 }
-
-const titleOf = (d: DocRef) => d.title || "Untitled";
 
 /** Every sidebar mutation with its refresh, toast and undo. Rows call verbs
  * and never import trpc. */
@@ -115,7 +114,7 @@ export function useSidebarActions({
       if (plan.reveal) folds.apply(revealChanges([plan.reveal]));
       return run(plan.collectionId, async () => {
         await moveDoc.mutateAsync({ id: plan.id, ...plan.to });
-        toast(`Moved "${titleOf(plan)}"`, "ok", {
+        toast(`Moved "${displayTitle(plan)}"`, "ok", {
           label: "Undo",
           onClick: () => void run(plan.collectionId, () => moveDoc.mutateAsync({ id: plan.id, ...plan.from })),
         });
@@ -168,7 +167,7 @@ export function useSidebarActions({
     archiveDoc: (d: DocRef, wasActive: boolean) =>
       run(d.collectionId, async () => {
         await archive.mutateAsync({ id: d.id });
-        toast(`Archived "${titleOf(d)}"`, "ok", {
+        toast(`Archived "${displayTitle(d)}"`, "ok", {
           label: "Undo",
           onClick: () =>
             void run(d.collectionId, async () => {
@@ -183,7 +182,7 @@ export function useSidebarActions({
     deleteDoc: (d: DocRef, wasActive: boolean) =>
       run(d.collectionId, async () => {
         await softDelete.mutateAsync({ id: d.id });
-        toast(`Moved "${titleOf(d)}" to trash`, "ok", {
+        toast(`Moved "${displayTitle(d)}" to trash`, "ok", {
           label: "Undo",
           onClick: () =>
             void run(d.collectionId, async () => {
@@ -197,13 +196,13 @@ export function useSidebarActions({
     restoreArchived: (d: DocRef) =>
       run(d.collectionId, async () => {
         await restore.mutateAsync({ id: d.id });
-        toast(`Restored "${titleOf(d)}"`);
+        toast(`Restored "${displayTitle(d)}"`);
       }),
 
     trashArchived: (d: DocRef) =>
       run(d.collectionId, async () => {
         await softDelete.mutateAsync({ id: d.id });
-        toast(`Moved "${titleOf(d)}" to trash`, "ok", {
+        toast(`Moved "${displayTitle(d)}" to trash`, "ok", {
           label: "Undo",
           onClick: () => void run(d.collectionId, () => restoreFromTrash.mutateAsync({ id: d.id })),
         });
@@ -212,14 +211,14 @@ export function useSidebarActions({
     restoreTrashed: (d: DocRef) =>
       run(d.collectionId, async () => {
         await restoreFromTrash.mutateAsync({ id: d.id });
-        toast(`Restored "${titleOf(d)}"`);
+        toast(`Restored "${displayTitle(d)}"`);
       }),
 
     purgeTrashed: (d: DocRef) =>
       setDialog(
         <ConfirmDialog
           title="Delete forever"
-          body={`"${titleOf(d)}" and the sub-documents deleted with it will be gone for good. This can't be undone.`}
+          body={`"${displayTitle(d)}" and the sub-documents deleted with it will be gone for good. This can't be undone.`}
           confirmLabel="Delete forever"
           onClose={closeDialog}
           onConfirm={() => void run(d.collectionId, () => purge.mutateAsync({ id: d.id }))}

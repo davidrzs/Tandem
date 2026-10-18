@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Icon } from "../Icon.js";
 import { RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
+import { displayTitle } from "../outline.js";
 import type { SidebarNode } from "./sidebarIndex.js";
 import { toggle, treeRowProps, useSidebarTreeContext } from "./useSidebarTree.js";
 
@@ -119,7 +120,7 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
 function DocRow({ item, node }: RowProps<"doc">) {
   const { actions, activeDocId, menuFor, setMenuFor } = useSidebarTreeContext();
   const active = node.id === activeDocId;
-  const title = node.title || "Untitled";
+  const title = displayTitle(node);
   return (
     <Link
       to={`/d/${node.id}`}
@@ -195,7 +196,7 @@ function GroupRow({ item, node }: RowProps<"group">) {
 
 function ArchivedRow({ item, node }: RowProps<"archived">) {
   const { actions } = useSidebarTreeContext();
-  const title = node.title || "Untitled";
+  const title = displayTitle(node);
   return (
     <div {...treeRowProps(item, false)} className="doc-row archived-row tree-row">
       <span className="doc-twist" aria-hidden="true" />
@@ -232,7 +233,7 @@ function ArchivedRow({ item, node }: RowProps<"archived">) {
  * for good. Shown to writers only. */
 function TrashRow({ item, node }: RowProps<"trash">) {
   const { actions } = useSidebarTreeContext();
-  const title = node.title || "Untitled";
+  const title = displayTitle(node);
   return (
     <div {...treeRowProps(item, false)} className="doc-row archived-row trash-row tree-row">
       <span className="doc-twist" aria-hidden="true" />

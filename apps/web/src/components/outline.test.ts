@@ -5,6 +5,7 @@ import { nextSort, outlineRows, type DocumentNode, type OutlineRow, type Outline
 const doc = (id: string, title: string, updatedAt: string, children: DocumentNode[] = []): DocumentNode => ({
   id,
   title,
+  position: 0,
   updatedAt,
   children,
 });

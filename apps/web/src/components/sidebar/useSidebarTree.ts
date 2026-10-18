@@ -142,7 +142,8 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
     onShareCollection: p.onShareCollection,
   });
 
-  // Same query keys as before, so every existing invalidate() keeps working.
+  // Plain documents.tree/listArchived/listTrash queries, so mutations that
+  // invalidate those procedures anywhere in the app refresh the tree.
   const expanded = p.collections.filter((c) => folds.snapshot.expandedCollections.has(c.id));
   // Trash is for writers: readers could neither restore nor purge.
   const writable = expanded.filter((c) => c.writable);
