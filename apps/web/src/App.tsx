@@ -1,6 +1,8 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Suspense, useEffect, useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { Outlet, useLocation, useMatch, useOutletContext } from "react-router-dom";
+import { authClient } from "./auth-client.js";
 import { AdminModal } from "./components/AdminModal.js";
 import { Icon } from "./components/Icon.js";
 import { NotificationsModal } from "./components/NotificationsModal.js";
@@ -12,6 +14,7 @@ import { SearchModal } from "./components/SearchModal.js";
 import { SettingsModal } from "./components/SettingsModal.js";
 import { ShareModal } from "./components/ShareModal.js";
 import { Sidebar } from "./components/sidebar/Sidebar.js";
+import { useShellLayout } from "./components/sidebar/useShellLayout.js";
 import { trpc } from "./trpc.js";
 import { storageGet, storageSet } from "./storage.js";
 
@@ -76,6 +79,9 @@ export function App() {
           ?.workspaceId;
     if (ws && ws !== workspaceId) setWorkspaceId(ws);
   }, [activeDocId, activeMeta.data?.workspaceId, collections.data, linkedCollectionId, workspaceId]);
+
+  // AuthGate only mounts the app with a session, so uid is stable here.
+  const shell = useShellLayout(authClient.useSession().data?.user.id ?? "");
 
   // Narrow screens: the sidebar becomes an off-canvas drawer.
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -142,71 +148,76 @@ export function App() {
 
   return (
     <Tooltip.Provider delayDuration={450} skipDelayDuration={250} disableHoverableContent>
-      <div className="app">
-        <button type="button"
-          className="hamburger"
-          aria-label="Open menu"
-          onClick={() => setSidebarOpen(true)}
-        >
-          <Icon name="menu" size={17} />
-        </button>
-        {sidebarOpen && (
-          <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
-        )}
-        <Sidebar
-          open={sidebarOpen}
-          loading={workspaces.isLoading || collections.isLoading}
-          workspaces={workspaces.data ?? []}
-          workspaceId={workspaceId}
-          collections={wsCollections}
-          activeDocId={activeDocId}
-          activeCollectionId={activeMeta.data?.collectionId ?? linkedCollectionId}
-          onSelectWorkspace={setWorkspaceId}
-          onOpenSearch={() => setSearchQuery("")}
-          onOpenInbox={() => setInboxOpen(true)}
-          onOpenPeople={() => setPeopleOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenAdmin={() => setAdminOpen(true)}
-          onOpenShortcuts={() => setShortcutsOpen(true)}
-          onShareCollection={setShareCollectionId}
-        />
-        <main className="main">
-          <ErrorBoundary>
-            {/* The document route is lazy-loaded; the sidebar stays put while its
-                chunk arrives. */}
-            <Suspense fallback={<div className="empty">Loading…</div>}>
-              <Outlet context={context} />
-            </Suspense>
-          </ErrorBoundary>
-        </main>
-        {searchQuery !== null && (
-          <SearchModal
-            initialQuery={searchQuery}
+      <button type="button"
+        className="hamburger"
+        aria-label="Open menu"
+        onClick={() => setSidebarOpen(true)}
+      >
+        <Icon name="menu" size={17} />
+      </button>
+      {sidebarOpen && (
+        <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
+      )}
+      <Group className="app" {...shell.group}>
+        <Panel {...shell.sidebarPanel}>
+          <Sidebar
+            open={sidebarOpen}
+            loading={workspaces.isLoading || collections.isLoading}
+            workspaces={workspaces.data ?? []}
             workspaceId={workspaceId}
             collections={wsCollections}
-            onOpenSettings={() => {
-              setSearchQuery(null);
-              setSettingsOpen(true);
-            }}
-            onClose={() => setSearchQuery(null)}
+            activeDocId={activeDocId}
+            activeCollectionId={activeMeta.data?.collectionId ?? linkedCollectionId}
+            onSelectWorkspace={setWorkspaceId}
+            onOpenSearch={() => setSearchQuery("")}
+            onOpenInbox={() => setInboxOpen(true)}
+            onOpenPeople={() => setPeopleOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenAdmin={() => setAdminOpen(true)}
+            onOpenShortcuts={() => setShortcutsOpen(true)}
+            onShareCollection={setShareCollectionId}
           />
-        )}
-        {inboxOpen && <NotificationsModal onClose={() => setInboxOpen(false)} />}
-        {settingsOpen && (
-          <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
-        )}
-        {peopleOpen && workspaceId && (
-          <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
-        )}
-        {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
-        {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
-        {shareCollection && (
-          <ShareModal
-            collection={shareCollection}
-            onClose={() => setShareCollectionId(null)}
-          />
-        )}
-      </div>
+        </Panel>
+        <Separator {...shell.separator} />
+        <Panel {...shell.mainPanel}>
+          <main className="main" data-toc-room={shell.tocRoom || undefined}>
+            <ErrorBoundary>
+              {/* The document route is lazy-loaded; the sidebar stays put while its
+                  chunk arrives. */}
+              <Suspense fallback={<div className="empty">Loading…</div>}>
+                <Outlet context={context} />
+              </Suspense>
+            </ErrorBoundary>
+          </main>
+        </Panel>
+      </Group>
+      {searchQuery !== null && (
+        <SearchModal
+          initialQuery={searchQuery}
+          workspaceId={workspaceId}
+          collections={wsCollections}
+          onOpenSettings={() => {
+            setSearchQuery(null);
+            setSettingsOpen(true);
+          }}
+          onClose={() => setSearchQuery(null)}
+        />
+      )}
+      {inboxOpen && <NotificationsModal onClose={() => setInboxOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal workspaceId={workspaceId} onClose={() => setSettingsOpen(false)} />
+      )}
+      {peopleOpen && workspaceId && (
+        <PeopleModal workspaceId={workspaceId} onClose={() => setPeopleOpen(false)} />
+      )}
+      {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+      {shareCollection && (
+        <ShareModal
+          collection={shareCollection}
+          onClose={() => setShareCollectionId(null)}
+        />
+      )}
     </Tooltip.Provider>
   );
 }

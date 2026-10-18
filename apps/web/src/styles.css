@@ -158,18 +158,31 @@ button {
 
 /* ---------- app shell ---------- */
 
-.app {
-  display: grid;
-  grid-template-columns: 248px 1fr;
-  /* Pin the single row to the viewport: the sidebar is no longer a scroll
-   * container, and an auto row would otherwise grow to its content. */
-  grid-template-rows: 100vh;
-  height: 100vh;
-}
-
+/* The react-resizable-panels Group lays out .app inline (flex row, 100vh);
+ * the panes' inner divs carry .sidebar-pane / .main-pane. */
 .main {
+  height: 100%;
   overflow-y: auto;
   background: var(--surface);
+}
+
+/* The separator is the sidebar's right edge: a 1px line inside a 7px target
+   whose padding overlaps both panes, so double-click-to-reset is hittable. */
+.sidebar-resizer {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 7px;
+  margin: 0 -3px;
+  padding: 0 3px;
+  background: var(--border-side);
+  background-clip: content-box;
+  outline: none;
+}
+
+.sidebar-resizer:is([data-separator="hover"], [data-separator="active"], [data-separator="focus"]) {
+  padding: 0 2px;
+  background-color: var(--accent);
 }
 
 .empty {
@@ -180,10 +193,10 @@ button {
 /* ---------- sidebar ---------- */
 
 .sidebar {
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--sunken);
-  border-right: 1px solid var(--border-side);
   padding: 8px;
   gap: 2px;
 }
@@ -1144,7 +1157,7 @@ button.doc-twist:hover .twist {
  * centered column; hidden below the width where both fit side by side. */
 .toc-rail {
   position: fixed;
-  left: 248px;
+  left: var(--sidebar-width, 248px);
   top: 46px;
   width: 236px;
   max-height: calc(100vh - 66px);
@@ -1196,13 +1209,12 @@ button.doc-twist:hover .twist {
   scroll-margin-top: 62px;
 }
 
-/* The rail never displaces the column: below the width where it fits in the
- * gutter beside the centered document, it simply disappears. The column sits
- * in the same place whether or not a document has a contents rail. */
-@media (max-width: 1400px) {
-  .toc-rail {
-    display: none;
-  }
+/* The rail never displaces the column: when the main pane is too narrow for it
+ * to fit in the gutter beside the centered document, it simply disappears. The
+ * column sits in the same place whether or not a document has a contents rail.
+ * data-toc-room follows the main pane's width, so a wider sidebar hides it. */
+.main:not([data-toc-room]) .toc-rail {
+  display: none;
 }
 
 .search-tags {
@@ -3752,8 +3764,19 @@ select.code-lang:hover {
     display: none !important;
   }
 
-  .app {
-    display: block;
+  /* The panel library styles the shell inline; let the document flow. */
+  .app,
+  #main-pane,
+  .main-pane {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  #sidebar-pane,
+  .sidebar-resizer {
+    display: none !important;
   }
 
   .main {
@@ -3910,8 +3933,15 @@ select.code-lang:hover {
 }
 
 @media (max-width: 900px) {
-  .app {
-    grid-template-columns: 1fr;
+  /* The pane hands its width to main; the .sidebar inside is position:fixed,
+     so the empty pane can't clip it. !important beats the library's inline
+     flex. */
+  #sidebar-pane {
+    flex: 0 0 0px !important;
+  }
+
+  .sidebar-resizer {
+    display: none;
   }
 
   .sidebar {
