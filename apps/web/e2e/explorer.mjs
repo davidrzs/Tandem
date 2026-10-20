@@ -188,6 +188,8 @@ try {
   await page.waitForURL((url) => url.pathname === "/");
   await page.goto(longUrl);
   await page.waitForSelector(".ProseMirror");
+  // Collapse all folds only the documents the sidebar has loaded.
+  await short.waitFor();
   const archivedRow = page.locator(".archived-row", { hasText: long.slice(0, 30) });
   await page.getByTitle("Collapse all").click();
   await archivedRow.waitFor({ state: "detached" });
@@ -211,6 +213,7 @@ try {
   await page.keyboard.press("Enter");
   await page.waitForFunction((el) => el.getAttribute("aria-expanded") === "true", await collectionRow.elementHandle());
 
+  assert((await short.getAttribute("aria-expanded")) === "false", "Collapse all folded the document");
   await short.focus();
   await page.keyboard.press("ArrowRight");
   await nested.waitFor();
