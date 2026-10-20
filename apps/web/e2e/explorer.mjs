@@ -137,16 +137,33 @@ try {
   const treeDocs = page.locator(".tree .doc-row");
   await page.locator(".nav-row", { hasText: "Home" }).click();
   await page.waitForURL((url) => url.pathname === "/");
+  const localFolds = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith("tandem.sidebar.expanded:"));
+    return [key, localStorage.getItem(key)];
+  });
+  assert(localFolds[1]?.includes('"'), `the open collection is cached locally (got ${JSON.stringify(localFolds)})`);
   const persisted = page.waitForResponse((r) => r.url().includes("settings.setSidebarNode"));
   await page.getByTitle("Collapse all").click();
   await persisted;
   await treeDocs.first().waitFor({ state: "detached" });
   assert((await collectionRow.getAttribute("aria-expanded")) === "false", "Collapse all folds the collection");
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), localFolds);
+  const serverFolds = page.waitForResponse((r) => r.url().includes("settings.sidebar"));
   await page.reload();
-  await collectionRow.waitFor();
-  await page.waitForTimeout(500);
-  assert((await collectionRow.getAttribute("aria-expanded")) === "false", "the collapsed collection stays folded after a reload");
-  assert((await treeDocs.count()) === 0, "no document rows after a reload of a collapsed tree");
+  await serverFolds;
+  await page
+    .waitForFunction(
+      (name) =>
+        [...document.querySelectorAll(".collection-row")]
+          .find((row) => row.textContent.includes(name))
+          ?.getAttribute("aria-expanded") === "false",
+      c,
+      { timeout: 3000 },
+    )
+    .catch(() => {
+      throw new Error("the server's collapse wins over a stale local cache after a reload");
+    });
+  await treeDocs.first().waitFor({ state: "detached" });
 
   await page.goto(nestedUrl);
   await page.waitForSelector(".ProseMirror");
@@ -171,6 +188,8 @@ try {
   await page.waitForURL((url) => url.pathname === "/");
   await page.goto(longUrl);
   await page.waitForSelector(".ProseMirror");
+  // Collapse all folds only the documents the sidebar has loaded.
+  await short.waitFor();
   const archivedRow = page.locator(".archived-row", { hasText: long.slice(0, 30) });
   await page.getByTitle("Collapse all").click();
   await archivedRow.waitFor({ state: "detached" });
@@ -194,6 +213,7 @@ try {
   await page.keyboard.press("Enter");
   await page.waitForFunction((el) => el.getAttribute("aria-expanded") === "true", await collectionRow.elementHandle());
 
+  assert((await short.getAttribute("aria-expanded")) === "false", "Collapse all folded the document");
   await short.focus();
   await page.keyboard.press("ArrowRight");
   await nested.waitFor();
@@ -215,6 +235,9 @@ try {
   await page.getByRole("menuitem", { name: "New sub-document" }).waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("menu").waitFor({ state: "detached" });
+  await isActive(nested, "Escape from the row menu returns focus to its row");
+  await page.keyboard.press("ArrowUp");
+  await isActive(short, "arrow keys keep working after the row menu closes");
 
   await newDocument(page, c);
   const parentUrl = page.url();
@@ -319,14 +342,49 @@ try {
 
   await page.goto(parentUrl);
   await page.waitForSelector(".ProseMirror");
-  await collectionRow.hover();
-  await collectionRow.getByTitle("More actions").click();
-  await page.getByRole("menuitem", { name: "Open collection page" }).click();
+  const openCollectionPage = async (row) => {
+    await row.hover();
+    await row.getByTitle("More actions").click();
+    await page.getByRole("menuitem", { name: "Open collection page" }).click();
+  };
+  await openCollectionPage(collectionRow);
   await onCollectionPage("the collection menu opens the collection page");
+
+  const other = `Other ${Date.now()}`;
+  await createCollection(page, other);
+  const otherRow = page.locator(".collection-row", { hasText: other });
+  const treeRequests = /\/trpc\/[^?]*documents\.tree/;
+  await page.route(treeRequests, (route) => route.fulfill({ status: 500, body: "down" }));
+  await otherRow.locator(".collection-name").click();
+  await page.locator(".tree-note", { hasText: "Couldn't load documents." }).waitFor({ timeout: 20000 });
+  const describedBy = () => otherRow.evaluate((row) => document.getElementById(row.getAttribute("aria-describedby"))?.textContent);
+  assert((await describedBy()) === "Couldn't load documents.", "a failed load describes its collection row");
+  await page.unroute(treeRequests);
+  await otherRow.focus();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("menuitem", { name: "Retry loading" }).press("Enter");
+  await page.locator(".tree-note", { hasText: "No documents yet." }).waitFor();
+  const description = await describedBy();
+  assert(description === "No documents yet.", `the empty note describes its collection row (got ${JSON.stringify(description)})`);
+  const treeSnapshot = await page.locator(".tree").ariaSnapshot();
+  assert(!treeSnapshot.includes("No documents yet"), `the tree owns only tree items (got ${treeSnapshot})`);
+  await newDocument(page, other);
+  await page.fill(".title-input", "Elsewhere");
+  await page.locator(".doc-row", { hasText: "Elsewhere" }).waitFor();
+  await openCollectionPage(collectionRow);
+  await onCollectionPage("the collection menu opens the collection page from another collection");
+  const collectionPage = page.locator(".collection-page");
+  const pageFilter = collectionPage.getByRole("searchbox", { name: "Filter pages" });
+  await pageFilter.fill("zzz");
+  await collectionPage.getByText("No pages match").waitFor();
+  await openCollectionPage(otherRow);
+  await collectionPage.locator("h1", { hasText: other }).waitFor();
+  await collectionPage.getByRole("link", { name: "Elsewhere" }).waitFor({ timeout: 3000 });
+  assert((await pageFilter.inputValue()) === "", "another collection's page opens with an empty filter");
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; folder-table contents (fold, filter, sort, new page); collection page links",
+    "EXPLORER PASS — resizable, persisted pane; drawer under 900px; overlay actions, tooltips, guides; collapse all, reveal active; keyboard navigation, move and row menu; collection notes as row descriptions, keyboard retry; folder-table contents (fold, filter, sort, new page); collection page links; contents reset per collection",
   );
 } finally {
   await browser.close();

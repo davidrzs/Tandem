@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  EMPTY_FOLDS,
-  applyFoldChanges,
-  deriveExpandedItems,
-  diffExpandedItems,
-  type FoldSnapshot,
-} from "./folds.js";
+import { applyFoldChanges, deriveExpandedItems, diffExpandedItems, type FoldSnapshot } from "./folds.js";
 import type { GroupId } from "./sidebarIndex.js";
 import { sampleIndex } from "./testFixtures.js";
 
@@ -17,7 +11,7 @@ const snapshot = (s: { expanded?: string[]; collapsed?: string[]; groups?: Group
 });
 
 test("apply persists each real flip and leaves groups session-only", () => {
-  const { next, writes } = applyFoldChanges(EMPTY_FOLDS, [
+  const { next, writes } = applyFoldChanges(snapshot({}), [
     { kind: "collection", id: "a", expanded: true },
     { kind: "doc", id: "p", expanded: false },
     { kind: "group", id: "archived:a", expanded: true },
@@ -36,7 +30,7 @@ test("apply is idempotent: a repeat returns the same snapshot and writes nothing
     { kind: "collection", id: "a", expanded: true },
     { kind: "doc", id: "p", expanded: true },
   ] as const;
-  const first = applyFoldChanges(EMPTY_FOLDS, changes);
+  const first = applyFoldChanges(snapshot({}), changes);
   assert.deepEqual(first.writes, [{ kind: "collection", id: "a", expanded: true }]);
   const second = applyFoldChanges(first.next, changes);
   assert.equal(second.next, first.next);

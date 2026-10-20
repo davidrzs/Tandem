@@ -1,4 +1,5 @@
-import type { Collection, DocNode } from "./types.js";
+import { displayTitle, type DocumentNode } from "../outline.js";
+import type { Collection } from "./types.js";
 
 export const ROOT_ID = "tandem:sidebar-root";
 /** Collection and document uuids, plus synthetic ids for the root and groups. */
@@ -53,7 +54,7 @@ export interface IndexInput {
   /** Already filtered to the workspace, in server order. */
   collections: readonly Collection[];
   /** Only expanded collections have entries. */
-  trees: ReadonlyMap<string, Loaded<DocNode[]>>;
+  trees: ReadonlyMap<string, Loaded<DocumentNode[]>>;
   archived: ReadonlyMap<string, Loaded<ArchivedDoc[]>>;
   /** Writers only. */
   trash: ReadonlyMap<string, Loaded<ArchivedDoc[]>>;
@@ -71,7 +72,7 @@ export function buildSidebarIndex(input: IndexInput): SidebarIndex {
 
   for (const c of input.collections) {
     const tree = input.trees.get(c.id);
-    const addDocs = (docs: readonly DocNode[], parentDocumentId: string | null): NodeId[] => {
+    const addDocs = (docs: readonly DocumentNode[], parentDocumentId: string | null): NodeId[] => {
       const ids: NodeId[] = [];
       for (const d of docs) {
         // A server race can list a doc twice; keeping the first keeps a tree.
@@ -134,7 +135,7 @@ export function buildSidebarIndex(input: IndexInput): SidebarIndex {
 
 /** Parent chain (outermost first) leading to docId, excluding docId itself;
  * null when the doc isn't in this tree. */
-export function ancestorPath(nodes: readonly DocNode[], docId: string): string[] | null {
+export function ancestorPath(nodes: readonly DocumentNode[], docId: string): string[] | null {
   for (const node of nodes) {
     if (node.id === docId) return [];
     const inChild = ancestorPath(node.children, docId);
@@ -151,7 +152,7 @@ export function nodeLabel(node: SidebarNode): string {
     case "doc":
     case "archived":
     case "trash":
-      return node.title || "Untitled";
+      return displayTitle(node);
     case "group":
       return `${node.group === "archived" ? "Archived" : "Trash"} (${node.childIds.length})`;
     case "root":

@@ -43,7 +43,7 @@ export interface Folds {
 /** apply() works on the store's latest snapshot rather than a render's
  * closure, so back-to-back calls in one tick (key repeat, Collapse all then
  * Reveal) can't lose an update or write twice. */
-function createFoldStore(seed: FoldSnapshot) {
+export function createFoldStore(seed: FoldSnapshot) {
   let snapshot = seed;
   let persist: (w: FoldWrite) => void = () => {};
   const listeners = new Set<() => void>();
@@ -65,10 +65,18 @@ function createFoldStore(seed: FoldSnapshot) {
       set(next);
       for (const w of writes) persist(w);
     },
-    /** Server state wins wholesale, without writing anything back. */
-    replacePersisted: (server: { expandedCollections: string[]; collapsedDocs: string[] }, forceExpand: string | null) => {
+    /** Server fold state wins (it may carry another device's toggles), with
+     * the open document's collection kept visible. Empty server + non-empty
+     * local = a user from the localStorage-only era: adopt their local state
+     * server-side instead. */
+    reconcile: (server: { expandedCollections: string[]; collapsedDocs: string[] }, activeCollectionId: string | null) => {
+      const local = snapshot.expandedCollections;
+      if (server.expandedCollections.length === 0 && server.collapsedDocs.length === 0 && local.size > 0) {
+        for (const id of local) persist({ kind: "collection", id, expanded: true });
+        return;
+      }
       const expandedCollections = new Set(server.expandedCollections);
-      if (forceExpand) expandedCollections.add(forceExpand);
+      if (activeCollectionId) expandedCollections.add(activeCollectionId);
       set({ expandedCollections, collapsedDocs: new Set(server.collapsedDocs), openGroups: snapshot.openGroups });
     },
     setPersist: (fn: (w: FoldWrite) => void) => {
@@ -103,12 +111,9 @@ export function useFoldState(uid: string, activeCollectionId: string | null): Fo
     storageSet(`${COLLAPSED_DOCS_KEY}:${uid}`, JSON.stringify([...snapshot.collapsedDocs]));
   }, [snapshot.collapsedDocs, uid]);
 
-  // Server fold state wins once per mount (it may carry another device's
-  // toggles). Empty server + non-empty local = a user from the
-  // localStorage-only era: adopt their local state server-side instead.
-  // foldsReconciled tells the ancestor-reveal effects to take one fresh pass
-  // in case the server snapshot landed after a tree did (query retry) and
-  // re-collapsed the open document's ancestors.
+  // Reconciled once per mount. foldsReconciled tells the ancestor-reveal
+  // effects to take one fresh pass in case the server snapshot landed after a
+  // tree did (query retry) and re-collapsed the open document's ancestors.
   const sidebarState = trpc.settings.sidebar.useQuery(undefined, { staleTime: Infinity });
   const reconciled = useRef(false);
   const [foldsReconciled, setFoldsReconciled] = useState(false);
@@ -117,13 +122,7 @@ export function useFoldState(uid: string, activeCollectionId: string | null): Fo
     if (!data || reconciled.current) return;
     reconciled.current = true;
     setFoldsReconciled(true);
-    const local = store.get().expandedCollections;
-    if (data.expandedCollections.length === 0 && data.collapsedDocs.length === 0 && local.size > 0) {
-      for (const id of local) persistFold.mutate({ kind: "collection", id, expanded: true });
-      return;
-    }
-    // Keep the open document's collection visible regardless.
-    store.replacePersisted(data, activeCollectionId);
+    store.reconcile(data, activeCollectionId);
   }, [sidebarState.data]);
 
   // The open document's collection is always expanded.
