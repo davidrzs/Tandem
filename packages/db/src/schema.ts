@@ -364,9 +364,21 @@ export const fieldKeyAliases = pgTable(
   ],
 );
 
+/** Expressions a template default can use besides a literal value. `today`
+ * and `now` are the moment of instantiation, `me` the creator's name, and
+ * `from_previous_sibling` the same field on the latest earlier page of the
+ * type under the same parent. */
+export const DEFAULT_EXPRESSIONS = ["today", "now", "me", "from_previous_sibling"] as const;
+export type DefaultExpression = (typeof DEFAULT_EXPRESSIONS)[number];
+
+/** How a template fills one field of a new page. A literal is stored like a
+ * property value: option ids, document ids, ISO dates; a list for list kinds. */
+export type TemplateDefault = { kind: "value"; value: unknown } | { kind: DefaultExpression };
+
 /** A template is an ordinary document (same editor, blame, versions) plus
  * this row. Template documents and their subtrees stay out of search,
- * backlinks, recents and tasks. `default_type_id` is reserved for types. */
+ * backlinks, recents and tasks. New pages get `default_type_id` as their
+ * type and `defaults` (by field id) as their first values. */
 export const templates = pgTable(
   "templates",
   {
@@ -377,7 +389,8 @@ export const templates = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    defaultTypeId: uuid("default_type_id"),
+    defaultTypeId: uuid("default_type_id").references(() => documentTypes.id, { onDelete: "set null" }),
+    defaults: jsonb("defaults").$type<Record<string, TemplateDefault>>().notNull().default({}),
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
