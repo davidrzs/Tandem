@@ -113,6 +113,7 @@ const KINDS: Record<FieldKind, KindSpec> = {
     invalid: (v) =>
       typeof v === "string" &&
       /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+      !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) &&
       new Date(`${v}T00:00:00Z`).toISOString().startsWith(v)
         ? null
         : "expected a date (YYYY-MM-DD)",
@@ -157,6 +158,15 @@ const KINDS: Record<FieldKind, KindSpec> = {
 export const isListKind = (kind: FieldKind) => KINDS[kind].shape === "list";
 
 const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Lenient input (an option label, a page url, a date-time without a zone)
+ * mapped to the stored form of one value, or why it doesn't fit the field. */
+export function parseFieldInput(field: FieldDef, input: unknown): { value: unknown } | { error: string } {
+  const spec = KINDS[field.kind];
+  const value = spec.coerce(input, field);
+  const error = spec.invalid(value, field);
+  return error === null ? { value } : { error };
+}
 
 export interface PropertyProjection {
   /** Valid values by field id: option ids, document ids, ISO dates. */
@@ -772,17 +782,15 @@ export class TypeService {
     const ops: PropertyOp[] = [];
     const refs: string[] = [];
     const parse = (field: TypeField, input: unknown): unknown => {
-      const spec = KINDS[field.kind];
-      const value = spec.coerce(input, field);
-      const problem = spec.invalid(value, field);
-      if (problem) {
+      const parsed = parseFieldInput(field, input);
+      if ("error" in parsed) {
         const options = field.options.filter((o) => !o.retired).map((o) => o.label);
         throw new InvalidInputError(
-          `${field.key}: ${problem}${options.length > 0 ? `. Options: ${options.join(", ")}` : ""}`,
+          `${field.key}: ${parsed.error}${options.length > 0 ? `. Options: ${options.join(", ")}` : ""}`,
         );
       }
-      if (field.kind === "doc" || field.kind === "doc_list") refs.push(value as string);
-      return value;
+      if (field.kind === "doc" || field.kind === "doc_list") refs.push(parsed.value as string);
+      return parsed.value;
     };
     const writable = (key: string, clearing: boolean): TypeField => {
       const field = resolve(key);

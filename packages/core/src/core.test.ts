@@ -1547,6 +1547,11 @@ test("properties: the projection validates every kind and reports what fails", (
       ["r", "expected a document id"],
     ],
   );
+  assert.deepEqual(
+    projectProperties({ d: "2026-13-45" }, fields).propertyIssues.map((i) => [i.fieldId, i.message]),
+    [["d", "expected a date (YYYY-MM-DD)"]],
+    "a month that doesn't exist is an issue, not a thrown RangeError",
+  );
 });
 
 test("properties: patches by key and label land as ids, and the projection feeds search", async () => {
