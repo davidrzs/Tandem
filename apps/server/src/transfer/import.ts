@@ -111,6 +111,10 @@ export async function importZip(
       let body = "";
       if (d.mdPath) {
         const fm = parseFrontMatter(readMd(d.mdPath));
+        if (fm.error) warnings.push(`Kept the front matter of ${d.mdPath} as text: ${fm.error}`);
+        if (fm.dropped.length > 0) {
+          warnings.push(`Dropped front matter from ${d.mdPath}: ${fm.dropped.join(", ")}`);
+        }
         tags = fm.tags;
         const h1 = splitLeadingH1(fm.body);
         title = h1.title ?? d.title;

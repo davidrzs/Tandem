@@ -117,3 +117,33 @@ test("import: a non-zip buffer is a clean error; svg attachments are skipped", a
   assert.equal(summary.images, 0, "svg not uploaded");
   assert.ok(summary.warnings.some((w) => /svg/i.test(w)), "svg skip is warned");
 });
+
+test("import: front matter keys other than tags are reported per file and stripped", async () => {
+  const zip = Buffer.from(
+    zipSync({
+      "Meetings/Standup.md": strToU8("---\nstatus: draft\ntags: daily\n---\n\n# Standup\n\nNotes."),
+      "Meetings/Review.md": strToU8(
+        "---\ntag: [q3]\nreview:\n  owner: ana\n  due: 2026-01-02\nstatus: done\n---\nPlain body.",
+      ),
+      "Meetings/Broken.md": strToU8("---\nstatus: [draft\n---\nKept."),
+    }),
+  );
+  const summary = await importZip(services, { workspaceId, uid: "u1", zipName: "notes.zip", buffer: zip });
+  assert.deepEqual(summary, {
+    collections: 1,
+    documents: 3,
+    images: 0,
+    warnings: [
+      "Kept the front matter of Meetings/Broken.md as text: it isn't valid YAML",
+      "Dropped front matter from Meetings/Review.md: review, status",
+      "Dropped front matter from Meetings/Standup.md: status",
+    ],
+  });
+
+  const col = (await services.collections.list()).find((c) => c.name === "Meetings")!;
+  const byTitle = new Map((await services.documentTree.tree(col.id)).map((d) => [d.title, d]));
+  assert.deepEqual(byTitle.get("Standup")!.tags, ["daily"]);
+  assert.deepEqual(byTitle.get("Review")!.tags, ["q3"]);
+  assert.equal((await services.documents.get(byTitle.get("Standup")!.id))!.contentMd, "Notes.");
+  assert.equal((await services.documents.get(byTitle.get("Review")!.id))!.contentMd, "Plain body.");
+});

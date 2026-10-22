@@ -11,6 +11,7 @@ import {
   rewriteImportLinks,
   sanitizeFilename,
   splitLeadingH1,
+  startsWithFrontMatter,
   uniqueName,
 } from "./markdown-zip.js";
 
@@ -30,13 +31,77 @@ test("uniqueName dedupes case-insensitively with a suffix", () => {
 test("front matter emits a dash-list and parses both forms", () => {
   assert.equal(emitFrontMatter([]), "");
   assert.equal(emitFrontMatter(["a", "b"]), "---\ntags:\n  - a\n  - b\n---\n\n");
+  assert.equal(emitFrontMatter(["#x", "a: b"]), '---\ntags:\n  - "#x"\n  - "a: b"\n---\n\n');
+  assert.deepEqual(parseFrontMatter(emitFrontMatter(["#x", "a: b"])).tags, ["#x", "a: b"]);
   assert.deepEqual(parseFrontMatter("---\ntags:\n  - x\n  - y\n---\n\nBody").tags, ["x", "y"]);
   assert.deepEqual(parseFrontMatter("---\ntags: [p, 'q r']\n---\nBody").tags, ["p", "q r"]);
   const none = parseFrontMatter("No front matter here");
-  assert.deepEqual(none.tags, []);
-  assert.equal(none.body, "No front matter here");
-  // The body after the block is intact.
+  assert.deepEqual(none, { tags: [], dropped: [], body: "No front matter here", error: null });
   assert.equal(parseFrontMatter("---\ntags:\n  - x\n---\n\nHello").body, "Hello");
+});
+
+test("parseFrontMatter: block lists, quoted strings, nested maps report dropped keys", () => {
+  assert.deepEqual(
+    parseFrontMatter(
+      '---\nstatus: draft\ntags:\n  - "q: r"\n  - plain\nreview:\n  owner: ana\n  due: 2026-01-02\n---\n\nBody',
+    ),
+    { tags: ["q: r", "plain"], dropped: ["status", "review"], body: "Body", error: null },
+  );
+  assert.deepEqual(parseFrontMatter("---\ntags: solo\n---\nBody"), {
+    tags: ["solo"],
+    dropped: [],
+    body: "Body",
+    error: null,
+  });
+  assert.deepEqual(parseFrontMatter("---\ntag: a, b\ntags: [b, 2024]\n---\nBody"), {
+    tags: ["a", "b", "2024"],
+    dropped: [],
+    body: "Body",
+    error: null,
+  });
+  assert.deepEqual(parseFrontMatter("---\ntags:\n  nested: map\n---\nBody"), {
+    tags: [],
+    dropped: ["tags"],
+    body: "Body",
+    error: null,
+  });
+});
+
+test("parseFrontMatter: BOM and CRLF before the fence", () => {
+  assert.deepEqual(parseFrontMatter("\uFEFF---\r\ntags:\r\n  - x\r\nstatus: done\r\n---\r\n\r\n# T\r\n"), {
+    tags: ["x"],
+    dropped: ["status"],
+    body: "# T\r\n",
+    error: null,
+  });
+});
+
+test("parseFrontMatter: broken fences keep the original text", () => {
+  const unclosed = "---\nstatus: draft\n\n# Title";
+  assert.deepEqual(parseFrontMatter(unclosed), {
+    tags: [],
+    dropped: [],
+    body: unclosed,
+    error: "it has no closing ---",
+  });
+  const invalid = "---\nstatus: [draft\n---\nBody";
+  assert.deepEqual(parseFrontMatter(invalid), {
+    tags: [],
+    dropped: [],
+    body: invalid,
+    error: "it isn't valid YAML",
+  });
+  const duplicate = "---\nstatus: a\nstatus: b\n---\nBody";
+  assert.equal(parseFrontMatter(duplicate).error, "it isn't valid YAML");
+});
+
+test("parseFrontMatter: rules around plain markdown are not front matter", () => {
+  for (const md of ["---\n\nText after a rule", "---\nJust a heading\n---\nBody", "---\n# H1\n---\nBody"]) {
+    assert.deepEqual(parseFrontMatter(md), { tags: [], dropped: [], body: md, error: null });
+  }
+  assert.equal(startsWithFrontMatter("---\nstatus: draft\n---\nBody"), true);
+  assert.equal(startsWithFrontMatter("Intro\n\n---\n\nAfter the rule"), false);
+  assert.equal(startsWithFrontMatter("---\nJust a heading\n---\n"), false);
 });
 
 test("splitLeadingH1 pulls the title; composeExportDoc reassembles", () => {
