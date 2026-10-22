@@ -101,6 +101,24 @@ test("multiple edit sessions stay distinguishable", () => {
   assert.equal(byText.get("Three.")?.at, 3000);
 });
 
+test("an agent edit stamps the agent name and it survives a persist round-trip", () => {
+  const doc = seedAttributedDoc(markdownToJSON("One."), alice);
+  const md = jsonToMarkdown(yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(COLLAB_FIELD)));
+  applyAttributedEdit(doc, markdownToJSON(`${md}\n\nTwo.`), { ...aliceAi, agent: "Claude" });
+
+  const reloaded = new Y.Doc();
+  Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(doc));
+  const byText = new Map(attributed(reloaded).map((s) => [s.text, s.author]));
+  assert.deepEqual(byText.get("Two."), {
+    userId: "alice",
+    name: "Alice",
+    ai: true,
+    at: 2000,
+    agent: "Claude",
+  });
+  assert.deepEqual(byText.get("One."), { userId: "alice", name: "Alice", ai: false, at: 1000 });
+});
+
 test("stampAuthor never overwrites an existing entry", () => {
   const doc = new Y.Doc();
   stampAuthor(doc, 42, alice);

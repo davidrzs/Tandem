@@ -30,6 +30,12 @@ export interface AuthorInfo {
   ai: boolean;
   /** Epoch ms of this session's first write. */
   at: number;
+  /** OAuth application name of the agent that wrote, at stamp time. Absent
+   * for humans, the local system MCP, and stamps written before agents were
+   * recorded. */
+  agent?: string;
+  /** Id of the document this content was copied from, when it has one. */
+  source?: string;
 }
 
 /** Who is editing (an AuthorInfo minus the stamp time) — what callers carry. */

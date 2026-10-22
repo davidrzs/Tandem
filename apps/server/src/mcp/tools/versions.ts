@@ -73,19 +73,26 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
       const authors = getAuthors(ydoc);
       const pmDoc = schema.nodeFromJSON(stateToJSON(doc.ydocState) as never);
       const size = pmDoc.content.size;
-      const spans: Array<{ author: string; ai: boolean; at: string | null; text: string }> = [];
+      const spans: Array<{
+        author: string;
+        ai: boolean;
+        agent?: string;
+        at: string | null;
+        text: string;
+      }> = [];
       for (const s of blameSpans(ydoc.getXmlFragment(COLLAB_FIELD))) {
         const a = authors.get(s.clientId) ?? UNKNOWN_AUTHOR;
         const text = pmDoc.textBetween(Math.min(s.from, size), Math.min(s.to, size), "\n", "");
         if (!text.trim()) continue; // pure structure (open/close tags)
         const last = spans[spans.length - 1];
         // Merge consecutive spans by the same identity so prose reads as runs.
-        if (last && last.author === a.name && last.ai === a.ai) {
+        if (last && last.author === a.name && last.ai === a.ai && last.agent === a.agent) {
           last.text += text;
         } else {
           spans.push({
             author: a.name,
             ai: a.ai,
+            ...(a.agent ? { agent: a.agent } : {}),
             at: a.at ? new Date(a.at).toISOString() : null,
             text,
           });
@@ -93,13 +100,19 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
       }
       const contributors = new Map<
         string,
-        { userId: string; name: string; ai: boolean; lastEditAt: number }
+        { userId: string; name: string; ai: boolean; agent?: string; lastEditAt: number }
       >();
       for (const a of authors.values()) {
-        const key = `${a.userId}:${a.ai}`;
+        const key = `${a.userId}:${a.ai}:${a.agent ?? ""}`;
         const prev = contributors.get(key);
         if (!prev || a.at > prev.lastEditAt) {
-          contributors.set(key, { userId: a.userId, name: a.name, ai: a.ai, lastEditAt: a.at });
+          contributors.set(key, {
+            userId: a.userId,
+            name: a.name,
+            ai: a.ai,
+            ...(a.agent ? { agent: a.agent } : {}),
+            lastEditAt: a.at,
+          });
         }
       }
       return json({

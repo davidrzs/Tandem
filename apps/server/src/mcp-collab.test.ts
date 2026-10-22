@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
+import {
+  createDatabase,
+  migrateDatabase,
+  oauthApplication,
+  SYSTEM,
+  user as userTable,
+  workspaceMembers,
+} from "@tandem/db";
 import { COLLAB_FIELD, blameSpans, getAuthors, jsonToMarkdown, schema } from "@tandem/editor";
 import { CollectionService, WorkspaceService } from "@tandem/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
@@ -10,6 +17,7 @@ import type * as Y from "yjs";
 import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
+import { mcpAuthor } from "./http.js";
 import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
 
@@ -175,6 +183,51 @@ test("agent writes leave a workspace-scoped audit trail; denied writes leave non
     auditEntries.every((e) => e.documentId === docId && e.sessionId !== null),
     "each edit is deep-linked to its document and exact authorship session",
   );
+});
+
+test("an edit through an OAuth client stamps the application name as the agent", async () => {
+  await db.insert(userTable).values({ id: "u1", name: "User One", email: "u1@example.test" });
+  await db.insert(oauthApplication).values({ id: "app-claude", name: "Claude", clientId: "claude" });
+  const author = await mcpAuthor(db, { userId: "u1", clientId: "claude" });
+  assert.deepEqual(author, { userId: "u1", name: "User One", ai: true, agent: "Claude" });
+  assert.deepEqual(
+    await mcpAuthor(db, { userId: "u1", clientId: "deleted-app" }),
+    { userId: "u1", name: "User One", ai: true },
+    "an unknown application falls back to the plain AI identity",
+  );
+
+  const agentServices = createServices(db, u1, author);
+  const agentClient = new Client({ name: "test-claude", version: "0.0.0" });
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  await createMcpServer(agentServices, {
+    publicUrl: "http://app.test",
+    writer: createCollabWriter(hocuspocus, agentServices.documents, author),
+  }).connect(serverT);
+  await agentClient.connect(clientT);
+  try {
+    payload(
+      await agentClient.callTool({
+        name: "append_section",
+        arguments: { id: docId, markdown: "Written by Claude." },
+      }),
+    );
+  } finally {
+    await agentClient.close();
+  }
+
+  const conn = await hocuspocus.openDirectConnection(docId, { userId: "u1" });
+  let stamped: unknown;
+  await conn.transact((doc) => {
+    const authors = getAuthors(doc as unknown as Y.Doc);
+    const fragment = doc.getXmlFragment(COLLAB_FIELD);
+    const pm = schema.nodeFromJSON(yXmlFragmentToProsemirrorJSON(fragment) as never);
+    const span = blameSpans(fragment).find(
+      (s) => pm.textBetween(s.from, s.to, "\n") === "Written by Claude.",
+    );
+    stamped = span && { ...authors.get(span.clientId), at: 0 };
+  });
+  await conn.disconnect();
+  assert.deepEqual(stamped, { userId: "u1", name: "User One", ai: true, agent: "Claude", at: 0 });
 });
 
 test("a write to a read-only document is a permission error, not silent success", async () => {
