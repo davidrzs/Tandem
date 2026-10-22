@@ -1089,6 +1089,218 @@ button.doc-twist:hover .twist {
   outline: none;
 }
 
+/* ---------- properties ---------- */
+
+.props-panel {
+  margin-top: 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.props-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.props-summary:hover {
+  background: var(--hover);
+}
+
+.props-type {
+  flex: none;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.props-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+}
+
+.props-body {
+  display: grid;
+  grid-template-columns: minmax(90px, 160px) 1fr;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 6px 0 4px 18px;
+}
+
+.props-row {
+  display: contents;
+}
+
+.props-label {
+  overflow: hidden;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.props-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  color: var(--ink);
+}
+
+.props-empty,
+.props-placeholder {
+  margin: 0;
+  color: var(--ink-3);
+}
+
+.props-empty {
+  grid-column: 1 / -1;
+}
+
+.prop-input {
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+}
+
+.prop-input:hover {
+  background: var(--hover);
+}
+
+.prop-input:focus {
+  border-color: var(--accent-line);
+  background: var(--surface);
+  outline: none;
+}
+
+.prop-input::placeholder {
+  color: var(--ink-3);
+}
+
+.prop-text {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.prop-checkbox {
+  margin: 0 8px;
+  accent-color: var(--accent);
+}
+
+.prop-add-option {
+  color: var(--ink-3);
+}
+
+.prop-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 9px;
+  border-radius: var(--radius-leaf);
+  background: var(--tag-bg);
+  color: var(--ink-body);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.prop-ai {
+  padding: 0 5px;
+  border-radius: var(--radius-s);
+  background: var(--ai-wash);
+  color: var(--ai);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.prop-json {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.prop-url {
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
+}
+
+.prop-open {
+  display: inline-flex;
+  color: var(--ink-3);
+}
+
+.prop-open:hover {
+  color: var(--accent);
+}
+
+.prop-picker {
+  position: relative;
+  display: inline-block;
+}
+
+.prop-picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  margin: 0;
+  list-style: none;
+}
+
+.props-add {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+.props-add:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* ---------- callouts ---------- */
 
 .callout {
@@ -2406,6 +2618,17 @@ button.outline-twist:not(:disabled):hover .twist {
 .outline-table td.outline-pages {
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
+}
+
+.outline-table th.outline-col-field {
+  width: 18%;
+}
+
+.outline-table td.outline-field {
+  overflow: hidden;
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .outline-table td.outline-updated {

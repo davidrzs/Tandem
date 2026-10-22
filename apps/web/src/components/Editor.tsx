@@ -18,6 +18,7 @@ import { mentionHighlightKey } from "./mention-highlight.js";
 import { timeAgo } from "./time.js";
 import { TagBar } from "./TagBar.js";
 import { SubPages } from "./DocOutline.js";
+import { PropertiesPanel, TypeMenu } from "./PropertiesPanel.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { buildExtensions } from "./editor/extensions.js";
@@ -302,6 +303,9 @@ export function Editor({
   const titleLoaded = useRef(false);
   const titleDirty = useRef(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const myRole = members.data?.find((m) => m.userId === uid)?.role;
+  const canDefine = myRole === "owner" || myRole === "admin";
   useEffect(() => {
     if (!doc.data) return;
     if (!titleLoaded.current) {
@@ -347,6 +351,15 @@ export function Editor({
             <span className="status-dot" /> {status.label}
           </span>
           <span className="tool-divider" />
+          {canEdit && (
+            <TypeMenu
+              docId={docId}
+              workspaceId={workspaceId}
+              typeId={doc.data.typeId}
+              canDefine={canDefine}
+              onAttached={() => setPropertiesOpen(true)}
+            />
+          )}
           <button type="button"
             className={"tool-btn" + (rail === "comments" ? " active" : "")}
             title="Show comments"
@@ -597,6 +610,18 @@ export function Editor({
         suggestions={tagOptions.data?.map((t) => t.tag) ?? []}
         onChange={(tags) => update.mutate({ id: docId, tags })}
         onTagClick={(tag) => openSearch(`#${tag} `)}
+      />
+      <PropertiesPanel
+        docId={docId}
+        workspaceId={workspaceId}
+        ydoc={ydoc}
+        typeId={doc.data.typeId}
+        canEdit={canEdit}
+        canDefine={canDefine}
+        open={propertiesOpen}
+        onOpenChange={setPropertiesOpen}
+        searchDocs={searchDocs}
+        synced={synced}
       />
       <SubPages docId={docId} collectionId={doc.data.collectionId} canEdit={canEdit} />
       {previewId !== null && (

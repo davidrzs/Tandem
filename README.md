@@ -88,6 +88,13 @@ when it saves the page: one that no longer fits its field (after a kind
 change, say) is kept and reported, never dropped. Property text is searchable.
 Renaming a field keeps its old key working.
 
+In the app, the **Type** button in a page's header attaches, changes or
+detaches its type, and owners and admins can create a type there. The page's
+properties sit under its title as one summary line that opens into a row per
+field; owners and admins also get **Add field**. Values an agent wrote carry
+an AI badge naming the agent. When every page in a Contents table shares a
+type, the table shows that type's first three fields as sortable columns.
+
 ## Authorship model (how blame works)
 
 Attribution lives in the Yjs layer, not in markdown: every inserted fragment

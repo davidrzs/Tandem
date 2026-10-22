@@ -14,6 +14,7 @@ import {
   type OutlineSort,
   type SortKey,
 } from "./outline.js";
+import { formatValue, propertyColumns } from "./properties.js";
 import { timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
 import { NewPageMenu } from "./TemplateMenus.js";
@@ -42,13 +43,20 @@ export function DocOutline({
   const [dialog, setDialog] = useState<ReactNode>(null);
   const createDocument = useCreateDocument(setDialog);
   const workspaceId = useAppContext().collections.find((c) => c.id === collectionId)?.workspaceId;
+  const fields = trpc.types.fields.useQuery({ workspaceId: workspaceId ?? "" }, { enabled: !!workspaceId });
   const toast = useToast();
   const create = (templateId?: string | null) =>
     void createDocument(collectionId, parentId, templateId).catch((e) => toast(friendlyError(e), "danger"));
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [sort, setSort] = useState<OutlineSort | null>(null);
   const [filter, setFilter] = useState("");
-  const rows = outlineRows(nodes, { expanded, sort, filter });
+  const properties = propertyColumns(nodes, fields.data ?? []);
+  const columns = [
+    COLUMNS[0]!,
+    ...properties.map((f) => ({ key: `field:${f.id}` as SortKey, label: f.label })),
+    ...COLUMNS.slice(1),
+  ];
+  const rows = outlineRows(nodes, { expanded, sort, filter }, properties);
   const filtering = filter.trim() !== "";
   const count = documentCount(nodes);
 
@@ -95,12 +103,12 @@ export function DocOutline({
       <table className="outline-table">
         <thead>
           <tr>
-            {COLUMNS.map(({ key, label }) => {
+            {columns.map(({ key, label }) => {
               const active = sort?.key === key ? sort.dir : null;
               return (
                 <th
                   key={key}
-                  className={`outline-col-${key}`}
+                  className={key.startsWith("field:") ? "outline-col-field" : `outline-col-${key}`}
                   aria-sort={active === "asc" ? "ascending" : active === "desc" ? "descending" : undefined}
                 >
                   <button type="button" onClick={() => setSort(nextSort(sort, key))}>
@@ -139,6 +147,11 @@ export function DocOutline({
                     </Link>
                   </div>
                 </td>
+                {properties.map((f) => (
+                  <td key={f.id} className="outline-field">
+                    {formatValue(f, node.properties[f.id])}
+                  </td>
+                ))}
                 <td className="outline-pages">{hasChildren ? descendants : "—"}</td>
                 <td className="outline-updated">{timeAgo(node.updatedAt)}</td>
               </tr>
@@ -146,7 +159,7 @@ export function DocOutline({
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={COLUMNS.length} className="outline-empty">
+              <td colSpan={columns.length} className="outline-empty">
                 {filtering ? "No pages match" : "No documents yet"}
               </td>
             </tr>
