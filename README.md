@@ -55,6 +55,22 @@ autocompletes workspace members.
 Open tasks assigned to you are listed on your start page, each linking back to
 its document; checking the box completes it everywhere.
 
+## Templates
+
+Any page can be a template: **Save as template** in its row menu names it,
+and the page stays an ordinary document (same editor, blame and versions).
+**Default template…** on a folder or collection makes **+** there start from
+that template; the deepest folder with a default wins, then the collection.
+The **▾** beside **+** (in the sidebar and on a Contents panel) offers every
+template and a **Blank page**.
+
+A new page copies the template's body and up to three levels of its sub-pages,
+as writing by whoever created it. `{{date}}`, `{{title}}`, `{{me}}` and
+`{{parent}}` are filled in; any other `{{name}}` is asked for when the page is
+created. The new page remembers which template and version it came from, and
+later edits to the template never change it. Templates and their sub-pages are
+left out of search, backlinks, recents, tags, tasks and Home.
+
 ## Authorship model (how blame works)
 
 Attribution lives in the Yjs layer, not in markdown: every inserted fragment
@@ -90,6 +106,10 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `create_document`, `update_document` (title and/or tags), `move_document`,
   `archive_document`, `restore_document`, `list_archived`, `list_tags`,
   `list_backlinks`.
+- **Templates**: `list_templates`, `create_from_template` (`templateId`
+  optional: the target folder's default, as **+** in the app; `variables`
+  answers the template's prompts; `dryRun` returns the expanded pages without
+  creating anything).
 
 `list_documents` is intentionally bounded for agent context windows: it returns
 a flat, compact page (`id`, `title`, `path`, `tags`, `updatedAt`, `url`),
