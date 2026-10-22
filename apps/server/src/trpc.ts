@@ -11,6 +11,7 @@ import {
   fieldKeySchema,
   ForbiddenError,
   InvalidInputError,
+  isListKind,
   nameSchema,
   NotFoundError,
   positionSchema,
@@ -20,7 +21,7 @@ import {
   titleSchema,
 } from "@tandem/core";
 import { FIELD_KINDS } from "@tandem/db";
-import { stateToJSON } from "@tandem/editor";
+import { stateToJSON, type PropertyOp } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
 
@@ -81,6 +82,18 @@ function mapError(err: unknown): TRPCError {
     return new TRPCError({ code: "CONFLICT", message: "That name or slug is already taken." });
   }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: err });
+}
+
+async function writeProperties(ctx: Context, id: string, ops: PropertyOp[]): Promise<void> {
+  try {
+    if (ctx.collabWriter) await ctx.collabWriter.setProperties(id, ops);
+    else await ctx.services.documents.editProperties(id, ops);
+  } catch (err) {
+    if (err instanceof DocumentWriteDeniedError) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+    }
+    throw err;
+  }
 }
 
 /** Requires a signed-in user; narrows ctx.user to non-null and maps DB errors. */
@@ -468,15 +481,23 @@ export const appRouter = t.router({
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.types.view(input.id)),
 
-    // Attach a type, or detach with null; detaching keeps every value.
+    // Attach a type, or detach with null; detaching keeps every value. The
+    // type's list fields start here as empty arrays, in one serialized write,
+    // so two people adding a page's first values can't each create the array
+    // and lose one add.
     setType: protectedProcedure
       .input(z.object({ id: uuid, typeId: uuid.nullable() }))
       .mutation(async ({ ctx, input }) => {
         if (!(await ctx.services.types.setDocumentType(input.id, input.typeId))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
         }
+        const view = await ctx.services.types.view(input.id);
+        const lists: PropertyOp[] = view.fields
+          .filter((f) => input.typeId !== null && f.typeId === input.typeId && isListKind(f.kind))
+          .map((f) => ({ op: "add", field: f.id, values: [] }));
+        if (lists.length > 0) await writeProperties(ctx, input.id, lists);
         ctx.notifyDocument?.(input.id, "meta");
-        return ctx.services.types.view(input.id);
+        return view;
       }),
 
     // A per-field patch through the live doc as the human, like restore.
@@ -484,16 +505,7 @@ export const appRouter = t.router({
       .input(z.object({ id: uuid, ...propertyPatchShape }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...patch } = input;
-        const ops = await ctx.services.types.planPatch(id, patch);
-        try {
-          if (ctx.collabWriter) await ctx.collabWriter.setProperties(id, ops);
-          else await ctx.services.documents.editProperties(id, ops);
-        } catch (err) {
-          if (err instanceof DocumentWriteDeniedError) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
-          }
-          throw err;
-        }
+        await writeProperties(ctx, id, await ctx.services.types.planPatch(id, patch));
         return ctx.services.types.view(id);
       }),
 

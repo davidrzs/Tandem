@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createDatabase, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
+import { stateProperties } from "@tandem/editor";
 import { createServices } from "./services.js";
 import { appRouter, type AuthUser } from "./trpc.js";
 
@@ -60,6 +61,41 @@ test("tRPC: owners define audited types and fields; members set types and values
         ["retire_field", 'field "conference"'],
       ],
     );
+  } finally {
+    await db.$dispose();
+  }
+});
+
+test("tRPC: attaching a type creates its list fields as empty arrays; detaching creates none", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const services = createServices(db, { kind: "user", userId: owner.id }, { userId: owner.id, name: owner.name, ai: false });
+  const caller = appRouter.createCaller({ services, user: owner });
+  try {
+    const ws = await new WorkspaceService(db, SYSTEM).provisionForUser(owner.id, { name: "W", slug: "w" });
+    const type = await caller.types.create({ workspaceId: ws.id, name: "Meeting" });
+    await caller.types.createField({ workspaceId: ws.id, typeId: type.id, key: "status", kind: "select", options: ["Open"] });
+    const topics = await caller.types.createField({
+      workspaceId: ws.id,
+      typeId: type.id,
+      key: "topics",
+      kind: "multi_select",
+      options: ["Budget"],
+    });
+    const notes = await caller.types.createField({ workspaceId: ws.id, typeId: type.id, key: "notes", kind: "doc_list" });
+    await caller.types.createField({ workspaceId: ws.id, typeId: null, key: "tags", kind: "multi_select", options: ["x"] });
+
+    const col = await caller.collections.create({ name: "Notes", slug: "notes" });
+    const doc = await caller.documents.create({ collectionId: col.id, title: "Standup" });
+    const stored = async () => {
+      const state = (await services.documents.get(doc.id))?.ydocState;
+      return state ? stateProperties(state) : {};
+    };
+
+    await caller.documents.setType({ id: doc.id, typeId: null });
+    assert.deepEqual(await stored(), {});
+    await caller.documents.setType({ id: doc.id, typeId: type.id });
+    assert.deepEqual(await stored(), { [topics.id]: [], [notes.id]: [] });
   } finally {
     await db.$dispose();
   }
