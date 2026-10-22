@@ -11,6 +11,7 @@ import {
   getAuthors,
   jsonToMarkdown,
   markdownToJSON,
+  propertiesToJSON,
   sanitizeClientAuthorsWrites,
   scanTaskItems,
   seedAttributedDoc,
@@ -190,6 +191,7 @@ export function createHocuspocus(
         ydocState: state,
         contentJson: json,
         contentMd,
+        properties: propertiesToJSON(document),
       });
       // Long-session version capture (fire-and-forget; deduped + rate-limited).
       if (saved) {

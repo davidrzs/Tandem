@@ -4,6 +4,8 @@ import { after, before, test } from "node:test";
 import {
   createDatabase,
   documents,
+  documents as documentsTable,
+  documentTypes,
   documentSnapshots,
   migrateDatabase,
   runAsActor,
@@ -11,6 +13,7 @@ import {
   user as userTable,
   workspaceMembers,
   type Actor,
+  type TypeField,
 } from "@tandem/db";
 import { eq, sql } from "drizzle-orm";
 import { scanTaskItems } from "@tandem/editor";
@@ -25,6 +28,7 @@ import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
 import { expandVariables, TemplateService } from "./services/templates.js";
+import { projectProperties, TypeService, type FieldDef } from "./services/types.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -1381,4 +1385,275 @@ test("templates: new tasks in a template notify nobody", async () => {
     (await new NotificationService(db, user("tf")).listMine()).map((n) => n.documentTitle),
     ["Page"],
   );
+});
+
+async function typedWorkspace(owner: string, member: string) {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser(owner, {
+    name: owner,
+    slug: owner,
+  });
+  await db.insert(workspaceMembers).values({ workspaceId: ws.id, userId: member, role: "member" });
+  const col = await new CollectionService(db, user(owner)).create({ name: "Notes", slug: `${owner}-notes` });
+  const types = new TypeService(db, user(owner));
+  const meeting = await types.createType(ws.id, "Meeting");
+  const status = await types.createField({
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "status",
+    kind: "select",
+    options: ["Open", "Done"],
+  });
+  const attendees = await types.createField({
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "attendees",
+    kind: "multi_select",
+    options: ["Ann", "Bob", "Cy"],
+  });
+  const due = await types.createField({ workspaceId: ws.id, typeId: meeting.id, key: "due", kind: "date" });
+  const opt = (field: typeof status, label: string) => field.options.find((o) => o.label === label)!.id;
+  return { ws, col, types, meeting, status, attendees, due, opt };
+}
+
+test("types: owners and admins define types and fields, members only read them", async () => {
+  const { ws, meeting, status } = await typedWorkspace("ty-owner", "ty-member");
+  const asMember = new TypeService(db, user("ty-member"));
+  await assert.rejects(() => asMember.createType(ws.id, "Project"), /owner or admin/);
+  await assert.rejects(
+    () => asMember.createField({ workspaceId: ws.id, typeId: null, key: "x", kind: "text" }),
+    /owner or admin/,
+  );
+  await assert.rejects(
+    () =>
+      runAsActor(db, user("ty-member"), (tx) =>
+        tx.insert(documentTypes).values({ workspaceId: ws.id, name: "Sneaky", createdBy: "ty-member" }),
+      ),
+    /row-level security/,
+  );
+  assert.deepEqual(
+    (await asMember.listTypes(ws.id)).map((t) => [t.name, t.fields.map((f) => [f.key, f.kind])]),
+    [["Meeting", [["status", "select"], ["attendees", "multi_select"], ["due", "date"]]]],
+  );
+  assert.deepEqual(
+    status.options.map((o) => o.label),
+    ["Open", "Done"],
+  );
+  assert.equal(
+    (await new TypeService(db, user("u1")).listTypes(ws.id)).length,
+    0,
+    "outsiders see no types",
+  );
+  await assert.rejects(
+    () => new TypeService(db, user("ty-owner")).createType(ws.id, "meeting"),
+    /already exists/,
+  );
+  assert.equal(meeting.workspaceId, ws.id);
+});
+
+test("properties: the projection validates every kind and reports what fails", () => {
+  const field = (id: string, kind: TypeField["kind"], extra: Partial<FieldDef> = {}): [string, FieldDef] => [
+    id,
+    { id, key: id, kind, options: [], retiredAt: null, ...extra },
+  ];
+  const fields = new Map<string, FieldDef>([
+    field("t", "text"),
+    field("n", "number"),
+    field("c", "checkbox"),
+    field("d", "date"),
+    field("dt", "datetime"),
+    field("s", "select", {
+      options: [
+        { id: "o1", label: "Open" },
+        { id: "o2", label: "Old", retired: true },
+      ],
+    }),
+    field("m", "multi_select", { options: [{ id: "o1", label: "Ann" }] }),
+    field("u", "url"),
+    field("r", "doc"),
+    field("rl", "doc_list"),
+    field("j", "json"),
+    field("gone", "text", { retiredAt: new Date(0) }),
+  ]);
+  const ref = "6f1c1c7e-2a7e-4c55-9d0a-0123456789ab";
+  assert.deepEqual(
+    projectProperties(
+      {
+        t: "Weekly sync",
+        n: 3.5,
+        c: false,
+        d: "2026-11-07",
+        dt: "2026-11-07T10:00:00.000Z",
+        s: "o2",
+        m: ["o1", "o1", "o9"],
+        u: "https://example.com/a",
+        r: ref,
+        rl: [ref],
+        j: { nested: [1, 2] },
+        gone: "kept",
+        empty: "",
+        cleared: null,
+        stray: 1,
+      },
+      fields,
+    ),
+    {
+      properties: {
+        t: "Weekly sync",
+        n: 3.5,
+        c: false,
+        d: "2026-11-07",
+        dt: "2026-11-07T10:00:00.000Z",
+        s: "o2",
+        m: ["o1"],
+        u: "https://example.com/a",
+        r: ref,
+        rl: [ref],
+        j: { nested: [1, 2] },
+        gone: "kept",
+      },
+      propertyIssues: [
+        { fieldId: "s", code: "retired_option", message: "holds a retired option", value: "o2" },
+        { fieldId: "m", code: "invalid_value", message: '"o9" is not an option', value: ["o9"] },
+        { fieldId: "gone", code: "retired_field", message: "gone is retired", value: "kept" },
+        { fieldId: "stray", code: "unknown_field", message: "no field has this id", value: 1 },
+      ],
+      propertiesText: "Weekly sync\n3.5\n2026-11-07\n2026-11-07T10:00:00.000Z\nOld\nAnn\nhttps://example.com/a\nkept",
+    },
+  );
+  assert.deepEqual(
+    projectProperties(
+      {
+        t: 5,
+        n: "5",
+        c: "yes",
+        d: "2026-02-30",
+        dt: "2026-11-07 10:00",
+        s: ["o1"],
+        m: "o1",
+        u: "javascript:alert(1)",
+        r: "not-a-uuid",
+      },
+      fields,
+    ).propertyIssues.map((i) => [i.fieldId, i.message]),
+    [
+      ["t", "expected text"],
+      ["n", "expected a number"],
+      ["c", "expected true or false"],
+      ["d", "expected a date (YYYY-MM-DD)"],
+      ["dt", "expected a date and time (ISO 8601)"],
+      ["s", "expected one value"],
+      ["m", "expected a list"],
+      ["u", "expected an http(s) URL"],
+      ["r", "expected a document id"],
+    ],
+  );
+});
+
+test("properties: patches by key and label land as ids, and the projection feeds search", async () => {
+  const { ws, col, types, meeting, status, attendees, due, opt } = await typedWorkspace("ty2-owner", "ty2-member");
+  const documents = new DocumentService(db, user("ty2-owner"));
+  const planned = await types.planCreate(col.id, {
+    type: "meeting",
+    properties: { Status: "done", attendees: ["ann", "Bob"], due: "2026-11-07" },
+  });
+  assert.equal(planned.typeId, meeting.id);
+  const doc = await documents.create({
+    collectionId: col.id,
+    title: "Retro",
+    markdown: "Notes.",
+    typeId: planned.typeId,
+    properties: planned.ops,
+  });
+  assert.deepEqual(doc.properties, {
+    [status.id]: opt(status, "Done"),
+    [attendees.id]: [opt(attendees, "Ann"), opt(attendees, "Bob")],
+    [due.id]: "2026-11-07",
+  });
+  assert.equal(doc.propertiesText, "Done\nAnn\nBob\n2026-11-07");
+  assert.equal(doc.contentMd, "Notes.");
+  const hits = await new DocumentQueryService(db, user("ty2-owner")).search("done");
+  assert.deepEqual(
+    hits.map((h) => h.title),
+    ["Retro"],
+  );
+
+  await assert.rejects(
+    () => types.planPatch(doc.id, { set: { links: "x" } }),
+    /^InvalidInputError: unknown field "links"\. Fields this page can take: status \(select: Open, Done\); attendees \(multi_select: Ann, Bob, Cy\); due \(date\)\. Only a workspace owner or admin can define new fields\.$/,
+  );
+
+  const fixed = await types.planPatch(doc.id, { add: { attendees: "cy" }, unset: ["due"] });
+  const edited = await documents.editProperties(doc.id, fixed);
+  assert.deepEqual(edited.properties, {
+    [status.id]: opt(status, "Done"),
+    [attendees.id]: [opt(attendees, "Ann"), opt(attendees, "Bob"), opt(attendees, "Cy")],
+  });
+
+  const view = await types.view(doc.id);
+  assert.deepEqual(view.type, { id: meeting.id, name: "Meeting" });
+  assert.deepEqual(view.values, { [status.id]: "Done", [attendees.id]: ["Ann", "Bob", "Cy"] });
+  assert.deepEqual(
+    view.fields.map((f) => f.key),
+    ["status", "attendees", "due"],
+  );
+
+  await assert.rejects(() => types.planPatch(doc.id, { set: { status: "Maybe" } }), /status: "Maybe" is not an option\. Options: Open, Done/);
+  await assert.rejects(() => types.planPatch(doc.id, { add: { status: "Open" } }), /status holds one value: use set, not add/);
+  await assert.rejects(() => types.planPatch(doc.id, { set: { due: "next week" } }), /due: expected a date/);
+  await assert.rejects(() => types.planPatch(doc.id, { set: { status: "Open" }, unset: ["status"] }), /changed twice/);
+  assert.equal(doc.workspaceId, ws.id);
+});
+
+test("properties: a renamed key keeps working as an alias; detaching keeps values; duplicate copies both", async () => {
+  const { col, types, status, opt } = await typedWorkspace("ty3-owner", "ty3-member");
+  const documents = new DocumentService(db, user("ty3-owner"));
+  const planned = await types.planCreate(col.id, { type: "Meeting", properties: { status: "Open" } });
+  const doc = await documents.create({ collectionId: col.id, title: "Sync", typeId: planned.typeId, properties: planned.ops });
+
+  const renamed = await types.updateField(status.id, { key: "state" });
+  assert.deepEqual([renamed.key, renamed.aliases], ["state", ["status"]]);
+  assert.deepEqual(await types.planPatch(doc.id, { set: { STATUS: "done" } }), [
+    { op: "set", field: status.id, value: opt(status, "Done") },
+  ]);
+
+  assert.equal(await types.setDocumentType(doc.id, null), true);
+  const detached = await types.view(doc.id);
+  assert.equal(detached.type, null);
+  assert.deepEqual(detached.values, { [status.id]: "Open" });
+  assert.deepEqual(await types.planPatch(doc.id, { set: { state: "done" } }), [
+    { op: "set", field: status.id, value: opt(status, "Done") },
+  ]);
+
+  await types.setDocumentType(doc.id, planned.typeId);
+  const copy = await documents.duplicate(doc.id);
+  assert.equal(copy.title, "Sync (copy)");
+  assert.equal(copy.typeId, planned.typeId);
+  assert.deepEqual(copy.properties, { [status.id]: opt(status, "Open") });
+
+  const bodyEdited = await documents.editBody(doc.id, (md) => `${md}Body.`);
+  assert.equal(bodyEdited.contentMd, "Body.");
+  assert.deepEqual(bodyEdited.properties, { [status.id]: opt(status, "Open") });
+
+  assert.equal(await new TypeService(db, user("ty3-member")).setDocumentType(copy.id, null), true);
+  await assert.rejects(() => new TypeService(db, user("u1")).setDocumentType(doc.id, null), /document not found/);
+});
+
+test("properties: a stored map is projected on save, trusting nothing in it", async () => {
+  const { col, status, opt } = await typedWorkspace("ty4-owner", "ty4-member");
+  const documents = new DocumentService(db, user("ty4-owner"));
+  const doc = await documents.create({ collectionId: col.id, title: "Raw" });
+  await documents.saveCollabSnapshot(doc.id, {
+    ydocState: new Uint8Array([0, 0]),
+    contentMd: "",
+    contentJson: null,
+    properties: { [status.id]: opt(status, "Open"), f_ghost: "boo", [`${status.id}x`]: null },
+  });
+  const [row] = await db
+    .select({ properties: documentsTable.properties, issues: documentsTable.propertyIssues })
+    .from(documentsTable)
+    .where(eq(documentsTable.id, doc.id));
+  assert.deepEqual(row, {
+    properties: { [status.id]: opt(status, "Open") },
+    issues: [{ fieldId: "f_ghost", code: "unknown_field", message: "no field has this id", value: "boo" }],
+  });
 });

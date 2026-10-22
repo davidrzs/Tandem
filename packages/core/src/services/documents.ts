@@ -1,7 +1,16 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { collections, documents, type Database, type Document, type DocumentOrigin } from "@tandem/db";
-import { applyEditToState, scanTaskItems, type AuthorInfo } from "@tandem/editor";
+import {
+  applyEditToState,
+  diffProperties,
+  scanTaskItems,
+  stateProperties,
+  type AuthorInfo,
+  type PropertiesJSON,
+  type PropertyOp,
+  type StateEdit,
+} from "@tandem/editor";
 import { jsonToMarkdown, markdownToJSON } from "../markdown.js";
 import {
   DocumentServiceBase,
@@ -10,6 +19,7 @@ import {
   nextPosition,
   notTemplate,
 } from "./document-tree-internals.js";
+import { projectionColumns } from "./types.js";
 
 export interface CreateDocumentInput {
   collectionId: string;
@@ -17,6 +27,10 @@ export interface CreateDocumentInput {
   title?: string;
   markdown?: string;
   tags?: string[];
+  /** Validated by TypeService.planCreate. */
+  typeId?: string | null;
+  /** Initial values as a patch (TypeService.planCreate builds it). */
+  properties?: readonly PropertyOp[];
 }
 
 export interface UpdateDocumentInput {
@@ -61,6 +75,7 @@ export type DocumentMeta = Pick<
   | "title"
   | "tags"
   | "defaultTemplateId"
+  | "typeId"
   | "createdAt"
   | "updatedAt"
   | "archivedAt"
@@ -120,10 +135,13 @@ export async function insertDocument(
   const position = await nextPosition(db, input.collectionId, parentId);
   // Seed the Yjs write model at creation so the initial content is
   // attributed to its creator (not to whoever opens the doc first).
-  const seeded = input.markdown?.trim()
-    ? applyEditToState(null, { body: () => input.markdown! }, author)
-    : null;
+  const body = input.markdown?.trim() ? () => input.markdown! : undefined;
+  const seeded =
+    body || input.properties?.length
+      ? applyEditToState(null, { body, properties: input.properties }, author)
+      : null;
   const { contentMd, contentJson } = seeded ?? deriveContent("");
+  const projected = await projectionColumns(db, col.workspaceId, seeded?.properties ?? {});
   const [row] = await db
     .insert(documents)
     .values({
@@ -139,6 +157,8 @@ export async function insertDocument(
       ydocState: seeded?.ydocState ?? null,
       defaultTemplateId: input.defaultTemplateId ?? null,
       origin: input.origin ?? null,
+      typeId: input.typeId ?? null,
+      ...projected,
     })
     .returning();
   return row!;
@@ -217,9 +237,10 @@ export class DocumentService extends DocumentServiceBase {
     });
   }
 
-  /** Copy a document's current content into a new sibling ("Title (copy)"),
-   * created as — and fully attributed to — the acting user. Children are not
-   * copied; the RLS write check on create() authorizes the whole operation. */
+  /** Copy a document's current content, type and properties into a new
+   * sibling ("Title (copy)"), created as — and fully attributed to — the
+   * acting user. Children are not copied; the RLS write check on create()
+   * authorizes the whole operation. */
   async duplicate(id: string): Promise<Document> {
     const doc = await this.get(id);
     if (!doc) throw new NotFoundError("document not found");
@@ -229,6 +250,8 @@ export class DocumentService extends DocumentServiceBase {
       title: `${doc.title || "Untitled"} (copy)`,
       markdown: this.toMarkdown(doc),
       tags: doc.tags ?? undefined,
+      typeId: doc.typeId,
+      properties: diffProperties({}, doc.ydocState ? stateProperties(doc.ydocState) : {}),
     });
   }
 
@@ -275,12 +298,26 @@ export class DocumentService extends DocumentServiceBase {
     id: string,
     transform: (currentMd: string) => string,
   ): Promise<Document> {
+    return this.editState(id, { body: transform });
+  }
+
+  /** Property patch for writers without a live collaboration session; the
+   * same contract as editBody. */
+  async editProperties(id: string, ops: readonly PropertyOp[]): Promise<Document> {
+    return this.editState(id, { properties: ops });
+  }
+
+  private async editState(id: string, edit: StateEdit): Promise<Document> {
     // Read, transform and write under one row lock: two concurrent fallback
     // edits would otherwise both start from the same state and the second
     // write would silently drop the first.
     return this.execTx(async (db) => {
       const [doc] = await db
-        .select({ ydocState: documents.ydocState, contentMd: documents.contentMd })
+        .select({
+          workspaceId: documents.workspaceId,
+          ydocState: documents.ydocState,
+          contentMd: documents.contentMd,
+        })
         .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .for("update");
@@ -294,12 +331,7 @@ export class DocumentService extends DocumentServiceBase {
         if (readable) throw new DocumentWriteDeniedError();
         throw new NotFoundError("document not found");
       }
-      const edited = applyEditToState(
-        doc.ydocState,
-        { body: transform },
-        this.authorInfo(),
-        doc.contentMd,
-      );
+      const edited = applyEditToState(doc.ydocState, edit, this.authorInfo(), doc.contentMd);
       const [row] = await db
         .update(documents)
         .set({
@@ -307,6 +339,7 @@ export class DocumentService extends DocumentServiceBase {
           contentMd: edited.contentMd,
           contentJson: edited.contentJson,
           taskAssignees: taskAssigneesOf(edited.contentMd),
+          ...(await projectionColumns(db, doc.workspaceId, edited.properties)),
           updatedAt: new Date(),
         })
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
@@ -343,7 +376,12 @@ export class DocumentService extends DocumentServiceBase {
    * state its own write superseded even when stores race. */
   async saveCollabSnapshot(
     id: string,
-    snapshot: { ydocState: Uint8Array; contentMd: string; contentJson: unknown },
+    snapshot: {
+      ydocState: Uint8Array;
+      contentMd: string;
+      contentJson: unknown;
+      properties: PropertiesJSON;
+    },
   ): Promise<{ workspaceId: string; previousMd: string; title: string } | null> {
     return this.execTx(async (db) => {
       // FOR UPDATE: only rows this actor may write. Don't let a debounced
@@ -374,6 +412,7 @@ export class DocumentService extends DocumentServiceBase {
           contentMd: snapshot.contentMd,
           contentJson: snapshot.contentJson,
           taskAssignees: taskAssigneesOf(snapshot.contentMd),
+          ...(await projectionColumns(db, prev.workspaceId, snapshot.properties)),
           updatedAt: new Date(),
         })
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))

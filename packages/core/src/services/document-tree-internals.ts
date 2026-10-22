@@ -21,6 +21,7 @@ export const documentMetaColumns = {
   title: documents.title,
   tags: documents.tags,
   defaultTemplateId: documents.defaultTemplateId,
+  typeId: documents.typeId,
   createdAt: documents.createdAt,
   updatedAt: documents.updatedAt,
   archivedAt: documents.archivedAt,

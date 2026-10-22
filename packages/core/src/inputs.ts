@@ -61,3 +61,19 @@ export const documentSearchShape = {
 export const templateVariablesSchema = z
   .record(z.string().max(INPUT_LIMITS.tag), z.string().max(INPUT_LIMITS.description))
   .refine((vars) => Object.keys(vars).length <= INPUT_LIMITS.tags, "too many variables");
+
+export const fieldKeySchema = z.string().trim().min(1).max(INPUT_LIMITS.tag);
+const propertyValuesSchema = z
+  .record(fieldKeySchema, z.unknown())
+  .refine((values) => Object.keys(values).length <= INPUT_LIMITS.tags, "too many fields");
+
+/** A property patch by field key: `set` replaces a value (a list field takes
+ * the whole list), `unset` clears, `add` and `remove` change list fields. */
+export const propertyPatchShape = {
+  set: propertyValuesSchema.optional(),
+  unset: z.array(fieldKeySchema).max(INPUT_LIMITS.tags).optional(),
+  add: propertyValuesSchema.optional(),
+  remove: propertyValuesSchema.optional(),
+};
+export const propertyPatchSchema = z.object(propertyPatchShape);
+export type PropertyPatchInput = z.infer<typeof propertyPatchSchema>;

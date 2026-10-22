@@ -14,6 +14,7 @@ import {
   SettingsService,
   SnapshotService,
   TemplateService,
+  TypeService,
   WorkspaceService,
 } from "@tandem/core";
 
@@ -34,6 +35,7 @@ export interface Services {
   settings: SettingsService;
   snapshots: SnapshotService;
   templates: TemplateService;
+  types: TypeService;
 }
 
 /**
@@ -64,5 +66,6 @@ export function createServices(
     settings: new SettingsService(db, actor),
     snapshots: new SnapshotService(db, actor),
     templates: new TemplateService(db, actor, author),
+    types: new TypeService(db, actor),
   };
 }
