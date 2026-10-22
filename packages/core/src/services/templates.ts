@@ -1,19 +1,26 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import {
   collections,
   documents,
+  documentTypes,
   runAsActor,
   SYSTEM,
   templates,
+  typeFields,
   user,
   type Database,
   type Document,
-  type DocumentOrigin,
+  type TemplateDefault,
+  type TypeField,
 } from "@tandem/db";
-import type { AuthorInfo } from "@tandem/editor";
+import type { AuthorInfo, PropertyOp } from "@tandem/editor";
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { DocumentServiceBase, rowsOf } from "./document-tree-internals.js";
-import { insertDocument } from "./documents.js";
+import { DocumentServiceBase, notTemplate, rowsOf } from "./document-tree-internals.js";
+import { insertDocument, type InsertDocumentInput } from "./documents.js";
+import { seedStarterKit, type StarterKitResult } from "./seed-types.js";
+import { evaluateDefaults, normalizeDefault, type DefaultContext } from "./template-defaults.js";
+import { assertCanDefine, assertPagesExist } from "./types.js";
 
 /** Levels of a template's descendants that instantiation copies (children,
  * grandchildren, great-grandchildren). Deeper pages stay behind. */
@@ -34,6 +41,10 @@ export interface TemplateSummary {
   collectionId: string;
   /** The template document's `updated_at`, recorded as `origin.version`. */
   version: string;
+  /** The type new pages get; null leaves them untyped. */
+  typeId: string | null;
+  /** First values of new pages, by field id of the type. */
+  defaults: Record<string, TemplateDefault>;
 }
 
 /** One page instantiation would create, variables already expanded. */
@@ -132,7 +143,7 @@ async function createPages(
   node: TemplateNode,
   page: PlannedPage,
   placement: { collectionId: string; parentDocumentId: string | null },
-  origin?: DocumentOrigin,
+  top: Pick<InsertDocumentInput, "origin" | "typeId" | "properties"> = {},
 ): Promise<Document> {
   const doc = await insertDocument(
     db,
@@ -142,7 +153,7 @@ async function createPages(
       markdown: page.markdown,
       tags: node.tags,
       defaultTemplateId: node.defaultTemplateId,
-      ...(origin ? { origin } : {}),
+      ...top,
     },
     author,
   );
@@ -155,6 +166,54 @@ async function createPages(
   return doc;
 }
 
+const summaryColumns = {
+  id: templates.documentId,
+  name: templates.name,
+  workspaceId: templates.workspaceId,
+  collectionId: documents.collectionId,
+  updatedAt: documents.updatedAt,
+  typeId: templates.defaultTypeId,
+  defaults: templates.defaults,
+};
+
+function toSummary({ updatedAt, ...row }: { updatedAt: Date } & Omit<TemplateSummary, "version">): TemplateSummary {
+  return { ...row, version: updatedAt.toISOString() };
+}
+
+/** Stored values of the latest page of `typeId` beside a new one at
+ * `placement`: by the type's first date field (newest first, undated last),
+ * then by creation time. Null when there is none. */
+async function previousSibling(
+  db: Database,
+  typeId: string,
+  fields: readonly TypeField[],
+  placement: { collectionId: string; parentDocumentId: string | null },
+): Promise<Record<string, unknown> | null> {
+  const dated = fields.find((f) => f.kind === "date" || f.kind === "datetime");
+  const [row] = await db
+    .select({ properties: documents.properties })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.collectionId, placement.collectionId),
+        placement.parentDocumentId
+          ? eq(documents.parentDocumentId, placement.parentDocumentId)
+          : isNull(documents.parentDocumentId),
+        eq(documents.typeId, typeId),
+        isNull(documents.deletedAt),
+        isNull(documents.archivedAt),
+        notTemplate,
+      ),
+    )
+    .orderBy(
+      ...(dated ? [sql`${documents.properties} ->> ${dated.id}::text DESC NULLS LAST`] : []),
+      desc(documents.createdAt),
+      desc(documents.id),
+    )
+    .limit(1);
+  return row?.properties ?? null;
+}
+
 /** Templates are documents plus a `templates` row; this service lists,
  * marks, and instantiates them. Every call is RLS-scoped to the actor. */
 export class TemplateService extends DocumentServiceBase {
@@ -162,13 +221,7 @@ export class TemplateService extends DocumentServiceBase {
   async list(workspaceId?: string): Promise<TemplateSummary[]> {
     const rows = await this.exec((db) =>
       db
-        .select({
-          id: templates.documentId,
-          name: templates.name,
-          workspaceId: templates.workspaceId,
-          collectionId: documents.collectionId,
-          updatedAt: documents.updatedAt,
-        })
+        .select(summaryColumns)
         .from(templates)
         .innerJoin(documents, eq(documents.id, templates.documentId))
         .where(
@@ -180,7 +233,7 @@ export class TemplateService extends DocumentServiceBase {
         )
         .orderBy(asc(templates.name), asc(templates.documentId)),
     );
-    return rows.map(({ updatedAt, ...row }) => ({ ...row, version: updatedAt.toISOString() }));
+    return rows.map(toSummary);
   }
 
   /** Mark a document (and so its subtree) as a template named `name`.
@@ -204,19 +257,21 @@ export class TemplateService extends DocumentServiceBase {
       if (!doc) throw new NotFoundError("document not found");
       if (!system && !doc.writable) throw new ForbiddenError("this document is read-only for you");
       const label = name.trim() || doc.title.trim() || "Untitled template";
-      await db
+      const [row] = await db
         .insert(templates)
         .values({ documentId, workspaceId: doc.workspaceId, name: label, createdBy })
         .onConflictDoUpdate({
           target: templates.documentId,
           set: { name: label, updatedAt: new Date() },
-        });
+        })
+        .returning({ typeId: templates.defaultTypeId, defaults: templates.defaults });
       return {
         id: documentId,
         name: label,
         workspaceId: doc.workspaceId,
         collectionId: doc.collectionId,
         version: doc.updatedAt.toISOString(),
+        ...row!,
       };
     });
   }
@@ -362,8 +417,10 @@ export class TemplateService extends DocumentServiceBase {
    * Create a page from a template: resolve the template (explicit, the
    * location's default, or none for a blank page), expand its variables, then
    * copy its body and up to TEMPLATE_SUBTREE_DEPTH levels of child pages in
-   * one transaction. Every copied body is the instantiating actor's writing;
-   * the top page records `origin` and later template edits never touch it.
+   * one transaction. Every copied body is the instantiating actor's writing.
+   * The top page records `origin`, gets the template's type, and its first
+   * values as per-field ops by the same author; later template edits never
+   * touch it.
    */
   async instantiate(input: InstantiateInput): Promise<InstantiateResult> {
     const me = await this.displayName();
@@ -389,12 +446,7 @@ export class TemplateService extends DocumentServiceBase {
       let root = BLANK;
       if (templateId) {
         const [row] = await db
-          .select({
-            name: templates.name,
-            workspaceId: templates.workspaceId,
-            collectionId: documents.collectionId,
-            updatedAt: documents.updatedAt,
-          })
+          .select(summaryColumns)
           .from(templates)
           .innerJoin(documents, eq(documents.id, templates.documentId))
           .where(eq(templates.documentId, templateId));
@@ -402,13 +454,7 @@ export class TemplateService extends DocumentServiceBase {
         if (row.workspaceId !== place.workspaceId) {
           throw new InvalidInputError("template belongs to another workspace");
         }
-        template = {
-          id: templateId,
-          name: row.name,
-          workspaceId: row.workspaceId,
-          collectionId: row.collectionId,
-          version: row.updatedAt.toISOString(),
-        };
+        template = toSummary(row);
         root = await this.loadTree(db, templateId);
       }
 
@@ -429,16 +475,129 @@ export class TemplateService extends DocumentServiceBase {
       };
       if (input.dryRun) return { ...plan, document: null };
 
+      const placement = { collectionId: input.collectionId, parentDocumentId };
+      const typed = template?.typeId
+        ? {
+            typeId: template.typeId,
+            properties: await this.firstValues(db, template.typeId, template.defaults, placement, {
+              today: values.date,
+              now,
+              me,
+            }),
+          }
+        : {};
       const document = await createPages(
         db,
         this.authorInfo(),
         root,
         page,
-        { collectionId: input.collectionId, parentDocumentId },
-        template ? { templateId: template.id, version: template.version } : undefined,
+        placement,
+        template ? { origin: { templateId: template.id, version: template.version }, ...typed } : {},
       );
       return { ...plan, document };
     });
+  }
+
+  /** The ops that give a new page of `typeId` at `placement` its defaults. */
+  private async firstValues(
+    db: Database,
+    typeId: string,
+    defaults: Readonly<Record<string, TemplateDefault>>,
+    placement: { collectionId: string; parentDocumentId: string | null },
+    ctx: Omit<DefaultContext, "previous">,
+  ): Promise<PropertyOp[]> {
+    const fields = await db
+      .select()
+      .from(typeFields)
+      .where(and(eq(typeFields.typeId, typeId), isNull(typeFields.retiredAt)))
+      .orderBy(asc(typeFields.position), asc(typeFields.key));
+    const previous = Object.values(defaults).some((d) => d.kind === "from_previous_sibling")
+      ? await previousSibling(db, typeId, fields, placement)
+      : null;
+    return evaluateDefaults(fields, defaults, { ...ctx, previous });
+  }
+
+  /** A template the actor can see and, as owner or admin, define. */
+  private async definable(db: Database, templateId: string) {
+    const [row] = await db
+      .select(summaryColumns)
+      .from(templates)
+      .innerJoin(documents, eq(documents.id, templates.documentId))
+      .where(and(eq(templates.documentId, templateId), isNull(documents.deletedAt)));
+    if (!row) throw new NotFoundError("template not found");
+    await assertCanDefine(db, this.actor, row.workspaceId);
+    return row;
+  }
+
+  /** Write a template row the actor may define; RLS hides it when they can't
+   * write the template's collection. */
+  private async updateTemplate(
+    db: Database,
+    templateId: string,
+    set: PgUpdateSetSource<typeof templates>,
+  ): Promise<void> {
+    const rows = await db
+      .update(templates)
+      .set({ ...set, updatedAt: new Date() })
+      .where(eq(templates.documentId, templateId))
+      .returning({ id: templates.documentId });
+    if (rows.length === 0) throw new ForbiddenError("this template is read-only for you");
+  }
+
+  /** Set or clear the type pages from this template get (owner or admin).
+   * Defaults belong to the type's fields, so a different type drops them. */
+  async setDefaultType(templateId: string, typeId: string | null): Promise<TemplateSummary> {
+    return this.exec(async (db) => {
+      const row = await this.definable(db, templateId);
+      if (typeId) {
+        const [type] = await db
+          .select({ workspaceId: documentTypes.workspaceId })
+          .from(documentTypes)
+          .where(eq(documentTypes.id, typeId));
+        if (type?.workspaceId !== row.workspaceId) throw new NotFoundError("type not found");
+      }
+      if (typeId === row.typeId) return toSummary(row);
+      await this.updateTemplate(db, templateId, { defaultTypeId: typeId, defaults: {} });
+      return toSummary({ ...row, typeId, defaults: {} });
+    });
+  }
+
+  /** Set or clear (null) the default of one field of the template's type
+   * (owner or admin). A literal is checked against the field and stored in
+   * its stored form; an empty literal clears the default. */
+  async setFieldDefault(templateId: string, fieldId: string, input: TemplateDefault | null): Promise<TemplateSummary> {
+    return this.exec(async (db) => {
+      const row = await this.definable(db, templateId);
+      if (!row.typeId) throw new InvalidInputError("give the template a type before setting defaults");
+      const [field] = await db
+        .select()
+        .from(typeFields)
+        .where(and(eq(typeFields.id, fieldId), eq(typeFields.typeId, row.typeId), isNull(typeFields.retiredAt)));
+      if (!field) throw new InvalidInputError("that field is not a live field of the template's type");
+      const normalized = input ? normalizeDefault(field, input) : { value: null };
+      if ("error" in normalized) throw new InvalidInputError(normalized.error);
+      const value = normalized.value;
+      if (value?.kind === "value" && (field.kind === "doc" || field.kind === "doc_list")) {
+        await assertPagesExist(db, row.workspaceId, [value.value].flat() as string[]);
+      }
+      // A per-field patch on the map, so two people setting different fields don't race.
+      await this.updateTemplate(db, templateId, {
+        defaults: value
+          ? sql`${templates.defaults} || jsonb_build_object(${fieldId}::text, ${JSON.stringify(value)}::jsonb)`
+          : sql`${templates.defaults} - ${fieldId}::text`,
+      });
+      const defaults = { ...row.defaults };
+      if (value) defaults[fieldId] = value;
+      else delete defaults[fieldId];
+      return toSummary({ ...row, defaults });
+    });
+  }
+
+  /** Add the starter types (Meeting, Project, Person) and their templates
+   * to the workspace, the templates in `collectionId` (owner or admin).
+   * Converges: whatever already exists by name is kept as it is. */
+  async addStarterKit(workspaceId: string, collectionId: string): Promise<StarterKitResult> {
+    return this.execTx((db) => seedStarterKit(db, this.actor, this.authorInfo(), workspaceId, collectionId));
   }
 
   /** `{{me}}`: the acting user's display name. Read system-side (the auth

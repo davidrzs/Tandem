@@ -1,3 +1,4 @@
+import { DEFAULT_EXPRESSIONS } from "@tandem/db";
 import { z } from "zod";
 
 /**
@@ -77,3 +78,14 @@ export const propertyPatchShape = {
 };
 export const propertyPatchSchema = z.object(propertyPatchShape);
 export type PropertyPatchInput = z.infer<typeof propertyPatchSchema>;
+
+/** One field's template default: a literal value (checked against the
+ * field's kind) or an expression evaluated when a page is created. Literals
+ * are scalars, or a list of option or page ids for list fields. */
+export const templateDefaultSchema = z.union([
+  z.object({
+    kind: z.literal("value"),
+    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()).max(INPUT_LIMITS.tags)]),
+  }),
+  z.object({ kind: z.enum(DEFAULT_EXPRESSIONS) }),
+]);

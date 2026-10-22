@@ -294,8 +294,32 @@ export interface UpdateFieldInput {
   options?: Array<{ id?: string; label: string }>;
 }
 
-const shortId = (prefix: string) =>
+export const shortId = (prefix: string) =>
   `${prefix}_${[...randomBytes(10)].map((b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("")}`;
+
+/** Types, fields, template defaults and the starter kit are defined by a
+ * workspace owner or admin (operator default 3). System actors pass. */
+export async function assertCanDefine(db: Database, actor: Actor, workspaceId: string): Promise<void> {
+  if (actor.kind !== "user") return;
+  const [m] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, actor.userId)));
+  if (m?.role !== "owner" && m?.role !== "admin") {
+    throw new ForbiddenError("only a workspace owner or admin can define types and fields");
+  }
+}
+
+/** Page references must name live pages of the workspace. */
+export async function assertPagesExist(db: Database, workspaceId: string, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const found = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(inArray(documents.id, [...ids]), eq(documents.workspaceId, workspaceId), isNull(documents.deletedAt)));
+  const missing = ids.find((id) => !found.some((d) => d.id === id));
+  if (missing) throw new InvalidInputError(`document ${missing} not found`);
+}
 
 interface Registry {
   types: DocumentType[];
@@ -337,17 +361,8 @@ export class TypeService {
     return this.actor.kind === "user" ? this.actor.userId : "system";
   }
 
-  private async assertAdmin(db: Database, workspaceId: string): Promise<void> {
-    if (this.actor.kind !== "user") return;
-    const [m] = await db
-      .select({ role: workspaceMembers.role })
-      .from(workspaceMembers)
-      .where(
-        and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, this.actor.userId)),
-      );
-    if (m?.role !== "owner" && m?.role !== "admin") {
-      throw new ForbiddenError("only a workspace owner or admin can define types and fields");
-    }
+  private assertAdmin(db: Database, workspaceId: string): Promise<void> {
+    return assertCanDefine(db, this.actor, workspaceId);
   }
 
   private async registry(db: Database, workspaceId: string): Promise<Registry> {
@@ -832,20 +847,7 @@ export class TypeService {
     if (twice) {
       throw new InvalidInputError(`${registry.fields.find((f) => f.id === twice)?.key} is changed twice in one patch`);
     }
-    if (refs.length > 0) {
-      const found = await db
-        .select({ id: documents.id })
-        .from(documents)
-        .where(
-          and(
-            inArray(documents.id, refs),
-            eq(documents.workspaceId, workspaceId),
-            isNull(documents.deletedAt),
-          ),
-        );
-      const missing = refs.find((id) => !found.some((d) => d.id === id));
-      if (missing) throw new InvalidInputError(`document ${missing} not found`);
-    }
+    await assertPagesExist(db, workspaceId, refs);
     return ops;
   }
 }

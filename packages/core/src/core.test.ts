@@ -13,10 +13,12 @@ import {
   user as userTable,
   workspaceMembers,
   type Actor,
+  type FieldKind,
+  type TemplateDefault,
   type TypeField,
 } from "@tandem/db";
 import { eq, sql } from "drizzle-orm";
-import { scanTaskItems } from "@tandem/editor";
+import { scanTaskItems, stateProperties } from "@tandem/editor";
 import { InvalidInputError, NotFoundError } from "./errors.js";
 import { CollectionService } from "./services/collections.js";
 import { CommentService } from "./services/comments.js";
@@ -27,6 +29,7 @@ import { DocumentService, normalizeTags } from "./services/documents.js";
 import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
+import { evaluateDefaults, normalizeDefault } from "./services/template-defaults.js";
 import { expandVariables, TemplateService } from "./services/templates.js";
 import { projectProperties, TypeService, type FieldDef } from "./services/types.js";
 import { WorkspaceService } from "./services/workspaces.js";
@@ -1661,4 +1664,240 @@ test("properties: a stored map is projected on save, trusting nothing in it", as
     properties: { [status.id]: opt(status, "Open") },
     issues: [{ fieldId: "f_ghost", code: "unknown_field", message: "no field has this id", value: "boo" }],
   });
+});
+
+test("template defaults: each expression and literal yields its stored value", () => {
+  const field = (id: string, kind: FieldKind, options: string[] = []): FieldDef => ({
+    id,
+    key: id,
+    kind,
+    options: options.map((label) => ({ id: `o_${label.toLowerCase()}`, label })),
+    retiredAt: null,
+  });
+  const fields = [
+    field("day", "date"),
+    field("at", "datetime"),
+    field("host", "text"),
+    field("people", "doc_list"),
+    field("status", "select", ["Planned", "Done"]),
+    field("tags", "multi_select", ["A", "B"]),
+    field("notes", "text"),
+    field("raw", "json"),
+  ];
+  const ann = "11111111-1111-4111-8111-111111111111";
+  const bob = "22222222-2222-4222-8222-222222222222";
+  const defaults: Record<string, TemplateDefault> = {
+    day: { kind: "today" },
+    at: { kind: "now" },
+    host: { kind: "me" },
+    people: { kind: "from_previous_sibling" },
+    status: { kind: "value", value: "o_planned" },
+    tags: { kind: "value", value: ["o_b"] },
+    raw: { kind: "value", value: { x: 1 } },
+  };
+  const ctx = {
+    today: "2026-10-22",
+    now: new Date("2026-10-22T09:30:00Z"),
+    me: "Tara",
+    previous: { people: [ann, bob], notes: "not copied" },
+  };
+  assert.deepEqual(evaluateDefaults(fields, defaults, ctx), [
+    { op: "set", field: "day", value: "2026-10-22" },
+    { op: "set", field: "at", value: "2026-10-22T09:30:00.000Z" },
+    { op: "set", field: "host", value: "Tara" },
+    { op: "setList", field: "people", values: [ann, bob] },
+    { op: "set", field: "status", value: "o_planned" },
+    { op: "setList", field: "tags", values: ["o_b"] },
+  ]);
+  assert.deepEqual(
+    evaluateDefaults([field("people", "doc_list")], defaults, { ...ctx, previous: null }),
+    [{ op: "setList", field: "people", values: [] }],
+    "no previous sibling: an empty list",
+  );
+  assert.deepEqual(
+    evaluateDefaults([field("day", "text")], { day: { kind: "today" } }, ctx),
+    [],
+    "an expression that no longer fits its field writes nothing",
+  );
+
+  assert.deepEqual(normalizeDefault(fields[4]!, { kind: "value", value: "done" }), {
+    value: { kind: "value", value: "o_done" },
+  });
+  assert.deepEqual(normalizeDefault(fields[5]!, { kind: "value", value: "A" }), {
+    value: { kind: "value", value: ["o_a"] },
+  });
+  assert.deepEqual(normalizeDefault(fields[4]!, { kind: "value", value: "" }), { value: null });
+  assert.deepEqual(normalizeDefault(fields[2]!, { kind: "today" }), {
+    error: "host is a text field and can't default to today",
+  });
+  assert.deepEqual(normalizeDefault(fields[4]!, { kind: "value", value: "Maybe" }), {
+    error: 'status: "Maybe" is not an option',
+  });
+});
+
+test("templates: a typed template sets the type and first values; attendees come from the latest sibling by date", async () => {
+  const { col, docs, templates } = await templateWorkspace("tt", "Tia");
+  const types = new TypeService(db, user("tt"));
+  const meeting = await types.createType(col.workspaceId, "Meeting");
+  const define = (key: string, kind: FieldKind, options?: string[]) =>
+    types.createField({ workspaceId: col.workspaceId, typeId: meeting.id, key, kind, options });
+  const date = await define("date", "date");
+  const attendees = await define("attendees", "doc_list");
+  const status = await define("status", "select", ["Planned", "Done"]);
+  const planned = status.options[0]!.id;
+  const ann = await docs.create({ collectionId: col.id, title: "Ann" });
+  const bob = await docs.create({ collectionId: col.id, title: "Bob" });
+  const cy = await docs.create({ collectionId: col.id, title: "Cy" });
+
+  const tpl = await docs.create({ collectionId: col.id, title: "Meeting {{date}}" });
+  await templates.templatize(tpl.id, "Meeting");
+  await templates.setDefaultType(tpl.id, meeting.id);
+  await templates.setFieldDefault(tpl.id, date.id, { kind: "today" });
+  await templates.setFieldDefault(tpl.id, attendees.id, { kind: "from_previous_sibling" });
+  const summary = await templates.setFieldDefault(tpl.id, status.id, { kind: "value", value: "planned" });
+  assert.equal(summary.typeId, meeting.id);
+  assert.deepEqual(summary.defaults, {
+    [date.id]: { kind: "today" },
+    [attendees.id]: { kind: "from_previous_sibling" },
+    [status.id]: { kind: "value", value: planned },
+  });
+  assert.deepEqual((await templates.list(col.workspaceId))[0]!.defaults, summary.defaults);
+  await assert.rejects(
+    () => templates.setFieldDefault(tpl.id, attendees.id, { kind: "now" }),
+    /attendees is a doc_list field and can't default to now/,
+  );
+
+  const series = await docs.create({ collectionId: col.id, title: "Weekly sync" });
+  const meetingOn = async (day: string) =>
+    (
+      await templates.instantiate({
+        templateId: tpl.id,
+        collectionId: col.id,
+        parentDocumentId: series.id,
+        variables: { date: day },
+      })
+    ).document!;
+
+  const first = await meetingOn("2026-10-01");
+  assert.equal(first.title, "Meeting 2026-10-01");
+  assert.equal(first.typeId, meeting.id);
+  assert.deepEqual(first.origin, { templateId: tpl.id, version: summary.version });
+  assert.deepEqual(first.properties, { [date.id]: "2026-10-01", [status.id]: planned });
+  assert.deepEqual(
+    stateProperties(first.ydocState!),
+    { [date.id]: "2026-10-01", [attendees.id]: [], [status.id]: planned },
+    "the first meeting has nobody to copy: its attendee list starts empty",
+  );
+  await docs.editProperties(first.id, await types.planPatch(first.id, { set: { attendees: [ann.id, bob.id] } }));
+
+  const earlier = await meetingOn("2026-09-15");
+  assert.deepEqual(earlier.properties[attendees.id], [ann.id, bob.id]);
+  await docs.editProperties(earlier.id, await types.planPatch(earlier.id, { set: { attendees: [cy.id] } }));
+
+  const third = await meetingOn("2026-10-08");
+  assert.deepEqual(
+    third.properties,
+    { [date.id]: "2026-10-08", [attendees.id]: [ann.id, bob.id], [status.id]: planned },
+    "the latest sibling by date, not the latest created",
+  );
+
+  const elsewhere = await templates.instantiate({ templateId: tpl.id, collectionId: col.id, variables: { date: "2026-10-09" } });
+  assert.deepEqual(
+    elsewhere.document!.properties,
+    { [date.id]: "2026-10-09", [status.id]: planned },
+    "meetings under another parent are not siblings",
+  );
+
+  const untyped = await templates.setDefaultType(tpl.id, null);
+  assert.deepEqual([untyped.typeId, untyped.defaults], [null, {}]);
+  const plain = await meetingOn("2026-10-15");
+  assert.deepEqual([plain.typeId, plain.properties], [null, {}]);
+  assert.deepEqual(
+    (await docs.get(third.id))!.properties,
+    { [date.id]: "2026-10-08", [attendees.id]: [ann.id, bob.id], [status.id]: planned },
+    "template changes never reach older pages",
+  );
+});
+
+test("starter kit: Meeting, Project and Person are added once; running it again adds nothing", async () => {
+  const { col, tree, templates } = await templateWorkspace("sk", "Sky");
+  const types = new TypeService(db, user("sk"));
+  const snapshot = async () => {
+    const registry = await types.listTypes(col.workspaceId);
+    const list = await templates.list(col.workspaceId);
+    return {
+      types: registry.map((t) => [t.name, t.fields.map((f) => [f.key, f.kind, f.options.map((o) => o.label)])]),
+      templates: list.map((t) => {
+        const type = registry.find((r) => r.id === t.typeId);
+        return [
+          t.name,
+          type?.name,
+          (type?.fields ?? [])
+            .filter((f) => f.id in t.defaults)
+            .map((f) => {
+              const d = t.defaults[f.id]!;
+              return [f.key, d.kind === "value" ? f.options.find((o) => o.id === d.value)?.label : d.kind];
+            }),
+        ];
+      }),
+      pages: (await tree.tree(col.id)).map((n) => [
+        n.title,
+        n.children.map((c) => [c.title, list.find((t) => t.id === c.defaultTemplateId)?.name]),
+      ]),
+    };
+  };
+
+  assert.deepEqual(await templates.addStarterKit(col.workspaceId, col.id), {
+    types: ["Meeting", "Project", "Person"],
+    templates: ["Meeting", "Project", "Person"],
+  });
+  const seeded = await snapshot();
+  assert.deepEqual(seeded, {
+    types: [
+      ["Meeting", [["date", "date", []], ["attendees", "doc_list", []], ["status", "select", ["Planned", "Done"]]]],
+      ["Person", [["email", "text", []], ["affiliation", "text", []], ["aliases", "text", []]]],
+      ["Project", [["status", "select", ["Idea", "Active", "Paused", "Killed"]], ["next_review", "date", []], ["next_action", "text", []]]],
+    ],
+    templates: [
+      ["Meeting", "Meeting", [["date", "today"], ["attendees", "from_previous_sibling"], ["status", "Planned"]]],
+      ["Person", "Person", []],
+      ["Project", "Project", [["status", "Idea"]]],
+    ],
+    pages: [
+      ["Meeting {{date}}", []],
+      ["New project", [["Meetings", "Meeting"]]],
+      ["New person", []],
+    ],
+  });
+
+  assert.deepEqual(await templates.addStarterKit(col.workspaceId, col.id), { types: [], templates: [] });
+  assert.deepEqual(await snapshot(), seeded, "a second run changes nothing");
+
+  await assert.rejects(
+    () => new TemplateService(db, user("u1")).addStarterKit(col.workspaceId, col.id),
+    /owner or admin/,
+  );
+});
+
+test("starter kit: a workspace's own Meeting type is kept and only gains the missing fields", async () => {
+  const { col, templates } = await templateWorkspace("sk2", "Sam");
+  const types = new TypeService(db, user("sk2"));
+  const own = await types.createType(col.workspaceId, "meeting");
+  await types.createField({ workspaceId: col.workspaceId, typeId: own.id, key: "Date", kind: "text" });
+
+  assert.deepEqual(await templates.addStarterKit(col.workspaceId, col.id), {
+    types: ["Project", "Person"],
+    templates: ["Meeting", "Project", "Person"],
+  });
+  const meeting = (await types.listTypes(col.workspaceId)).find((t) => t.id === own.id)!;
+  assert.deepEqual(
+    [meeting.name, meeting.fields.map((f) => [f.key, f.kind])],
+    ["meeting", [["Date", "text"], ["attendees", "doc_list"], ["status", "select"]]],
+  );
+  const template = (await templates.list(col.workspaceId)).find((t) => t.name === "Meeting")!;
+  assert.deepEqual(
+    meeting.fields.filter((f) => f.id in template.defaults).map((f) => f.key),
+    ["attendees", "status"],
+    "a text Date can't default to today, so it gets no default",
+  );
 });
