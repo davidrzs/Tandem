@@ -1,11 +1,33 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { templateVariablesSchema } from "@tandem/core";
+import { templateVariablesSchema, type TemplateSummary, type TypeWithFields } from "@tandem/core";
 import { json, type ToolContext } from "../shared.js";
 
 /** Template listing and instantiation. */
 export function registerTemplateTools(server: McpServer, ctx: ToolContext): void {
-  const { services, publicDoc, documentUrl, logAudit } = ctx;
+  const { services, publicDoc, publicProperties, documentUrl, logAudit } = ctx;
+
+  /** A template's type and defaults as agents read them: field keys, option
+   * labels, and expressions by name. */
+  const publicTemplate = (t: TemplateSummary, types: readonly TypeWithFields[]) => {
+    const type = types.find((ty) => ty.id === t.typeId);
+    const defaults: Record<string, unknown> = {};
+    for (const field of type?.fields ?? []) {
+      const d = t.defaults[field.id];
+      if (!d) continue;
+      const label = (id: unknown) => field.options.find((o) => o.id === id)?.label ?? id;
+      defaults[field.key] =
+        d.kind !== "value"
+          ? d.kind
+          : { value: Array.isArray(d.value) ? d.value.map(label) : label(d.value) };
+    }
+    return {
+      ...t,
+      type: type ? { id: type.id, name: type.name } : null,
+      defaults,
+      url: documentUrl(t.id),
+    };
+  };
 
   server.registerTool(
     "list_templates",
@@ -14,13 +36,19 @@ export function registerTemplateTools(server: McpServer, ctx: ToolContext): void
       description:
         "List page templates. A template is an ordinary document (read or edit it " +
         "with the document tools at its url); its child pages are copied with it. " +
+        "A template may give new pages a type and default values by field key: " +
+        '{"value": ...} is a literal, "today" and "now" the moment of creation, "me" ' +
+        'the creator\'s name, and "from_previous_sibling" the same field on the latest ' +
+        "page of the type under the same parent (by its date field, else newest). " +
         "Templates never appear in search, backlinks, recent documents or tasks.",
       inputSchema: { workspaceId: z.string().uuid().optional() },
     },
-    async ({ workspaceId }) =>
-      json(
-        (await services.templates.list(workspaceId)).map((t) => ({ ...t, url: documentUrl(t.id) })),
-      ),
+    async ({ workspaceId }) => {
+      const list = await services.templates.list(workspaceId);
+      const types = new Map<string, TypeWithFields[]>();
+      for (const id of new Set(list.map((t) => t.workspaceId))) types.set(id, await services.types.listTypes(id));
+      return json(list.map((t) => publicTemplate(t, types.get(t.workspaceId)!)));
+    },
   );
 
   server.registerTool(
@@ -34,7 +62,9 @@ export function registerTemplateTools(server: McpServer, ctx: ToolContext): void
         "Built-in variables {{date}} (YYYY-MM-DD), {{title}}, {{me}} and {{parent}} " +
         "are filled in; any other {{name}} is a prompt answered through variables " +
         "(a variable also overrides a built-in). Unanswered prompts become empty and " +
-        "are listed in missing. dryRun returns the expanded pages and creates nothing.",
+        "are listed in missing. A typed template gives the page its type and default " +
+        "values (the date default follows {{date}}); the returned document carries " +
+        "the committed properties. dryRun returns the expanded pages and creates nothing.",
       inputSchema: {
         templateId: z.string().uuid().optional(),
         collectionId: z.string().uuid(),
@@ -60,7 +90,16 @@ export function registerTemplateTools(server: McpServer, ctx: ToolContext): void
             : `"${document.title}" (blank)`,
         );
       }
-      return json({ ...plan, document: document ? publicDoc(document) : null });
+      const template = plan.template
+        ? publicTemplate(plan.template, await services.types.listTypes(plan.template.workspaceId))
+        : null;
+      return json({
+        ...plan,
+        template,
+        document: document
+          ? { ...publicDoc(document), ...publicProperties(await services.types.view(document.id)) }
+          : null,
+      });
     },
   );
 }

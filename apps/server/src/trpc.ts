@@ -17,6 +17,7 @@ import {
   positionSchema,
   propertyPatchShape,
   tagsSchema,
+  templateDefaultSchema,
   templateVariablesSchema,
   titleSchema,
 } from "@tandem/core";
@@ -572,6 +573,35 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const { document, ...plan } = await ctx.services.templates.instantiate(input);
         return { ...plan, documentId: document?.id ?? null };
+      }),
+
+    // A template's type and default values: owner or admin (service-checked).
+    setDefaultType: protectedProcedure
+      .input(z.object({ templateId: uuid, typeId: uuid.nullable() }))
+      .mutation(({ ctx, input }) => ctx.services.templates.setDefaultType(input.templateId, input.typeId)),
+
+    setFieldDefault: protectedProcedure
+      .input(z.object({ templateId: uuid, fieldId: fieldKeySchema, default: templateDefaultSchema.nullable() }))
+      .mutation(({ ctx, input }) =>
+        ctx.services.templates.setFieldDefault(input.templateId, input.fieldId, input.default),
+      ),
+
+    // The Type menu's "Add starter types": Meeting, Project and Person with
+    // their templates; a second run adds nothing.
+    addStarterKit: protectedProcedure
+      .input(z.object({ workspaceId: uuid, collectionId: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const added = await ctx.services.templates.addStarterKit(input.workspaceId, input.collectionId);
+        if (added.types.length + added.templates.length > 0) {
+          await ctx.services.settings.recordAudit({
+            workspaceId: input.workspaceId,
+            userId: ctx.user.id,
+            ai: false,
+            action: "add_starter_kit",
+            detail: `types: ${added.types.join(", ") || "none"}; templates: ${added.templates.join(", ") || "none"}`,
+          });
+        }
+        return added;
       }),
   }),
 

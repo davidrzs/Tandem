@@ -9,7 +9,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
 import { TypeService, WorkspaceService } from "@tandem/core";
-import { getAuthors } from "@tandem/editor";
+import { getAuthors, propertyBlame } from "@tandem/editor";
 import * as Y from "yjs";
 import { readImageBytes, verifyImageUploadToken } from "./images.js";
 import { createServices } from "./services.js";
@@ -938,4 +938,83 @@ test("properties over MCP: create_document with type and values, set_properties,
     }),
   );
   assert.deepEqual(untyped.properties, { budget: 50 });
+});
+
+interface TypedPage {
+  id: string;
+  name?: string;
+  title?: string;
+  type: { id: string; name: string } | null;
+  defaults?: Record<string, unknown>;
+  properties?: Record<string, unknown>;
+}
+
+// Its own workspace: list_fields assertions elsewhere read the whole of u1's.
+test("typed templates over MCP: list_templates shows type and defaults; create_from_template returns the committed values", async () => {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "Series", slug: "u1-series" });
+  const col = payload(
+    await client.callTool({
+      name: "create_collection",
+      arguments: { workspaceId: ws.id, name: "Series", slug: "series" },
+    }),
+  );
+  const sync = await services.types.createType(ws.id, "Sync");
+  const define = (key: string, kind: "date" | "doc_list" | "select", options?: string[]) =>
+    services.types.createField({ workspaceId: ws.id, typeId: sync.id, key, kind, options });
+  const date = await define("date", "date");
+  const attendees = await define("attendees", "doc_list");
+  const status = await define("status", "select", ["Planned", "Done"]);
+  const tpl = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Sync {{date}}" } }),
+  );
+  await services.templates.templatize(tpl.id, "Sync");
+  await services.templates.setDefaultType(tpl.id, sync.id);
+  await services.templates.setFieldDefault(tpl.id, date.id, { kind: "today" });
+  await services.templates.setFieldDefault(tpl.id, attendees.id, { kind: "from_previous_sibling" });
+  await services.templates.setFieldDefault(tpl.id, status.id, { kind: "value", value: "Planned" });
+
+  const listed: TypedPage[] = payload(
+    await client.callTool({ name: "list_templates", arguments: { workspaceId: ws.id } }),
+  );
+  const meeting = listed.find((t) => t.name === "Sync")!;
+  assert.deepEqual([meeting.type, meeting.defaults], [
+    { id: sync.id, name: "Sync" },
+    { date: "today", attendees: "from_previous_sibling", status: { value: "Planned" } },
+  ]);
+
+  const create = async (args: Record<string, unknown>): Promise<TypedPage> =>
+    payload(await client.callTool({ name: "create_from_template", arguments: { collectionId: col.id, ...args } }))
+      .document;
+  const ann = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Ann" } }),
+  );
+  const series = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Weekly sync" } }),
+  );
+
+  const first = await create({ templateId: meeting.id, parentId: series.id, variables: { date: "2026-03-02" } });
+  assert.deepEqual(first.properties, { date: "2026-03-02", status: "Planned" });
+  await client.callTool({ name: "set_properties", arguments: { id: first.id, set: { attendees: [ann.id] } } });
+
+  const second = await create({ templateId: meeting.id, parentId: series.id, variables: { date: "2026-03-09" } });
+  assert.deepEqual(second.type, { id: sync.id, name: "Sync" });
+  assert.deepEqual(second.properties, {
+    date: "2026-03-09",
+    attendees: [{ id: ann.id, title: "Ann", url: `http://app.test/d/${ann.id}` }],
+    status: "Planned",
+  });
+  assert.deepEqual(
+    payload(await client.callTool({ name: "get_document", arguments: { id: second.id } })).properties,
+    second.properties,
+    "what create returns is what a read of the page returns",
+  );
+
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, (await services.documents.get(second.id))!.ydocState!);
+  const authors = getAuthors(doc);
+  assert.deepEqual(
+    [...new Set(propertyBlame(doc).map((b) => `${authors.get(b.clientId)?.userId} ai=${authors.get(b.clientId)?.ai}`))],
+    ["u1 ai=true"],
+    "the values are the creating agent's writing",
+  );
 });
