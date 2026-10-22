@@ -216,6 +216,21 @@ as **you** (blame), in one attributed edit per document. Non-image attachments
 and SVGs are skipped (SVG is a script vector), and unresolved links are left
 as-is and reported in the summary.
 
+Properties travel as YAML front matter. An export writes each page's values
+(option labels, page references as `"[[Title]]"`, ISO dates) in its type's
+field order and then alphabetically, with the page's `tandem-id` and
+`tandem-type`, and describes every type and field in `_tandem/fields.json` at
+the zip root. An import keeps front matter as properties: with that file the
+kinds and options come back exactly; without it (an Obsidian vault) each key
+gets one kind across the whole vault, values that disagree become text, and
+nested values become read-only JSON. Keys that match a field (or a field's
+old key) land on it; others become new fields, which needs an owner or
+admin. Re-importing an export into the same workspace updates the pages it
+came from, field by field, instead of copying them: a changed value is one
+change, a deleted key clears its field, and titles, tags and bodies stay as
+they are. YAML comments and formatting are not kept, and the summary names
+the files that had comments.
+
 ## Development
 
 ```bash
