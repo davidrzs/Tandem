@@ -13,6 +13,7 @@ import {
   NotificationService,
   SettingsService,
   SnapshotService,
+  TemplateService,
   WorkspaceService,
 } from "@tandem/core";
 
@@ -32,6 +33,7 @@ export interface Services {
   notifications: NotificationService;
   settings: SettingsService;
   snapshots: SnapshotService;
+  templates: TemplateService;
 }
 
 /**
@@ -61,5 +63,6 @@ export function createServices(
     notifications: new NotificationService(db, actor),
     settings: new SettingsService(db, actor),
     snapshots: new SnapshotService(db, actor),
+    templates: new TemplateService(db, actor, author),
   };
 }

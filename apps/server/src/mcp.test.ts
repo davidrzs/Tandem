@@ -70,6 +70,7 @@ test("tools are advertised", async () => {
     "archive_document",
     "create_collection",
     "create_document",
+    "create_from_template",
     "edit_document",
     "get_authors",
     "get_document",
@@ -81,6 +82,7 @@ test("tools are advertised", async () => {
     "list_documents",
     "list_members",
     "list_tags",
+    "list_templates",
     "list_versions",
     "move_document",
     "my_tasks",
@@ -105,6 +107,59 @@ test("oversized inputs are rejected by the shared limits", async () => {
     .catch((e: Error) => ({ isError: true, content: [{ text: e.message }] }));
   assert.ok(res.isError, "title over the limit is refused");
   assert.match(JSON.stringify(res.content), /500|too_big|at most/i);
+});
+
+test("templates over MCP: list_templates, then create_from_template with and without dryRun", async () => {
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { name: "Rituals", slug: "rituals" } }),
+  );
+  const tpl = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: { collectionId: col.id, title: "Standup {{date}}", markdown: "Hi {{me}}, client {{client}}" },
+    }),
+  );
+  await client.callTool({
+    name: "create_document",
+    arguments: { collectionId: col.id, parentDocumentId: tpl.id, title: "Agenda", markdown: "For {{parent}}" },
+  });
+  await services.templates.templatize(tpl.id, "Standup");
+
+  const listed = payload(await client.callTool({ name: "list_templates", arguments: {} }));
+  assert.deepEqual(
+    listed.map((t: any) => [t.name, t.url]),
+    [["Standup", `http://app.test/d/${tpl.id}`]],
+  );
+
+  const dry = payload(
+    await client.callTool({
+      name: "create_from_template",
+      arguments: { templateId: tpl.id, collectionId: col.id, variables: { date: "2026-03-04" }, dryRun: true },
+    }),
+  );
+  assert.equal(dry.document, null);
+  assert.deepEqual(dry.missing, ["client"]);
+  assert.deepEqual(dry.page, {
+    title: "Standup 2026-03-04",
+    markdown: "Hi User One, client ",
+    children: [{ title: "Agenda", markdown: "For Standup 2026-03-04", children: [] }],
+  });
+  assert.equal((await services.documentTree.tree(col.id)).length, 1, "the dry run created nothing");
+
+  await services.templates.setDefault({ collectionId: col.id }, tpl.id);
+  const made = payload(
+    await client.callTool({
+      name: "create_from_template",
+      arguments: { collectionId: col.id, variables: { date: "2026-03-04", client: "Acme" } },
+    }),
+  );
+  assert.equal(made.template.id, tpl.id, "no templateId: the collection default");
+  assert.deepEqual(made.missing, []);
+  assert.equal(made.document.title, "Standup 2026-03-04");
+  assert.equal(made.document.url, `http://app.test/d/${made.document.id}`);
+  assert.equal((await services.documents.get(made.document.id))!.contentMd, "Hi User One, client Acme");
+  const copied = await services.documentTree.subtree(made.document.id, 5);
+  assert.deepEqual(copied.nodes.map((n) => n.title), ["Agenda"]);
 });
 
 test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async () => {

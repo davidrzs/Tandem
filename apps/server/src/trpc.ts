@@ -14,6 +14,8 @@ import {
   NotFoundError,
   positionSchema,
   tagsSchema,
+  templateVariablesSchema,
+  titleSchema,
 } from "@tandem/core";
 import { stateToJSON } from "@tandem/editor";
 import type { Services } from "./services.js";
@@ -470,6 +472,58 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => {
         const { query, ...opts } = input;
         return ctx.services.documentQueries.search(query, opts);
+      }),
+  }),
+
+  templates: t.router({
+    list: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.templates.list(input.workspaceId)),
+
+    defaultFor: protectedProcedure
+      .input(z.object({ collectionId: uuid, parentDocumentId: uuid.nullable() }))
+      .query(({ ctx, input }) =>
+        ctx.services.templates.defaultFor(input.collectionId, input.parentDocumentId),
+      ),
+
+    templatize: protectedProcedure
+      .input(z.object({ documentId: uuid, name: titleSchema }))
+      .mutation(({ ctx, input }) => ctx.services.templates.templatize(input.documentId, input.name)),
+
+    untemplatize: protectedProcedure
+      .input(z.object({ documentId: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        if (!(await ctx.services.templates.untemplatize(input.documentId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You cannot change this template." });
+        }
+      }),
+
+    setDefault: protectedProcedure
+      .input(
+        z.object({
+          target: z.union([z.object({ collectionId: uuid }), z.object({ documentId: uuid })]),
+          templateId: uuid.nullable(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (!(await ctx.services.templates.setDefault(input.target, input.templateId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You cannot change this default." });
+        }
+      }),
+
+    instantiate: protectedProcedure
+      .input(
+        z.object({
+          templateId: uuid.nullable().optional(),
+          collectionId: uuid,
+          parentDocumentId: uuid.nullable().optional(),
+          variables: templateVariablesSchema.optional(),
+          dryRun: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { document, ...plan } = await ctx.services.templates.instantiate(input);
+        return { ...plan, documentId: document?.id ?? null };
       }),
   }),
 

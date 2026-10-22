@@ -5,6 +5,7 @@ import { registerCommentTools } from "./mcp/tools/comments.js";
 import { registerEditTools } from "./mcp/tools/edits.js";
 import { registerImageTools } from "./mcp/tools/images.js";
 import { registerDiscoveryTools, registerReadTools } from "./mcp/tools/read.js";
+import { registerTemplateTools } from "./mcp/tools/templates.js";
 import { registerVersionTools } from "./mcp/tools/versions.js";
 import { registerCreateTools, registerLifecycleTools } from "./mcp/tools/write.js";
 import type { Services } from "./services.js";
@@ -39,6 +40,7 @@ export function createMcpServer(services: Services, options: McpServerOptions): 
   registerDiscoveryTools(server, ctx);
   registerCommentTools(server, ctx);
   registerVersionTools(server, ctx);
+  registerTemplateTools(server, ctx);
 
   return server;
 }
