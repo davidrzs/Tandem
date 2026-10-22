@@ -71,6 +71,23 @@ created. The new page remembers which template and version it came from, and
 later edits to the template never change it. Templates and their sub-pages are
 left out of search, backlinks, recents, tags, tasks and Home.
 
+## Types and properties
+
+A page can have a type (Meeting, Project) and typed properties: text,
+number, checkbox, date, date and time, select, multi-select, URL, a page
+reference, a list of page references, and read-only imported JSON. A
+workspace owner or admin defines types and their fields, plus ad-hoc fields
+any page can hold; every definition change is in the workspace audit log.
+Detaching a page's type keeps its values.
+
+Values live in the page's collaborative document, one entry per field, so
+they merge field by field when people and agents edit at once, carry blame
+like the body, and come back when a version is restored. Every write changes
+single fields; nothing rewrites the whole set. The server validates values
+when it saves the page: one that no longer fits its field (after a kind
+change, say) is kept and reported, never dropped. Property text is searchable.
+Renaming a field keeps its old key working.
+
 ## Authorship model (how blame works)
 
 Attribution lives in the Yjs layer, not in markdown: every inserted fragment
@@ -110,6 +127,14 @@ its edits are blamed to your AI). The agent has colleague-level access:
   optional: the target folder's default, as **+** in the app; `variables`
   answers the template's prompts; `dryRun` returns the expanded pages without
   creating anything).
+- **Properties**: `get_document` returns `type`, `properties` (display values
+  by field key; page references as `{id, title, url}`) and `property_issues`
+  beside `markdown`, never inside it. `set_properties` takes a patch (`set`,
+  `unset`, `add`, `remove`) by field key; keys and option labels match
+  case-insensitively, and an unknown key is an error listing the page's
+  fields (agents can't define fields). `create_document` takes `type` and
+  `properties`; `list_types` and `list_fields` describe the schema. Property
+  writes are audited.
 
 `list_documents` is intentionally bounded for agent context windows: it returns
 a flat, compact page (`id`, `title`, `path`, `tags`, `updatedAt`, `url`),
@@ -136,8 +161,9 @@ each tag with its document count.
   `my_tasks` (to-dos assigned to the human the agent acts for);
   `list_members` (names and `@handles` for assigning and mentioning).
 - **History & blame**: `list_versions`, `read_version` (a past version's
-  markdown), and `get_authors` — the blame view as data: every span of text
-  attributed to the human or AI session that wrote it.
+  markdown and properties), and `get_authors` — the blame view as data: every
+  span of text and every property value attributed to the human or AI
+  session that wrote it.
 
 Document, collection, and comment objects returned by MCP include an absolute
 `url` for handing a clickable link back to the user. These canonical links are
