@@ -1,11 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { documentCreateShape, documentMoveShape } from "@tandem/core";
+import { documentCreateShape, documentMoveShape, nameSchema, propertyPatchShape } from "@tandem/core";
 import { frontMatterError, json, type ToolContext } from "../shared.js";
 
 /** Document creation. */
 export function registerCreateTools(server: McpServer, ctx: ToolContext): void {
-  const { documents, publicDoc, logAudit } = ctx;
+  const { services, documents, publicDoc, publicProperties, logAudit } = ctx;
 
   server.registerTool(
     "create_document",
@@ -13,15 +13,23 @@ export function registerCreateTools(server: McpServer, ctx: ToolContext): void {
       title: "Create document",
       description:
         "Create a document in a collection. Body is markdown without YAML front " +
-        "matter; parentDocumentId nests it. Returns its absolute canonical url.",
-      inputSchema: documentCreateShape,
+        "matter; parentDocumentId nests it. type (name or id, see list_types) makes " +
+        "it a page of that type; properties sets initial values by field key, as " +
+        "set_properties' set does. Returns its absolute canonical url.",
+      inputSchema: {
+        ...documentCreateShape,
+        type: nameSchema.optional(),
+        properties: propertyPatchShape.set,
+      },
     },
-    async (args) => {
+    async ({ type, properties, ...args }) => {
       const rejected = frontMatterError(args.markdown);
       if (rejected) return rejected;
-      const doc = await documents.create(args);
+      const planned = await services.types.planCreate(args.collectionId, { type, properties });
+      const doc = await documents.create({ ...args, typeId: planned.typeId, properties: planned.ops });
       logAudit("create_document", doc);
-      return json(publicDoc(doc));
+      if (!type && !properties) return json(publicDoc(doc));
+      return json({ ...publicDoc(doc), ...publicProperties(await services.types.view(doc.id)) });
     },
   );
 }

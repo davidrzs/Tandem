@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
-import { WorkspaceService } from "@tandem/core";
+import { TypeService, WorkspaceService } from "@tandem/core";
 import { getAuthors } from "@tandem/editor";
 import * as Y from "yjs";
 import { readImageBytes, verifyImageUploadToken } from "./images.js";
@@ -80,9 +80,11 @@ test("tools are advertised", async () => {
     "list_collections",
     "list_comments",
     "list_documents",
+    "list_fields",
     "list_members",
     "list_tags",
     "list_templates",
+    "list_types",
     "list_versions",
     "move_document",
     "my_tasks",
@@ -93,6 +95,7 @@ test("tools are advertised", async () => {
     "resolve_comment",
     "restore_document",
     "search_documents",
+    "set_properties",
     "update_document",
     "upload_image",
   ]);
@@ -509,7 +512,8 @@ function errorText(res: unknown): string {
 test("markdown that opens with YAML front matter is refused, not stored as a rule and heading", async () => {
   const message =
     "markdown starts with a YAML front matter block (---). Properties are not part of the " +
-    "markdown body: send the body without the front matter block.";
+    "markdown body: send the body without the front matter block, and set the values with " +
+    "set_properties (or create_document's properties).";
   const col = payload(
     await client.callTool({ name: "create_collection", arguments: { name: "Props", slug: "props" } }),
   );
@@ -826,4 +830,112 @@ test("create_collection without workspaceId is ambiguous once the actor has two 
   });
   assert.equal(upload.isError, true);
   assert.match(upload.content[0].text, /more than one workspace/);
+});
+
+test("properties over MCP: create_document with type and values, set_properties, and get_document agree", async () => {
+  const ws = (await services.workspaces.listMine()).find((w) => w.slug === "u1")!;
+  const col = payload(
+    await client.callTool({
+      name: "create_collection",
+      arguments: { workspaceId: ws.id, name: "Projects", slug: "projects" },
+    }),
+  );
+  const types = new TypeService(db, { kind: "user", userId: "u1" });
+  const project = await types.createType(ws.id, "Project");
+  const stage = await types.createField({
+    workspaceId: ws.id,
+    typeId: project.id,
+    key: "stage",
+    kind: "select",
+    options: ["Idea", "Active", "Done"],
+  });
+  const owners = await types.createField({
+    workspaceId: ws.id,
+    typeId: project.id,
+    key: "owners",
+    kind: "multi_select",
+    options: ["Ann", "Bob"],
+  });
+  const budget = await types.createField({ workspaceId: ws.id, typeId: null, key: "budget", kind: "number" });
+  const brief = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Brief" } }),
+  );
+
+  const created = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: {
+        collectionId: col.id,
+        title: "Apollo",
+        markdown: "Plan.",
+        type: "project",
+        properties: { Stage: "idea", owners: ["ann"] },
+      },
+    }),
+  );
+  assert.deepEqual(
+    { type: created.type, properties: created.properties, property_issues: created.property_issues },
+    {
+      type: { id: project.id, name: "Project" },
+      properties: { stage: "Idea", owners: ["Ann"] },
+      property_issues: [],
+    },
+  );
+
+  const set = payload(
+    await client.callTool({
+      name: "set_properties",
+      arguments: { id: created.id, set: { stage: "Active", budget: "1200" }, add: { owners: "Bob" } },
+    }),
+  );
+  assert.deepEqual(set, {
+    id: created.id,
+    url: `http://app.test/d/${created.id}`,
+    type: { id: project.id, name: "Project" },
+    properties: { stage: "Active", owners: ["Ann", "Bob"], budget: 1200 },
+    property_issues: [],
+  });
+
+  const doc = payload(await client.callTool({ name: "get_document", arguments: { id: created.id } }));
+  assert.equal(doc.markdown, "Plan.");
+  assert.deepEqual(doc.properties, set.properties);
+
+  const fields = payload(
+    await client.callTool({ name: "list_fields", arguments: { workspaceId: ws.id } }),
+  );
+  assert.deepEqual(
+    fields.map((f: any) => [f.key, f.kind, f.type, f.options ?? null]),
+    [
+      ["stage", "select", "Project", ["Idea", "Active", "Done"]],
+      ["owners", "multi_select", "Project", ["Ann", "Bob"]],
+      ["budget", "number", null, null],
+    ],
+  );
+  assert.deepEqual(
+    [stage.id, owners.id, budget.id].map((id) => fields.find((f: any) => f.id === id)?.key),
+    ["stage", "owners", "budget"],
+  );
+
+  const unknown = await client.callTool({
+    name: "set_properties",
+    arguments: { id: created.id, set: { priority: "high" } },
+  });
+  assert.equal(
+    errorText(unknown),
+    'unknown field "priority". Fields this page can take: stage (select: Idea, Active, Done); ' +
+      "owners (multi_select: Ann, Bob); budget (number). Only a workspace owner or admin can define new fields.",
+  );
+  assert.deepEqual(
+    (await types.listFields(ws.id)).map((f) => f.key),
+    ["stage", "owners", "budget"],
+    "no field was created",
+  );
+
+  const untyped = payload(
+    await client.callTool({
+      name: "set_properties",
+      arguments: { id: brief.id, set: { budget: 50 } },
+    }),
+  );
+  assert.deepEqual(untyped.properties, { budget: 50 });
 });

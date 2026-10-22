@@ -8,15 +8,18 @@ import {
   documentSearchShape,
   documentUpdateShape,
   DocumentWriteDeniedError,
+  fieldKeySchema,
   ForbiddenError,
   InvalidInputError,
   nameSchema,
   NotFoundError,
   positionSchema,
+  propertyPatchShape,
   tagsSchema,
   templateVariablesSchema,
   titleSchema,
 } from "@tandem/core";
+import { FIELD_KINDS } from "@tandem/db";
 import { stateToJSON } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
@@ -461,6 +464,39 @@ export const appRouter = t.router({
         }
       }),
 
+    properties: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(({ ctx, input }) => ctx.services.types.view(input.id)),
+
+    // Attach a type, or detach with null; detaching keeps every value.
+    setType: protectedProcedure
+      .input(z.object({ id: uuid, typeId: uuid.nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!(await ctx.services.types.setDocumentType(input.id, input.typeId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+        }
+        ctx.notifyDocument?.(input.id, "meta");
+        return ctx.services.types.view(input.id);
+      }),
+
+    // A per-field patch through the live doc as the human, like restore.
+    setProperties: protectedProcedure
+      .input(z.object({ id: uuid, ...propertyPatchShape }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        const ops = await ctx.services.types.planPatch(id, patch);
+        try {
+          if (ctx.collabWriter) await ctx.collabWriter.setProperties(id, ops);
+          else await ctx.services.documents.editProperties(id, ops);
+        } catch (err) {
+          if (err instanceof DocumentWriteDeniedError) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+          }
+          throw err;
+        }
+        return ctx.services.types.view(id);
+      }),
+
     backlinks: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documentQueries.backlinks(input.id)),
@@ -524,6 +560,123 @@ export const appRouter = t.router({
       .mutation(async ({ ctx, input }) => {
         const { document, ...plan } = await ctx.services.templates.instantiate(input);
         return { ...plan, documentId: document?.id ?? null };
+      }),
+  }),
+
+  // Types and fields: any member reads them; defining them is owner/admin
+  // only (service + RLS) and audited, since an option rename silently
+  // changes what every page holding it says.
+  types: t.router({
+    list: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.types.listTypes(input.workspaceId)),
+
+    fields: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.types.listFields(input.workspaceId)),
+
+    create: protectedProcedure
+      .input(z.object({ workspaceId: uuid, name: nameSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const type = await ctx.services.types.createType(input.workspaceId, input.name);
+        await ctx.services.settings.recordAudit({
+          workspaceId: type.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "define_type",
+          detail: `type "${type.name}"`,
+        });
+        return type;
+      }),
+
+    rename: protectedProcedure
+      .input(z.object({ id: uuid, name: nameSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const type = await ctx.services.types.renameType(input.id, input.name);
+        await ctx.services.settings.recordAudit({
+          workspaceId: type.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "rename_type",
+          detail: `type ${type.id} is now "${type.name}"`,
+        });
+        return type;
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const type = await ctx.services.types.deleteType(input.id);
+        await ctx.services.settings.recordAudit({
+          workspaceId: type.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "delete_type",
+          detail: `type "${type.name}"`,
+        });
+      }),
+
+    createField: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: uuid,
+          typeId: uuid.nullable(),
+          key: fieldKeySchema,
+          label: nameSchema.optional(),
+          kind: z.enum(FIELD_KINDS),
+          options: z.array(nameSchema).max(100).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const field = await ctx.services.types.createField(input);
+        await ctx.services.settings.recordAudit({
+          workspaceId: field.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "define_field",
+          detail: `field "${field.key}" (${field.kind})`,
+        });
+        return field;
+      }),
+
+    updateField: protectedProcedure
+      .input(
+        z.object({
+          id: fieldKeySchema,
+          key: fieldKeySchema.optional(),
+          label: nameSchema.optional(),
+          kind: z.enum(FIELD_KINDS).optional(),
+          position: positionSchema.optional(),
+          options: z
+            .array(z.object({ id: fieldKeySchema.optional(), label: nameSchema }))
+            .max(100)
+            .optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        const field = await ctx.services.types.updateField(id, patch);
+        await ctx.services.settings.recordAudit({
+          workspaceId: field.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "update_field",
+          detail: `field "${field.key}": ${Object.keys(patch).join(", ")}`,
+        });
+        return field;
+      }),
+
+    retireField: protectedProcedure
+      .input(z.object({ id: fieldKeySchema }))
+      .mutation(async ({ ctx, input }) => {
+        const field = await ctx.services.types.retireField(input.id);
+        await ctx.services.settings.recordAudit({
+          workspaceId: field.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "retire_field",
+          detail: `field "${field.key}"`,
+        });
       }),
   }),
 

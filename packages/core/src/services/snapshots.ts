@@ -94,11 +94,18 @@ export class SnapshotService {
   /** A single version including its Yjs bytes (server-side use). RLS-scoped. */
   async get(
     id: string,
-  ): Promise<{ documentId: string; ydocState: Uint8Array; createdAt: Date; kind: string } | null> {
+  ): Promise<{
+    documentId: string;
+    workspaceId: string;
+    ydocState: Uint8Array;
+    createdAt: Date;
+    kind: string;
+  } | null> {
     const [row] = await this.exec((db) =>
       db
         .select({
           documentId: documentSnapshots.documentId,
+          workspaceId: documentSnapshots.workspaceId,
           ydocState: documentSnapshots.ydocState,
           createdAt: documentSnapshots.createdAt,
           kind: documentSnapshots.kind,

@@ -6,7 +6,9 @@ import {
   COLLAB_FIELD,
   getAuthors,
   jsonToMarkdown,
+  propertyBlame,
   schema,
+  stateProperties,
   stateToJSON,
   UNKNOWN_AUTHOR,
 } from "@tandem/editor";
@@ -14,7 +16,7 @@ import { json, notFound, type ToolContext } from "../shared.js";
 
 /** Version history and authorship. */
 export function registerVersionTools(server: McpServer, ctx: ToolContext): void {
-  const { documents, snapshots } = ctx;
+  const { services, documents, snapshots, publicProperties } = ctx;
 
   server.registerTool(
     "list_versions",
@@ -35,17 +37,24 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
     "read_version",
     {
       title: "Read version",
-      description: "A past version's full markdown, by version id (from list_versions).",
+      description:
+        "A past version's full markdown and its properties (read against today's " +
+        "fields), by version id (from list_versions).",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       const snap = await snapshots.get(id);
       if (!snap) return notFound("version");
+      const { properties, property_issues } = publicProperties(
+        await services.types.viewState(snap.workspaceId, stateProperties(snap.ydocState)),
+      );
       return json({
         id,
         documentId: snap.documentId,
         createdAt: snap.createdAt,
         kind: snap.kind,
+        properties,
+        property_issues,
         markdown: jsonToMarkdown(stateToJSON(snap.ydocState)),
       });
     },
@@ -57,8 +66,10 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
       title: "Get authorship (blame)",
       description:
         "Who wrote what: the document's text in order, split into spans " +
-        "attributed to the human or AI session that inserted them, plus a " +
-        "contributor summary. This is the blame view the editor renders.",
+        "attributed to the human or AI session that inserted them, who set each " +
+        "property value (one entry per list element; a cleared value shows who " +
+        "cleared it), plus a contributor summary. This is the blame view the " +
+        "editor renders.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
@@ -66,7 +77,7 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
       if (!doc) return notFound("document");
       if (!doc.ydocState) {
         // Legacy doc never opened since blame tracking: nothing to attribute.
-        return json({ id: doc.id, title: doc.title, contributors: [], spans: [] });
+        return json({ id: doc.id, title: doc.title, contributors: [], spans: [], properties: [] });
       }
       const ydoc = new Y.Doc();
       Y.applyUpdate(ydoc, doc.ydocState);
@@ -98,6 +109,21 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
           });
         }
       }
+      const view = await services.types.view(id);
+      const fields = new Map(view.fields.map((f) => [f.id, f]));
+      const keys = new Map(view.issues.map((i) => [i.fieldId, i.key]));
+      const properties = propertyBlame(ydoc).map((b) => {
+        const a = authors.get(b.clientId) ?? UNKNOWN_AUTHOR;
+        const field = fields.get(b.field);
+        return {
+          field: field?.key ?? keys.get(b.field) ?? b.field,
+          value: field?.options.find((o) => o.id === b.value)?.label ?? b.value,
+          author: a.name,
+          ai: a.ai,
+          ...(a.agent ? { agent: a.agent } : {}),
+          at: a.at ? new Date(a.at).toISOString() : null,
+        };
+      });
       const contributors = new Map<
         string,
         { userId: string; name: string; ai: boolean; agent?: string; lastEditAt: number }
@@ -123,6 +149,7 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
           lastEditAt: c.lastEditAt ? new Date(c.lastEditAt).toISOString() : null,
         })),
         spans,
+        properties,
       });
     },
   );

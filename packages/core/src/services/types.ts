@@ -232,6 +232,7 @@ export async function projectionColumns(
 
 export interface FieldView {
   id: string;
+  workspaceId: string;
   typeId: string | null;
   key: string;
   label: string;
@@ -295,6 +296,7 @@ interface Registry {
 function fieldView(f: TypeField, registry: Registry): FieldView {
   return {
     id: f.id,
+    workspaceId: f.workspaceId,
     typeId: f.typeId,
     key: f.key,
     label: f.label,
@@ -369,16 +371,19 @@ export class TypeService {
     });
   }
 
-  /** Every live field: each type's, and the ad-hoc ones (typeId null). */
+  /** Every live field: each type's in order (types by name), then the
+   * ad-hoc ones (typeId null). */
   async listFields(workspaceId: string): Promise<Array<FieldView & { typeName: string | null }>> {
     return this.exec(async (db) => {
       const registry = await this.registry(db, workspaceId);
-      return registry.fields
-        .filter((f) => !f.retiredAt)
-        .map((f) => ({
-          ...fieldView(f, registry),
-          typeName: registry.types.find((t) => t.id === f.typeId)?.name ?? null,
-        }));
+      return [...registry.types.map((t) => t.id), null].flatMap((typeId) =>
+        registry.fields
+          .filter((f) => f.typeId === typeId && !f.retiredAt)
+          .map((f) => ({
+            ...fieldView(f, registry),
+            typeName: registry.types.find((t) => t.id === f.typeId)?.name ?? null,
+          })),
+      );
     });
   }
 
@@ -550,14 +555,16 @@ export class TypeService {
 
   /** Retire a field: it stops being offered and its key is free again, but
    * stored values stay readable (reported as retired). */
-  async retireField(id: string): Promise<void> {
-    await this.exec(async (db) => {
+  async retireField(id: string): Promise<FieldView> {
+    return this.exec(async (db) => {
       const field = await this.fieldRow(db, id);
       await this.assertAdmin(db, field.workspaceId);
-      await db
+      const [row] = await db
         .update(typeFields)
         .set({ retiredAt: new Date(), updatedAt: new Date() })
-        .where(eq(typeFields.id, id));
+        .where(eq(typeFields.id, id))
+        .returning();
+      return fieldView(row!, { types: [], fields: [], aliases: [] });
     });
   }
 

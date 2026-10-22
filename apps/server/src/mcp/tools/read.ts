@@ -20,10 +20,12 @@ import {
 /** Document listing, reading, and search. */
 export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   const {
+    services,
     documents,
     documentTree,
     documentQueries,
     publicDoc,
+    publicProperties,
     readableSearchSnippet,
     explainSearchHit,
     flattenDocumentTree,
@@ -121,13 +123,19 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       title: "Get document",
       description:
         "Fetch a single document's markdown content, metadata, and absolute " +
-        "canonical url by id.",
+        "canonical url by id, plus its type and properties beside the markdown " +
+        "(display values keyed by field; page references as {id, title, url}) " +
+        "and any stored values that fail their field as property_issues.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       const doc = await documents.get(id);
       if (!doc) return notFound("document");
-      return json({ ...publicDoc(doc), markdown: documents.toMarkdown(doc) });
+      return json({
+        ...publicDoc(doc),
+        ...publicProperties(await services.types.view(id)),
+        markdown: documents.toMarkdown(doc),
+      });
     },
   );
 
