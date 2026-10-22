@@ -121,7 +121,7 @@ export async function insertDocument(
   // Seed the Yjs write model at creation so the initial content is
   // attributed to its creator (not to whoever opens the doc first).
   const seeded = input.markdown?.trim()
-    ? applyEditToState(null, () => input.markdown!, author)
+    ? applyEditToState(null, { body: () => input.markdown! }, author)
     : null;
   const { contentMd, contentJson } = seeded ?? deriveContent("");
   const [row] = await db
@@ -296,7 +296,7 @@ export class DocumentService extends DocumentServiceBase {
       }
       const edited = applyEditToState(
         doc.ydocState,
-        transform,
+        { body: transform },
         this.authorInfo(),
         doc.contentMd,
       );
