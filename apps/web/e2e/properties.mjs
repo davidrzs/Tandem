@@ -1,6 +1,9 @@
-// Properties with a page open: a value set through the API reaches the live
-// doc and survives the editor's undo, which only reverts body typing.
+// Properties on a page: attach a type from the header, set a date and a
+// select in the panel, see them after a reload, see an agent's value marked
+// as AI, detach without losing values, sort the parent's Contents by a
+// property column, and keep a live property set through the body's undo.
 // Needs web+api (run.sh).
+import { createHash, randomBytes } from "node:crypto";
 import { chromium } from "playwright";
 import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
 
@@ -21,13 +24,84 @@ async function trpcMutation(path, input) {
   return (await res.json()).result.data;
 }
 
-async function waitForMarkdown(id, test, what) {
+async function waitFor(read, test, what) {
+  let last;
   for (let i = 0; i < 40; i++) {
-    const { markdown } = await trpcQuery("documents.getMarkdown", { id });
-    if (test(markdown)) return markdown;
+    last = await read();
+    if (test(last)) return last;
     await page.waitForTimeout(250);
   }
-  throw new Error(`body of ${id} never ${what}`);
+  throw new Error(`${what}; last saw ${JSON.stringify(last)}`);
+}
+
+const valuesOf = (id) => trpcQuery("documents.properties", { id }).then((v) => v.values);
+
+/** An MCP access token for the signed-in user, issued to an app named
+ * `agent` (the name blame shows), through the real OAuth flow. */
+async function agentToken(agent) {
+  const b64url = (b) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const headers = { origin: BASE };
+  const reg = await page.request.post(`${BASE}/api/auth/mcp/register`, {
+    headers,
+    data: {
+      redirect_uris: ["http://localhost:9999/cb"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      client_name: agent,
+    },
+  });
+  const clientId = (await reg.json()).client_id;
+  const verifier = b64url(randomBytes(32));
+  const q = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: "http://localhost:9999/cb",
+    code_challenge: b64url(createHash("sha256").update(verifier).digest()),
+    code_challenge_method: "S256",
+    scope: "openid profile",
+    state: "st",
+    prompt: "consent",
+  });
+  const authorize = await page.request.get(`${BASE}/api/auth/mcp/authorize?${q}`, { headers, maxRedirects: 0 });
+  const consentCode = new URL(authorize.headers().location ?? "", BASE).searchParams.get("consent_code");
+  if (!consentCode) throw new Error(`no consent code: ${authorize.status()} ${authorize.headers().location}`);
+  const consent = await page.request.post(`${BASE}/api/auth/oauth2/consent`, {
+    headers,
+    data: { accept: true, consent_code: consentCode },
+  });
+  const code = new URL((await consent.json()).redirectURI).searchParams.get("code");
+  const token = await page.request.post(`${BASE}/api/auth/mcp/token`, {
+    headers,
+    form: {
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: "http://localhost:9999/cb",
+      client_id: clientId,
+      code_verifier: verifier,
+    },
+  });
+  const accessToken = (await token.json()).access_token;
+  if (!accessToken) throw new Error("no MCP access token");
+  return accessToken;
+}
+
+async function mcpCall(token, name, args) {
+  const res = await fetch(`${BASE}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  });
+  const body = await res.json();
+  if (!res.ok || body.error || body.result?.isError) throw new Error(`${name} failed: ${JSON.stringify(body)}`);
+  return body.result;
+}
+
+async function waitForMarkdown(id, test, what) {
+  return waitFor(() => trpcQuery("documents.getMarkdown", { id }).then((r) => r.markdown), test, `body of ${id} never ${what}`);
 }
 
 try {
@@ -35,38 +109,122 @@ try {
   const c = `Properties ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  const id = new URL(page.url()).pathname.split("/").pop();
-  const { workspaceId } = await trpcQuery("documents.getMeta", { id });
+  const parentId = new URL(page.url()).pathname.split("/").pop();
+  const { workspaceId, collectionId } = await trpcQuery("documents.getMeta", { id: parentId });
 
   const type = await trpcMutation("types.create", { workspaceId, name: "Meeting" });
-  const status = await trpcMutation("types.createField", {
-    workspaceId,
-    typeId: type.id,
-    key: "status",
-    kind: "select",
-    options: ["Open", "Done"],
-  });
-  await trpcMutation("documents.setType", { id, typeId: type.id });
+  const field = (key, kind, options) =>
+    trpcMutation("types.createField", {
+      workspaceId,
+      typeId: type.id,
+      key,
+      label: key[0].toUpperCase() + key.slice(1),
+      kind,
+      options,
+    });
+  const status = await field("status", "select", ["Open", "Done"]);
+  const date = await field("date", "date");
+  const topics = await field("topics", "multi_select", ["Budget", "Hiring"]);
 
+  const retro = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Retro" });
+  const planning = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Planning" });
+
+  await page.goto(`${BASE}/d/${retro.id}`);
+  await page.waitForSelector(".ProseMirror");
+  await page.getByRole("button", { name: "Page type: none" }).click();
+  await page.getByRole("menuitem", { name: "Meeting" }).click();
+  await page.locator(".props-summary[aria-expanded=true]").waitFor();
+  await page.getByLabel("Date", { exact: true }).fill("2026-10-22");
+  await page.getByLabel("Status", { exact: true }).selectOption({ label: "Done" });
+  await waitFor(
+    () => valuesOf(retro.id),
+    (v) => v[date.id] === "2026-10-22" && v[status.id] === "Done",
+    "the panel's date and select never saved",
+  );
+
+  await page.reload();
+  const summary = page.locator(".props-summary");
+  await summary.waitFor();
+  await waitFor(
+    () => summary.textContent(),
+    (line) => line === "MeetingStatus: Done · Date: Oct 22, 2026",
+    "the collapsed summary never showed the saved values after reload",
+  );
+  await summary.click();
+  const dateValue = await page.getByLabel("Date", { exact: true }).inputValue();
+  const statusValue = await page.getByLabel("Status", { exact: true }).locator("option:checked").textContent();
+  if (dateValue !== "2026-10-22" || statusValue !== "Done") {
+    throw new Error(`after reload the panel shows date ${dateValue}, status ${statusValue}`);
+  }
+
+  const token = await agentToken("Claude");
+  await mcpCall(token, "set_properties", { id: retro.id, add: { topics: ["Hiring"] } });
+  const marker = page.locator('.props-row[data-field="topics"] .prop-chip', { hasText: "Hiring" }).locator(".prop-ai");
+  await marker.waitFor({ timeout: 5000 });
+  const markerLabel = await marker.getAttribute("data-ai-label");
+  if (markerLabel !== "Pat Properties's AI (Claude)") throw new Error(`AI marker reads ${markerLabel}`);
+  if ((await page.locator('.props-row[data-field="status"] .prop-ai').count()) !== 0) {
+    throw new Error("a value the person set is marked as AI");
+  }
+
+  await page.getByRole("button", { name: "Page type: Meeting" }).click();
+  await page.getByRole("menuitem", { name: "Detach type" }).click();
+  const dialog = page.getByRole("dialog");
+  if (!(await dialog.textContent()).includes("The page keeps every value it holds")) {
+    throw new Error(`detach confirm says: ${await dialog.textContent()}`);
+  }
+  await dialog.getByRole("button", { name: "Detach type" }).click();
+  await page.getByRole("button", { name: "Page type: none" }).waitFor();
+  await page.locator(".props-type", { hasText: "Properties" }).waitFor();
+  const kept = await valuesOf(retro.id);
+  if (kept[status.id] !== "Done" || kept[date.id] !== "2026-10-22" || kept[topics.id]?.[0] !== "Hiring") {
+    throw new Error(`detach lost values: ${JSON.stringify(kept)}`);
+  }
+  if ((await page.getByLabel("Status", { exact: true }).locator("option:checked").textContent()) !== "Done") {
+    throw new Error("the detached page's panel no longer shows its status");
+  }
+
+  await trpcMutation("documents.setType", { id: retro.id, typeId: type.id });
+  await trpcMutation("documents.setType", { id: planning.id, typeId: type.id });
+  await trpcMutation("documents.setProperties", { id: planning.id, set: { status: "Open", date: "2026-11-02" } });
+  await waitFor(
+    () => trpcQuery("documents.tree", { collectionId }),
+    (tree) => {
+      const kids = tree.find((n) => n.id === parentId)?.children ?? [];
+      return kids.length === 2 && kids.every((k) => k.properties[date.id]);
+    },
+    "the tree never carried both dates",
+  );
+
+  await page.goto(`${BASE}/d/${parentId}`);
+  const contents = page.locator(".sub-pages .outline-table");
+  await contents.getByRole("columnheader", { name: "Status" }).waitFor();
+  const order = () => contents.locator("tbody .outline-link").allTextContents();
+  await contents.getByRole("button", { name: "Date", exact: true }).click();
+  const asc = await order();
+  if (JSON.stringify(asc) !== '["Retro","Planning"]') throw new Error(`date ascending: ${JSON.stringify(asc)}`);
+  await contents.getByRole("button", { name: /^Date/ }).click();
+  const desc = await order();
+  if (JSON.stringify(desc) !== '["Planning","Retro"]') throw new Error(`date descending: ${JSON.stringify(desc)}`);
+  const cells = await contents.locator("tbody tr").first().locator("td.outline-field").allTextContents();
+  if (JSON.stringify(cells) !== '["Open","Nov 2, 2026",""]') throw new Error(`Planning's cells: ${JSON.stringify(cells)}`);
+
+  await page.goto(`${BASE}/d/${retro.id}`);
   await page.click(".ProseMirror");
   await page.keyboard.type("Agenda for today.");
-  await waitForMarkdown(id, (md) => md.includes("Agenda for today."), "saved the typed text");
-
-  const set = await trpcMutation("documents.setProperties", { id, set: { status: "done" } });
-  if (set.values[status.id] !== "Done") throw new Error(`set returned ${JSON.stringify(set.values)}`);
-
+  await waitForMarkdown(retro.id, (md) => md.includes("Agenda for today."), "saved the typed text");
+  await trpcMutation("documents.setProperties", { id: retro.id, set: { status: "open" } });
   await page.click(".ProseMirror");
   await page.keyboard.press("Control+z");
   await page.waitForFunction(() => !document.querySelector(".ProseMirror")?.textContent?.includes("Agenda"));
-  await waitForMarkdown(id, (md) => !md.includes("Agenda"), "dropped the undone text");
-
-  const after = await trpcQuery("documents.properties", { id });
-  if (after.values[status.id] !== "Done") {
-    throw new Error(`undo in the body reverted the property: ${JSON.stringify(after.values)}`);
-  }
+  await waitForMarkdown(retro.id, (md) => !md.includes("Agenda"), "dropped the undone text");
+  const after = await valuesOf(retro.id);
+  if (after[status.id] !== "Open") throw new Error(`undo in the body reverted the property: ${JSON.stringify(after)}`);
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("PROPERTIES PASS — a live property set survives body undo");
+  console.log(
+    "PROPERTIES PASS — attach, panel date + select persist, AI marker, detach keeps values, Contents sorts by a property, body undo spares properties",
+  );
 } finally {
   await browser.close();
 }
