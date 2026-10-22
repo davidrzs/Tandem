@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createDatabase, documents, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
 import { eq } from "drizzle-orm";
-import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, schema } from "@tandem/editor";
+import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, PROPERTIES_KEY, schema } from "@tandem/editor";
 import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
 import { type Connection, OutgoingMessage } from "@hocuspocus/server";
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
@@ -50,6 +50,23 @@ test("a direct write into the live Y.Doc persists ydoc_state + derived markdown"
   assert.ok(doc!.ydocState && doc!.ydocState.length > 0, "ydoc_state persisted");
   assert.match(doc!.contentMd, /# Hello/, "derived markdown has heading");
   assert.match(doc!.contentMd, /From the direct connection\./, "derived markdown has body");
+});
+
+test("a properties map written by a client is validated when the live doc is stored", async () => {
+  const connection = await hocuspocus.openDirectConnection(docId, { userId: "u1" });
+  await connection.transact((doc) => {
+    doc.getMap(PROPERTIES_KEY).set("f_ghost", { v: "boo" });
+  });
+  await connection.disconnect();
+
+  const [row] = await db
+    .select({ properties: documents.properties, issues: documents.propertyIssues })
+    .from(documents)
+    .where(eq(documents.id, docId));
+  assert.deepEqual(row, {
+    properties: {},
+    issues: [{ fieldId: "f_ghost", code: "unknown_field", message: "no field has this id", value: "boo" }],
+  });
 });
 
 test("a legacy markdown-only doc gets one canonical Yjs state across read-only loads", async () => {

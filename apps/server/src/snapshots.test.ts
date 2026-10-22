@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createDatabase, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
-import { COLLAB_FIELD, blameSpans, getAuthors, jsonToMarkdown, schema, stateToJSON } from "@tandem/editor";
-import { CollectionService, DocumentService, SnapshotService, WorkspaceService } from "@tandem/core";
+import {
+  COLLAB_FIELD,
+  blameSpans,
+  getAuthors,
+  jsonToMarkdown,
+  propertiesToJSON,
+  schema,
+  stateToJSON,
+} from "@tandem/editor";
+import {
+  CollectionService,
+  DocumentService,
+  SnapshotService,
+  TypeService,
+  WorkspaceService,
+} from "@tandem/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 import { createAuth } from "./auth.js";
@@ -129,6 +143,41 @@ test("a no-op restore makes no edit and adds no session", async () => {
   assert.equal((await liveBlame(docId)).size, sessionsBefore, "no phantom blame session");
   void before;
   void current;
+});
+
+test("restoring a version from before a property change brings the old value back", async () => {
+  const workspaceId = (await documents.getMeta(docId))!.workspaceId;
+  const types = new TypeService(db, u1);
+  const status = await types.createField({
+    workspaceId,
+    typeId: null,
+    key: "status",
+    kind: "select",
+    options: ["Open", "Done"],
+  });
+  const [open, done] = status.options.map((o) => o.id);
+  await writer.setProperties(docId, await types.planPatch(docId, { set: { status: "open" } }));
+  await snapshots.captureBoundary({
+    documentId: docId,
+    workspaceId,
+    ydocState: await liveState(docId),
+    sessions: [{ ...u1Human, at: Date.now() }],
+  });
+  const [withOpen] = await snapshots.list(docId);
+  const markdown = await liveMarkdown(docId);
+  await writer.setProperties(docId, await types.planPatch(docId, { set: { status: "done" } }));
+  assert.deepEqual((await documents.get(docId))!.properties, { [status.id]: done });
+
+  const restored = await writer.restoreTo(docId, (await snapshots.get(withOpen!.id))!);
+  assert.equal(restored.changed, true, "a property-only difference is not a no-op");
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, await liveState(docId));
+  assert.deepEqual(propertiesToJSON(doc), { [status.id]: open });
+  assert.equal(await liveMarkdown(docId), markdown, "the body is untouched");
+  assert.deepEqual((await documents.get(docId))!.properties, { [status.id]: open });
+
+  const again = await writer.restoreTo(docId, (await snapshots.get(withOpen!.id))!);
+  assert.equal(again.changed, false, "restoring the same state twice is a no-op");
 });
 
 test("a read-only member cannot restore", async () => {

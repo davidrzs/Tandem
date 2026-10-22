@@ -1,10 +1,15 @@
 import {
   applyAttributedEdit,
+  applyAttributedProperties,
   COLLAB_FIELD,
+  diffProperties,
   jsonToMarkdown,
   markdownToJSON,
+  propertiesToJSON,
+  stateProperties,
   stateToJSON,
   type AuthorIdentity,
+  type PropertyOp,
 } from "@tandem/editor";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
@@ -66,12 +71,36 @@ export function createCollabWriter(
     },
 
     /**
+     * Apply a property patch to the live doc as one attributed session, the
+     * way transform() does for the body. Returns the session's clientID, or
+     * null when the patch changed nothing.
+     */
+    async setProperties(docId: string, ops: readonly PropertyOp[]): Promise<number | null> {
+      if (!(await documents.canWrite(docId))) {
+        throw new DocumentWriteDeniedError();
+      }
+      const connection = await hocuspocus.openDirectConnection(docId, {
+        userId: author.userId,
+      });
+      try {
+        let clientId: number | null = null;
+        await connection.transact((doc) => {
+          clientId = applyAttributedProperties(doc, ops, { ...author, at: Date.now() });
+        });
+        return clientId;
+      } finally {
+        await connection.disconnect();
+      }
+    },
+
+    /**
      * Restore a document to a snapshot's state. Applies the snapshot's
-     * ProseMirror JSON as an attributed edit (structural diff), so unchanged
-     * content keeps its original authorship and only the reverted spans are
-     * blamed on the restorer. A no-op restore (state already matches) makes no
-     * edit — avoiding a phantom blame session. Captures the live state first so
-     * the restore is itself undoable.
+     * ProseMirror JSON as an attributed edit (structural diff) and its
+     * properties as a per-field patch, so unchanged content keeps its
+     * original authorship and only the reverted spans and values are blamed
+     * on the restorer. A no-op restore (body and properties already match)
+     * makes no edit — avoiding a phantom blame session. Captures the live
+     * state first so the restore is itself undoable.
      */
     async restoreTo(
       docId: string,
@@ -81,20 +110,23 @@ export function createCollabWriter(
         throw new DocumentWriteDeniedError();
       }
       const targetJson = stateToJSON(snapshot.ydocState);
+      const targetProperties = stateProperties(snapshot.ydocState);
       const connection = await hocuspocus.openDirectConnection(docId, {
         userId: author.userId,
       });
       try {
         let currentJson: unknown;
+        let propertyOps: PropertyOp[] = [];
         let liveState: Uint8Array = new Uint8Array();
         await connection.transact((doc) => {
           const fragment = doc.getXmlFragment(COLLAB_FIELD);
           currentJson =
             fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : markdownToJSON("");
+          propertyOps = diffProperties(propertiesToJSON(doc), targetProperties);
           liveState = Y.encodeStateAsUpdate(doc);
         });
         // Already there — don't write (a stampAuthor would add a phantom session).
-        if (JSON.stringify(currentJson) === JSON.stringify(targetJson)) {
+        if (JSON.stringify(currentJson) === JSON.stringify(targetJson) && propertyOps.length === 0) {
           return { changed: false };
         }
         if (snapshots) {
@@ -111,7 +143,7 @@ export function createCollabWriter(
           }
         }
         await connection.transact((doc) => {
-          applyAttributedEdit(doc, targetJson, { ...author, at: Date.now() });
+          applyAttributedEdit(doc, targetJson, { ...author, at: Date.now() }, propertyOps);
         });
         return { changed: true };
       } finally {
