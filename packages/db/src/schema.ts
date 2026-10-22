@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -207,10 +208,22 @@ export const documents = pgTable(
     }),
     // Provenance of a page created from a template; never updated afterwards.
     origin: jsonb("origin").$type<DocumentOrigin>(),
+    // What the page is: at most one type. Detaching clears this and keeps
+    // the values, which reference field ids, not the type.
+    typeId: uuid("type_id").references((): AnyPgColumn => documentTypes.id, {
+      onDelete: "set null",
+    }),
+    // Derived READ model of the ydoc's `properties` map, validated against
+    // the field registry: valid values by field id, the values that failed
+    // as issues, and their searchable text. Written only together with the
+    // ydoc_state it was projected from.
+    properties: jsonb("properties").$type<Record<string, unknown>>().notNull().default({}),
+    propertyIssues: jsonb("property_issues").$type<PropertyIssue[]>().notNull().default([]),
+    propertiesText: text("properties_text").notNull().default(""),
 
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): any =>
-        sql`setweight(to_tsvector('simple', coalesce(title, '')), 'A') || setweight(to_tsvector('simple', coalesce(content_md, '')), 'B')`,
+        sql`setweight(to_tsvector('simple', coalesce(title, '')), 'A') || setweight(to_tsvector('simple', coalesce(content_md, '')), 'B') || setweight(to_tsvector('simple', coalesce(properties_text, '')), 'C')`,
     ),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -247,6 +260,109 @@ export interface DocumentOrigin {
   templateId: string;
   version: string;
 }
+
+/** Field kinds. List kinds (multi_select, doc_list) hold several values;
+ * `json` holds imported structures the app can't edit. */
+export const FIELD_KINDS = [
+  "text",
+  "number",
+  "checkbox",
+  "date",
+  "datetime",
+  "select",
+  "multi_select",
+  "url",
+  "doc",
+  "doc_list",
+  "json",
+] as const;
+export type FieldKind = (typeof FIELD_KINDS)[number];
+
+/** A select option. Ids are stable; a removed option is retired, never
+ * deleted, so values that hold it stay readable. */
+export interface FieldOption {
+  id: string;
+  label: string;
+  retired?: boolean;
+}
+
+/** A stored value the projection could not accept as valid. */
+export interface PropertyIssue {
+  fieldId: string;
+  code: "unknown_field" | "retired_field" | "retired_option" | "invalid_value";
+  message: string;
+  value: unknown;
+}
+
+/** What a page is (Meeting, Project). Defined by workspace owners and admins. */
+export const documentTypes = pgTable(
+  "document_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("document_types_name_unique").on(t.workspaceId, sql`lower(${t.name})`)],
+);
+
+/** A property definition. `type_id` null is an ad-hoc workspace field.
+ * Values in documents are keyed by `id`, so renames, kind changes and
+ * retirement never rewrite a document. */
+export const typeFields = pgTable(
+  "type_fields",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    typeId: uuid("type_id").references(() => documentTypes.id, { onDelete: "set null" }),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    kind: text("kind").$type<FieldKind>().notNull(),
+    position: doublePrecision("position").notNull().default(0),
+    options: jsonb("options").$type<FieldOption[]>().notNull().default([]),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("type_fields_workspace_idx").on(t.workspaceId),
+    // One live field per key within a type (or among the ad-hoc fields).
+    uniqueIndex("type_fields_live_key_unique")
+      .on(
+        t.workspaceId,
+        sql`coalesce(${t.typeId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+        sql`lower(${t.key})`,
+      )
+      .where(sql`${t.retiredAt} IS NULL`),
+  ],
+);
+
+/** Keys a field had before a rename. Append-only, so old keys keep working
+ * for agents and imports. */
+export const fieldKeyAliases = pgTable(
+  "field_key_aliases",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    fieldId: text("field_id")
+      .notNull()
+      .references(() => typeFields.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.fieldId, t.key] }),
+    index("field_key_aliases_workspace_idx").on(t.workspaceId),
+  ],
+);
 
 /** A template is an ordinary document (same editor, blame, versions) plus
  * this row. Template documents and their subtrees stay out of search,
@@ -468,3 +584,5 @@ export type InstanceSettings = typeof instanceSettings.$inferSelect;
 export type InstanceInvite = typeof instanceInvites.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
 export type Template = typeof templates.$inferSelect;
+export type DocumentType = typeof documentTypes.$inferSelect;
+export type TypeField = typeof typeFields.$inferSelect;
