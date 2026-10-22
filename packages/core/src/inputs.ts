@@ -56,3 +56,8 @@ export const documentSearchShape = {
   limit: z.number().int().min(1).max(100).optional(),
   tag: tagSchema.optional(),
 };
+
+/** Answers to a template's `{{name}}` prompts (and overrides of its built-ins). */
+export const templateVariablesSchema = z
+  .record(z.string().max(INPUT_LIMITS.tag), z.string().max(INPUT_LIMITS.description))
+  .refine((vars) => Object.keys(vars).length <= INPUT_LIMITS.tags, "too many variables");

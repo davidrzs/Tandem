@@ -6,8 +6,10 @@ import type { DocumentMeta } from "./documents.js";
 import {
   DocumentServiceBase,
   documentMetaColumns,
+  notTemplate,
   rowsOf,
   searchPaths,
+  templateDocumentIds,
 } from "./document-tree-internals.js";
 
 export interface SearchOptions {
@@ -93,6 +95,7 @@ export class DocumentQueryService extends DocumentServiceBase {
           and(
             isNull(documents.deletedAt),
             isNull(documents.archivedAt),
+            notTemplate,
             opts.collectionId ? eq(documents.collectionId, opts.collectionId) : undefined,
             opts.updatedAfter ? gt(documents.updatedAt, opts.updatedAfter) : undefined,
             before,
@@ -147,6 +150,7 @@ export class DocumentQueryService extends DocumentServiceBase {
       const base = and(
         isNull(documents.deletedAt),
         isNull(documents.archivedAt),
+        notTemplate,
         opts.collectionId ? eq(documents.collectionId, opts.collectionId) : undefined,
         tagFilter,
         excludeIds.length > 0 ? notInArray(documents.id, excludeIds) : undefined,
@@ -276,6 +280,7 @@ export class DocumentQueryService extends DocumentServiceBase {
         SELECT t.tag, count(DISTINCT d.id)::int AS count
         FROM documents d, unnest(d.tags) AS t(tag)
         WHERE d.deleted_at IS NULL AND d.archived_at IS NULL
+          AND d.id NOT IN ${templateDocumentIds}
         GROUP BY t.tag
       `),
     );
@@ -296,6 +301,7 @@ export class DocumentQueryService extends DocumentServiceBase {
           and(
             isNull(documents.deletedAt),
             isNull(documents.archivedAt),
+            notTemplate,
             ne(documents.id, id),
             like(documents.contentMd, `%](/d/${id})%`),
           ),
@@ -335,6 +341,7 @@ export class DocumentQueryService extends DocumentServiceBase {
           and(
             isNull(documents.deletedAt),
             isNull(documents.archivedAt),
+            notTemplate,
             or(
               // Indexed: handles extracted at save time.
               sql`${documents.taskAssignees} && ARRAY[${sql.join(

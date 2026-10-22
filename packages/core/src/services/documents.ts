@@ -1,6 +1,6 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { collections, documents, type Document } from "@tandem/db";
+import { collections, documents, type Database, type Document, type DocumentOrigin } from "@tandem/db";
 import { applyEditToState, scanTaskItems, type AuthorInfo } from "@tandem/editor";
 import { jsonToMarkdown, markdownToJSON } from "../markdown.js";
 import {
@@ -8,6 +8,7 @@ import {
   documentMetaColumns,
   lockTree,
   nextPosition,
+  notTemplate,
 } from "./document-tree-internals.js";
 
 export interface CreateDocumentInput {
@@ -59,6 +60,7 @@ export type DocumentMeta = Pick<
   | "position"
   | "title"
   | "tags"
+  | "defaultTemplateId"
   | "createdAt"
   | "updatedAt"
   | "archivedAt"
@@ -77,23 +79,78 @@ function deriveContent(markdown: string): { contentMd: string; contentJson: unkn
   return { contentMd: jsonToMarkdown(contentJson), contentJson };
 }
 
-export class DocumentService extends DocumentServiceBase {
-  /** Attribution identity for content this service writes into Yjs state. */
-  private authorInfo(): AuthorInfo {
-    const identity =
-      this.author ??
-      (this.actor.kind === "user"
-        ? { userId: this.actor.userId, name: "", ai: false }
-        : { userId: "system", name: "System", ai: true });
-    return { ...identity, at: Date.now() };
-  }
+/** create() plus the fields only template instantiation sets. */
+export interface InsertDocumentInput extends CreateDocumentInput {
+  defaultTemplateId?: string | null;
+  origin?: DocumentOrigin;
+}
 
+/** Insert one document inside the caller's actor-scoped transaction, its body
+ * seeded into Yjs as `author`'s writing. */
+export async function insertDocument(
+  db: Database,
+  input: InsertDocumentInput,
+  author: AuthorInfo,
+): Promise<Document> {
+  // Inherit the workspace from the (RLS-visible) collection. If the
+  // collection isn't visible to this actor, the document can't be created.
+  const [col] = await db
+    .select({ workspaceId: collections.workspaceId })
+    .from(collections)
+    .where(eq(collections.id, input.collectionId));
+  if (!col) throw new NotFoundError("collection not found");
+
+  const parentId = input.parentDocumentId ?? null;
+  if (parentId) {
+    // Same rule as move(): the parent must be an active document in the
+    // same collection (the FK alone runs as table owner and would accept
+    // a cross-tenant uuid; a child under an archived parent would vanish
+    // from the tree while staying searchable).
+    const [parent] = await db
+      .select({ collectionId: documents.collectionId })
+      .from(documents)
+      .where(
+        and(eq(documents.id, parentId), isNull(documents.deletedAt), isNull(documents.archivedAt)),
+      );
+    if (!parent || parent.collectionId !== input.collectionId) {
+      throw new InvalidInputError("parent must be an active document in the same collection");
+    }
+  }
+  await lockTree(db, input.collectionId);
+  const position = await nextPosition(db, input.collectionId, parentId);
+  // Seed the Yjs write model at creation so the initial content is
+  // attributed to its creator (not to whoever opens the doc first).
+  const seeded = input.markdown?.trim()
+    ? applyEditToState(null, () => input.markdown!, author)
+    : null;
+  const { contentMd, contentJson } = seeded ?? deriveContent("");
+  const [row] = await db
+    .insert(documents)
+    .values({
+      workspaceId: col.workspaceId,
+      collectionId: input.collectionId,
+      parentDocumentId: parentId,
+      title: input.title ?? "",
+      tags: input.tags ? normalizeTags(input.tags) : [],
+      position,
+      contentMd,
+      contentJson,
+      taskAssignees: taskAssigneesOf(contentMd),
+      ydocState: seeded?.ydocState ?? null,
+      defaultTemplateId: input.defaultTemplateId ?? null,
+      origin: input.origin ?? null,
+    })
+    .returning();
+  return row!;
+}
+
+export class DocumentService extends DocumentServiceBase {
   /** Columns safe to ship to clients — excludes content_md/json, ydoc_state, search_vector. */
   static readonly metaColumns = documentMetaColumns;
 
-  /** Metadata of the live (not trashed, not archived) documents among `ids`
-   * that this actor can read; the rest are simply absent. Order is not
-   * preserved — callers key by id. */
+  /** Metadata of the live (not trashed, not archived, not template) documents
+   * among `ids` that this actor can read; the rest are simply absent. Order is
+   * not preserved — callers key by id. */
   async getMetaMany(ids: string[]): Promise<DocumentMeta[]> {
     if (ids.length === 0) return [];
     return this.exec((db) =>
@@ -105,6 +162,7 @@ export class DocumentService extends DocumentServiceBase {
             inArray(documents.id, ids),
             isNull(documents.deletedAt),
             isNull(documents.archivedAt),
+            notTemplate,
           ),
         ),
     );
@@ -146,56 +204,7 @@ export class DocumentService extends DocumentServiceBase {
   }
 
   async create(input: CreateDocumentInput): Promise<Document> {
-    return this.execTx(async (db) => {
-      // Inherit the workspace from the (RLS-visible) collection. If the
-      // collection isn't visible to this actor, the document can't be created.
-      const [col] = await db
-        .select({ workspaceId: collections.workspaceId })
-        .from(collections)
-        .where(eq(collections.id, input.collectionId));
-      if (!col) throw new NotFoundError("collection not found");
-
-      const parentId = input.parentDocumentId ?? null;
-      if (parentId) {
-        // Same rule as move(): the parent must be an active document in the
-        // same collection (the FK alone runs as table owner and would accept
-        // a cross-tenant uuid; a child under an archived parent would vanish
-        // from the tree while staying searchable).
-        const [parent] = await db
-          .select({ collectionId: documents.collectionId })
-          .from(documents)
-          .where(
-            and(eq(documents.id, parentId), isNull(documents.deletedAt), isNull(documents.archivedAt)),
-          );
-        if (!parent || parent.collectionId !== input.collectionId) {
-          throw new InvalidInputError("parent must be an active document in the same collection");
-        }
-      }
-      await lockTree(db, input.collectionId);
-      const position = await nextPosition(db, input.collectionId, parentId);
-      // Seed the Yjs write model at creation so the initial content is
-      // attributed to its creator (not to whoever opens the doc first).
-      const seeded = input.markdown?.trim()
-        ? applyEditToState(null, () => input.markdown!, this.authorInfo())
-        : null;
-      const { contentMd, contentJson } = seeded ?? deriveContent("");
-      const [row] = await db
-        .insert(documents)
-        .values({
-          workspaceId: col.workspaceId,
-          collectionId: input.collectionId,
-          parentDocumentId: parentId,
-          title: input.title ?? "",
-          tags: input.tags ? normalizeTags(input.tags) : [],
-          position,
-          contentMd,
-          contentJson,
-          taskAssignees: taskAssigneesOf(contentMd),
-          ydocState: seeded?.ydocState ?? null,
-        })
-        .returning();
-      return row!;
-    });
+    return this.execTx((db) => insertDocument(db, input, this.authorInfo()));
   }
 
   async get(id: string): Promise<Document | null> {

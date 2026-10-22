@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { documents, runAsActor, SYSTEM, type Actor, type Database } from "@tandem/db";
-import type { AuthorIdentity } from "@tandem/editor";
+import type { AuthorIdentity, AuthorInfo } from "@tandem/editor";
 
 /** Internal helpers shared by DocumentService, DocumentTreeService, and
  * DocumentQueryService. Not exported from the package index. */
@@ -20,11 +20,29 @@ export const documentMetaColumns = {
   position: documents.position,
   title: documents.title,
   tags: documents.tags,
+  defaultTemplateId: documents.defaultTemplateId,
   createdAt: documents.createdAt,
   updatedAt: documents.updatedAt,
   archivedAt: documents.archivedAt,
   deletedAt: documents.deletedAt,
 };
+
+/** Ids of every template document and its descendants. Computed at query
+ * time from the `templates` rows, so moving a page into or out of a template
+ * needs no bookkeeping. Under RLS, only readable templates count; the rest
+ * belong to documents the actor cannot see anyway. */
+export const templateDocumentIds = sql`(
+  WITH RECURSIVE tpl(id) AS (
+    SELECT document_id FROM templates
+    UNION
+    SELECT d.id FROM documents d JOIN tpl ON d.parent_document_id = tpl.id
+  )
+  SELECT id FROM tpl
+)`;
+
+/** Filter for queries over `documents`: drop templates and their subtrees
+ * (search, backlinks, recents, tasks, tags). */
+export const notTemplate = sql`${documents.id} NOT IN ${templateDocumentIds}`;
 
 /** Actor-scoped base for the document services: same (db, actor, author?)
  * constructor shape, and the RLS exec helpers they all share. */
@@ -34,6 +52,16 @@ export abstract class DocumentServiceBase {
     protected readonly actor: Actor = SYSTEM,
     protected readonly author?: AuthorIdentity,
   ) {}
+
+  /** Attribution identity for content this service writes into Yjs state. */
+  protected authorInfo(): AuthorInfo {
+    const identity =
+      this.author ??
+      (this.actor.kind === "user"
+        ? { userId: this.actor.userId, name: "", ai: false }
+        : { userId: "system", name: "System", ai: true });
+    return { ...identity, at: Date.now() };
+  }
 
   protected exec<T>(fn: (db: Database) => Promise<T>): Promise<T> {
     return runAsActor(this.db, this.actor, fn);

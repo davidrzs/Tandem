@@ -13,6 +13,7 @@ import {
   type Actor,
 } from "@tandem/db";
 import { eq, sql } from "drizzle-orm";
+import { scanTaskItems } from "@tandem/editor";
 import { InvalidInputError, NotFoundError } from "./errors.js";
 import { CollectionService } from "./services/collections.js";
 import { CommentService } from "./services/comments.js";
@@ -23,6 +24,7 @@ import { DocumentService, normalizeTags } from "./services/documents.js";
 import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
+import { expandVariables, TemplateService } from "./services/templates.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -1084,7 +1086,6 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
 
   // Task assignment: a NEW `- [ ] @ben` task notifies Ben; a re-store of the
   // same markdown does not re-notify; self-assignment never notifies.
-  const { scanTaskItems } = await import("@tandem/editor");
   const md = "# Plans\n\n- [ ] @ben draft the intro\n- [ ] @nia self task";
   await notify.onDocumentStored({
     documentId: doc.id,
@@ -1177,4 +1178,207 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
   await inboxNb.markAllRead();
   assert.equal(await inboxNb.unreadCount(), 0);
   assert.equal(await inboxNa.unreadCount(), 2, "Nia's inbox untouched");
+});
+
+/** A fresh workspace owned by `userId` (named `name`), with one collection. */
+async function templateWorkspace(userId: string, name: string) {
+  await runAsActor(db, SYSTEM, (d) =>
+    d.insert(userTable).values({ id: userId, name, email: `${userId}@tpl.test` }),
+  );
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser(userId, {
+    name,
+    slug: `ws-${userId}`,
+  });
+  const col = await new CollectionService(db, user(userId)).create({
+    name: "Team",
+    slug: `team-${userId}`,
+    workspaceId: ws.id,
+  });
+  return {
+    col,
+    docs: new DocumentService(db, user(userId)),
+    tree: new DocumentTreeService(db, user(userId)),
+    queries: new DocumentQueryService(db, user(userId)),
+    templates: new TemplateService(db, user(userId)),
+  };
+}
+
+test("expandVariables fills known names and blanks unknown ones", () => {
+  assert.equal(
+    expandVariables("{{ date }} by {{me}}: {{client name}} / {{nope}} / {{constructor}} / {{1x}}", {
+      date: "2026-01-02",
+      me: "Tara",
+      "client name": "Acme",
+    }),
+    "2026-01-02 by Tara: Acme /  /  / {{1x}}",
+  );
+});
+
+test("templates: instantiate expands variables, copies 3 levels, records origin", async () => {
+  const { col, docs, tree, templates } = await templateWorkspace("ta", "Tara");
+  const tpl = await docs.create({
+    collectionId: col.id,
+    title: "Meeting {{date}}",
+    markdown: "# {{title}}\n\nBy {{me}} in {{parent}}\n\nClient: {{client}}",
+  });
+  const l1 = await docs.create({ collectionId: col.id, parentDocumentId: tpl.id, title: "Notes", markdown: "Under {{parent}}" });
+  const l2 = await docs.create({ collectionId: col.id, parentDocumentId: l1.id, title: "Level 2" });
+  const l3 = await docs.create({ collectionId: col.id, parentDocumentId: l2.id, title: "Level 3" });
+  await docs.create({ collectionId: col.id, parentDocumentId: l3.id, title: "Level 4" });
+  const summary = await templates.templatize(tpl.id, "Meeting notes");
+  assert.equal(summary.name, "Meeting notes");
+
+  const dry = await templates.instantiate({
+    templateId: tpl.id,
+    collectionId: col.id,
+    variables: { date: "2026-01-02" },
+    dryRun: true,
+  });
+  assert.equal(dry.document, null);
+  assert.deepEqual(dry.prompts, ["client"]);
+  assert.deepEqual(dry.missing, ["client"]);
+  assert.deepEqual(dry.page, {
+    title: "Meeting 2026-01-02",
+    markdown: "# Meeting 2026-01-02\n\nBy Tara in Team\n\nClient: ",
+    children: [
+      {
+        title: "Notes",
+        markdown: "Under Meeting 2026-01-02",
+        children: [{ title: "Level 2", markdown: "", children: [{ title: "Level 3", markdown: "", children: [] }] }],
+      },
+    ],
+  });
+  assert.equal((await tree.tree(col.id)).length, 1, "a dry run creates nothing");
+
+  const created = await templates.instantiate({
+    templateId: tpl.id,
+    collectionId: col.id,
+    variables: { date: "2026-01-02", client: "Acme" },
+  });
+  const page = created.document!;
+  assert.equal(page.title, "Meeting 2026-01-02");
+  assert.equal(page.contentMd, "# Meeting 2026-01-02\n\nBy Tara in Team\n\nClient: Acme");
+  assert.deepEqual(page.origin, { templateId: tpl.id, version: summary.version });
+  const copied = await tree.subtree(page.id, 10);
+  const titles = (nodes: typeof copied.nodes): unknown[] =>
+    nodes.map((n) => [n.title, titles(n.children)]);
+  assert.deepEqual(titles(copied.nodes), [["Notes", [["Level 2", [["Level 3", []]]]]]]);
+
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const dated = await templates.instantiate({ templateId: tpl.id, collectionId: col.id, dryRun: true });
+  assert.equal(dated.page.title, `Meeting ${iso}`, "{{date}} defaults to today");
+
+  await docs.editBody(tpl.id, () => "Rewritten template");
+  assert.equal(
+    (await docs.get(page.id))!.contentMd,
+    "# Meeting 2026-01-02\n\nBy Tara in Team\n\nClient: Acme",
+    "template edits never reach existing pages",
+  );
+});
+
+test("templates: the deepest default wins, then the collection's, else blank", async () => {
+  const { col, docs, templates } = await templateWorkspace("tc", "Cai");
+  const colTpl = await docs.create({ collectionId: col.id, title: "Collection default", markdown: "From collection" });
+  const folderTpl = await docs.create({ collectionId: col.id, title: "Folder default", markdown: "From folder" });
+  await templates.templatize(colTpl.id, "Collection default");
+  await templates.templatize(folderTpl.id, "Folder default");
+  const folder = await docs.create({ collectionId: col.id, title: "Folder" });
+  const sub = await docs.create({ collectionId: col.id, parentDocumentId: folder.id, title: "Sub" });
+  const other = await docs.create({ collectionId: col.id, title: "Other" });
+
+  assert.equal(await templates.defaultFor(col.id, sub.id), null);
+  assert.equal(await templates.setDefault({ collectionId: col.id }, colTpl.id), true);
+  assert.equal(await templates.setDefault({ documentId: folder.id }, folderTpl.id), true);
+  assert.equal(await templates.defaultFor(col.id, sub.id), folderTpl.id);
+  assert.equal(await templates.defaultFor(col.id, folder.id), folderTpl.id);
+  assert.equal(await templates.defaultFor(col.id, other.id), colTpl.id);
+  assert.equal(await templates.defaultFor(col.id, null), colTpl.id);
+
+  const fromDefault = await templates.instantiate({ collectionId: col.id, parentDocumentId: sub.id });
+  assert.equal(fromDefault.template?.id, folderTpl.id);
+  assert.equal(fromDefault.document!.title, "Folder default");
+  assert.equal(fromDefault.document!.contentMd, "From folder");
+
+  const blank = await templates.instantiate({ templateId: null, collectionId: col.id, parentDocumentId: sub.id });
+  assert.equal(blank.template, null);
+  assert.equal(blank.document!.title, "");
+  assert.equal(blank.document!.contentMd, "");
+  assert.equal(blank.document!.origin, null);
+
+  assert.equal(await templates.untemplatize(folderTpl.id), true);
+  assert.equal(await templates.defaultFor(col.id, sub.id), colTpl.id, "an unmarked template stops being a default");
+
+  const outsider = await templateWorkspace("td", "Dee");
+  await assert.rejects(
+    outsider.templates.setDefault({ collectionId: outsider.col.id }, colTpl.id),
+    NotFoundError,
+    "another workspace's template is invisible",
+  );
+  assert.deepEqual(await outsider.templates.list(), []);
+});
+
+test("templates: templates and their subtrees stay out of search, backlinks, recents, tasks and tags", async () => {
+  const { col, docs, queries, templates } = await templateWorkspace("te", "Eve");
+  const target = await docs.create({ collectionId: col.id, title: "Target" });
+  const link = `[Target](/d/${target.id})`;
+  const tpl = await docs.create({
+    collectionId: col.id,
+    title: "Zyxquux template",
+    markdown: `Zyxquux ${link}\n\n- [ ] @te prepare the zyxquux`,
+    tags: ["tpl-only"],
+  });
+  const tplChild = await docs.create({
+    collectionId: col.id,
+    parentDocumentId: tpl.id,
+    title: "Zyxquux child",
+    markdown: `- [ ] @te child zyxquux ${link}`,
+  });
+  const page = await docs.create({
+    collectionId: col.id,
+    title: "Real page",
+    markdown: `Zyxquux ${link}\n\n- [ ] @te real zyxquux`,
+  });
+  await templates.templatize(tpl.id, "");
+
+  assert.deepEqual((await queries.search("zyxquux")).map((h) => h.id), [page.id]);
+  assert.deepEqual((await queries.backlinks(target.id)).map((d) => d.id), [page.id]);
+  assert.deepEqual(
+    (await queries.recent({ collectionId: col.id })).map((d) => d.id).sort(),
+    [target.id, page.id].sort(),
+  );
+  assert.deepEqual((await queries.listMyTodos()).map((t) => t.text), ["@te real zyxquux"]);
+  assert.ok(!(await queries.listTags()).some((t) => t.tag === "tpl-only"));
+  assert.deepEqual((await docs.getMetaMany([tpl.id, tplChild.id, page.id])).map((d) => d.id), [page.id]);
+  assert.deepEqual((await templates.list()).map((t) => t.name), ["Zyxquux template"]);
+
+  assert.equal(await templates.untemplatize(tpl.id), true);
+  assert.deepEqual(
+    (await queries.search("zyxquux")).map((h) => h.id).sort(),
+    [tpl.id, tplChild.id, page.id].sort(),
+    "an ordinary page again",
+  );
+});
+
+test("templates: new tasks in a template notify nobody", async () => {
+  const { col, docs, templates } = await templateWorkspace("tf", "Fay");
+  const tpl = await docs.create({ collectionId: col.id, title: "Checklist" });
+  const page = await docs.create({ collectionId: col.id, title: "Page" });
+  await templates.templatize(tpl.id, "Checklist");
+  const notify = new NotificationService(db, SYSTEM);
+  for (const doc of [tpl, page]) {
+    await notify.onDocumentStored({
+      documentId: doc.id,
+      workspaceId: col.workspaceId,
+      documentTitle: doc.title,
+      oldMarkdown: "",
+      newMarkdown: "- [ ] @tf review",
+      actor: { userId: "someone", name: "Someone", ai: false },
+      scan: scanTaskItems,
+    });
+  }
+  assert.deepEqual(
+    (await new NotificationService(db, user("tf")).listMine()).map((n) => n.documentTitle),
+    ["Page"],
+  );
 });
