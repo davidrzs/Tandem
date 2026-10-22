@@ -95,6 +95,22 @@ field; owners and admins also get **Add field**. Values an agent wrote carry
 an AI badge naming the agent. When every page in a Contents table shares a
 type, the table shows that type's first three fields as sortable columns.
 
+A template can give the pages made from it a type and default values. On a
+template's page, the **Type** button sets that type and the panel under the
+title edits each field's default (owners and admins): a value, or **Today**,
+**Now**, **The creator's name**, or **Same as the previous page**, which
+copies the field from the latest page of the type under the same parent (by
+its date field, else the newest). A new page gets its type and those values as
+the creator's writing; changing the template later leaves existing pages as
+they are.
+
+**Add starter types** in the **Type** menu (owners and admins) adds Meeting
+(date, attendees, status), Project (status, next review, next action) and
+Person (email, affiliation, aliases) with a template each. The Project
+template has a **Meetings** sub-page whose **+** makes a Meeting dated today
+with the previous meeting's attendees. Running it again adds only what is
+missing; types and templates that already exist by name are kept as they are.
+
 ## Authorship model (how blame works)
 
 Attribution lives in the Yjs layer, not in markdown: every inserted fragment
@@ -130,10 +146,11 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `create_document`, `update_document` (title and/or tags), `move_document`,
   `archive_document`, `restore_document`, `list_archived`, `list_tags`,
   `list_backlinks`.
-- **Templates**: `list_templates`, `create_from_template` (`templateId`
-  optional: the target folder's default, as **+** in the app; `variables`
-  answers the template's prompts; `dryRun` returns the expanded pages without
-  creating anything).
+- **Templates**: `list_templates` (each with its `type` and `defaults` by
+  field key), `create_from_template` (`templateId` optional: the target
+  folder's default, as **+** in the app; `variables` answers the template's
+  prompts; the created page comes back with its committed `type` and
+  `properties`; `dryRun` returns the expanded pages without creating anything).
 - **Properties**: `get_document` returns `type`, `properties` (display values
   by field key; page references as `{id, title, url}`) and `property_issues`
   beside `markdown`, never inside it. `set_properties` takes a patch (`set`,
