@@ -129,6 +129,60 @@ export function summaryText(
   return parts.length > 0 ? parts.join(" · ") : "No values yet";
 }
 
+/** A template as the app reads it (`templates.list`), with its type and
+ * defaults by field id. */
+export type TemplateInfo = RouterOutputs["templates"]["list"][number];
+export type TemplateDefault = TemplateInfo["defaults"][string];
+type DefaultExpression = Exclude<TemplateDefault["kind"], "value">;
+/** A default as `templates.setFieldDefault` takes it. */
+export type DefaultInput =
+  | { kind: "value"; value: string | number | boolean | string[] }
+  | { kind: DefaultExpression };
+
+/** The expressions a template field can default to, as the panel words
+ * them. The server checks the same fit when one is saved. */
+export const EXPRESSION_CHOICES: ReadonlyArray<{
+  kind: DefaultExpression;
+  label: string;
+  fits: (kind: FieldKind) => boolean;
+}> = [
+  { kind: "today", label: "Today", fits: (kind) => kind === "date" },
+  { kind: "now", label: "Now", fits: (kind) => kind === "datetime" },
+  { kind: "me", label: "The creator's name", fits: (kind) => kind === "text" },
+  { kind: "from_previous_sibling", label: "Same as the previous page", fits: (kind) => kind !== "json" },
+];
+
+/** The literal default a widget's edit makes of the current one; null
+ * clears it (an emptied list included). */
+export function literalDefault(current: unknown, edit: PropertyEdit): DefaultInput | null {
+  const list = listValues(current).map(String);
+  switch (edit.op) {
+    case "clear":
+      return null;
+    case "set": {
+      const v = edit.value;
+      return { kind: "value", value: typeof v === "number" || typeof v === "boolean" ? v : String(v) };
+    }
+    case "add":
+      return { kind: "value", value: list.includes(String(edit.value)) ? list : [...list, String(edit.value)] };
+    case "remove": {
+      const left = list.filter((v) => v !== String(edit.value));
+      return left.length > 0 ? { kind: "value", value: left } : null;
+    }
+  }
+}
+
+/** A default as one line of text, for people who can't edit it. */
+export function describeDefault(
+  field: Pick<Field, "kind" | "options">,
+  def: TemplateDefault | undefined,
+  opts: FormatOptions = {},
+): string {
+  if (!def) return "No default";
+  if (def.kind === "value") return formatValue(field, def.value, opts);
+  return EXPRESSION_CHOICES.find((c) => c.kind === def.kind)!.label;
+}
+
 /** Kinds a Contents table cell can show as text; page references would need
  * a title lookup per cell. */
 const COLUMN_KINDS: Record<FieldKind, boolean> = {

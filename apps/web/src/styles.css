@@ -1118,6 +1118,12 @@ button.doc-twist:hover .twist {
   background: var(--hover);
 }
 
+.props-heading,
+.props-heading:hover {
+  background: none;
+  cursor: default;
+}
+
 .props-type {
   flex: none;
   font-weight: 600;

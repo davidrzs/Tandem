@@ -12,12 +12,15 @@ import {
   aiMarks,
   datetimeFromInput,
   datetimeToInput,
+  describeDefault,
   editFromText,
+  EXPRESSION_CHOICES,
   formatValue,
   isEmptyValue,
   isListKind,
   keyFromLabel,
   listValues,
+  literalDefault,
   markFor,
   optionLabel,
   patchFor,
@@ -26,6 +29,9 @@ import {
   type Field,
   type FieldKind,
   type PropertyEdit,
+  type DefaultInput,
+  type TemplateDefault,
+  type TemplateInfo,
 } from "./properties.js";
 import { useToast } from "./toast.js";
 
@@ -182,6 +188,153 @@ export function PropertiesPanel({
       )}
       {dialog}
     </section>
+  );
+}
+
+/**
+ * On a template page, in place of the page's own properties: the type pages
+ * made from it get and each field's default, a value or an expression.
+ * Owners and admins edit them; everyone else reads them.
+ */
+export function TemplateDefaultsPanel({
+  template,
+  workspaceId,
+  canDefine,
+  searchDocs,
+}: {
+  template: TemplateInfo;
+  workspaceId: string;
+  canDefine: boolean;
+  searchDocs: SearchDocs;
+}) {
+  const utils = trpc.useUtils();
+  const toast = useToast();
+  const fields = trpc.types.fields.useQuery({ workspaceId });
+  const types = trpc.types.list.useQuery({ workspaceId });
+  const setDefault = trpc.templates.setFieldDefault.useMutation({
+    onSuccess: () => void utils.templates.list.invalidate(),
+    onError: (e) => toast(friendlyError(e, "Couldn't save that default."), "danger"),
+  });
+  // Fields switched to "A value" whose value isn't chosen yet.
+  const [choosing, setChoosing] = useState<string[]>([]);
+  const type = types.data?.find((t) => t.id === template.typeId) ?? null;
+  const typed = type ? (fields.data ?? []).filter((f) => f.typeId === type.id) : [];
+  const refIds = typed
+    .filter((f) => f.kind === "doc" || f.kind === "doc_list")
+    .flatMap((f) => {
+      const d = template.defaults[f.id];
+      return d?.kind === "value" ? listValues(d.value).map(String) : [];
+    });
+  const titleOf = usePageTitles([...new Set(refIds)]);
+
+  if (!fields.data || !types.data || (!type && !canDefine)) return null;
+
+  const save = (field: Field, next: DefaultInput | null) => {
+    setChoosing((prev) => prev.filter((id) => id !== field.id));
+    setDefault.mutate({ templateId: template.id, fieldId: field.id, default: next });
+  };
+
+  return (
+    <section className="props-panel open" aria-label="Template defaults">
+      <div className="props-summary props-heading">
+        <span className="props-type">Defaults for new pages</span>
+        <span className="props-summary-text">
+          {type ? `Pages made from this template are ${type.name} pages.` : "Pages made from this template have no type."}
+        </span>
+      </div>
+      <div className="props-body">
+        {!type && <p className="props-empty">Pick a type in the Type menu to give new pages a type and default values.</p>}
+        {type && typed.length === 0 && <p className="props-empty">{type.name} has no fields yet.</p>}
+        {typed.map((field) => (
+          <TemplateDefaultRow
+            key={field.id}
+            field={field}
+            value={template.defaults[field.id]}
+            choosing={choosing.includes(field.id)}
+            canDefine={canDefine}
+            titleOf={titleOf}
+            searchDocs={searchDocs}
+            onChoose={() => {
+              if (template.defaults[field.id]) save(field, null);
+              setChoosing((prev) => [...prev, field.id]);
+            }}
+            onSave={(next) => save(field, next)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TemplateDefaultRow({
+  field,
+  value,
+  choosing,
+  canDefine,
+  titleOf,
+  searchDocs,
+  onChoose,
+  onSave,
+}: {
+  field: Field;
+  value: TemplateDefault | undefined;
+  choosing: boolean;
+  canDefine: boolean;
+  titleOf: (id: string) => string | undefined;
+  searchDocs: SearchDocs;
+  onChoose: () => void;
+  onSave: (next: DefaultInput | null) => void;
+}) {
+  const inputId = useId();
+  const mode = value?.kind ?? (choosing ? "value" : "");
+  return (
+    <div className="props-row" data-field={field.key}>
+      <label className="props-label" htmlFor={canDefine ? `${inputId}-mode` : undefined}>
+        {field.label}
+      </label>
+      <div className="props-value">
+        {canDefine ? (
+          <>
+            <select
+              id={`${inputId}-mode`}
+              className="prop-input"
+              aria-label={`Default for ${field.label}`}
+              value={mode}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next === "value") onChoose();
+                else if (next === "") onSave(null);
+                else {
+                  const choice = EXPRESSION_CHOICES.find((c) => c.kind === next);
+                  if (choice) onSave({ kind: choice.kind });
+                }
+              }}
+            >
+              <option value="">No default</option>
+              {field.kind !== "json" && <option value="value">A value</option>}
+              {EXPRESSION_CHOICES.filter((c) => c.fits(field.kind)).map((c) => (
+                <option key={c.kind} value={c.kind}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {mode === "value" && (
+              <Widget
+                field={field}
+                raw={value?.kind === "value" ? value.value : undefined}
+                marks={undefined}
+                inputId={inputId}
+                titleOf={titleOf}
+                searchDocs={searchDocs}
+                onEdit={(edit) => onSave(literalDefault(value?.kind === "value" ? value.value : undefined, edit))}
+              />
+            )}
+          </>
+        ) : (
+          <span>{describeDefault(field, value, { titleOf })}</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -670,18 +823,24 @@ function AddFieldDialog({
   );
 }
 
-/** The doc header's type control: attach, change or detach the page's type;
- * owners and admins can also define a new type here. */
+/** The doc header's type control: attach, change or detach the page's type
+ * (on a template, the type its new pages get); owners and admins can also
+ * define a new type or add the starter types here. */
 export function TypeMenu({
   docId,
   workspaceId,
+  collectionId,
   typeId,
+  templateId,
   canDefine,
   onAttached,
 }: {
   docId: string;
   workspaceId: string;
+  collectionId: string;
   typeId: string | null;
+  /** Set when the page is a template. */
+  templateId: string | null;
   canDefine: boolean;
   onAttached: () => void;
 }) {
@@ -697,21 +856,42 @@ export function TypeMenu({
     },
     onError: (e) => toast(friendlyError(e, "Couldn't change the page type."), "danger"),
   });
+  const setTemplateType = trpc.templates.setDefaultType.useMutation({
+    onSuccess: () => void utils.templates.list.invalidate(),
+    onError: (e) => toast(friendlyError(e, "Couldn't change the template's type."), "danger"),
+  });
+  const attach = (id: string | null) =>
+    templateId ? setTemplateType.mutate({ templateId, typeId: id }) : setType.mutate({ id: docId, typeId: id });
   const createType = trpc.types.create.useMutation({
     onSuccess: (type) => {
       void utils.types.list.invalidate({ workspaceId });
-      setType.mutate({ id: docId, typeId: type.id });
+      attach(type.id);
     },
     onError: (e) => toast(friendlyError(e, "Couldn't create that type."), "danger"),
   });
+  const addStarterKit = trpc.templates.addStarterKit.useMutation({
+    onSuccess: (added) => {
+      void utils.types.list.invalidate({ workspaceId });
+      void utils.types.fields.invalidate({ workspaceId });
+      void utils.templates.list.invalidate();
+      void utils.documents.tree.invalidate({ collectionId });
+      const parts = [
+        ...(added.types.length > 0 ? [`the ${added.types.join(", ")} types`] : []),
+        ...(added.templates.length > 0 ? [`the ${added.templates.join(", ")} templates`] : []),
+      ];
+      toast(parts.length > 0 ? `Added ${parts.join(" and ")}.` : "The starter types and templates are already here.");
+    },
+    onError: (e) => toast(friendlyError(e, "Couldn't add the starter types."), "danger"),
+  });
   const list = types.data ?? [];
-  if (list.length === 0 && !canDefine) return null;
+  if (!canDefine && (list.length === 0 || templateId)) return null;
   const current = list.find((t) => t.id === typeId) ?? null;
+  const what = templateId ? "Type of new pages" : "Page type";
   return (
     <>
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
-          <button type="button" className="tool-btn" title="Page type" aria-label={`Page type: ${current?.name ?? "none"}`}>
+          <button type="button" className="tool-btn" title={what} aria-label={`${what}: ${current?.name ?? "none"}`}>
             <Icon name="page" size={15} />
             {current?.name ?? "Type"}
           </button>
@@ -719,36 +899,43 @@ export function TypeMenu({
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="menu-pop" align="end" sideOffset={4}>
             {list.map((t) => (
-              <DropdownMenu.Item
-                key={t.id}
-                className="menu-item"
-                onSelect={() => t.id !== typeId && setType.mutate({ id: docId, typeId: t.id })}
-              >
+              <DropdownMenu.Item key={t.id} className="menu-item" onSelect={() => t.id !== typeId && attach(t.id)}>
                 <span className="menu-check">{t.id === typeId && <Icon name="check" />}</span>
                 {t.name}
               </DropdownMenu.Item>
             ))}
             {canDefine && (
-              <DropdownMenu.Item
-                className="menu-item"
-                onSelect={() =>
-                  setDialog(
-                    <PromptDialog
-                      title="New type"
-                      label="Name"
-                      placeholder="Meeting"
-                      submitLabel="Create and attach"
-                      onSubmit={(name) => createType.mutate({ workspaceId, name })}
-                      onClose={() => setDialog(null)}
-                    />,
-                  )
-                }
-              >
-                <span className="menu-check">
-                  <Icon name="plus" />
-                </span>
-                New type…
-              </DropdownMenu.Item>
+              <>
+                <DropdownMenu.Item
+                  className="menu-item"
+                  onSelect={() =>
+                    setDialog(
+                      <PromptDialog
+                        title="New type"
+                        label="Name"
+                        placeholder="Meeting"
+                        submitLabel="Create and attach"
+                        onSubmit={(name) => createType.mutate({ workspaceId, name })}
+                        onClose={() => setDialog(null)}
+                      />,
+                    )
+                  }
+                >
+                  <span className="menu-check">
+                    <Icon name="plus" />
+                  </span>
+                  New type…
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="menu-item"
+                  onSelect={() => addStarterKit.mutate({ workspaceId, collectionId })}
+                >
+                  <span className="menu-check">
+                    <Icon name="plus" />
+                  </span>
+                  Add starter types
+                </DropdownMenu.Item>
+              </>
             )}
             {current && (
               <>
@@ -759,9 +946,13 @@ export function TypeMenu({
                     setDialog(
                       <ConfirmDialog
                         title={`Detach ${current.name}?`}
-                        body="The page keeps every value it holds; only empty fields leave the panel. Attach the type again to bring them back."
+                        body={
+                          templateId
+                            ? "New pages from this template will have no type, and its default values are cleared. Pages already made keep theirs."
+                            : "The page keeps every value it holds; only empty fields leave the panel. Attach the type again to bring them back."
+                        }
                         confirmLabel="Detach type"
-                        onConfirm={() => setType.mutate({ id: docId, typeId: null })}
+                        onConfirm={() => attach(null)}
                         onClose={() => setDialog(null)}
                       />,
                     )

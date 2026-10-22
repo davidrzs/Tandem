@@ -4,9 +4,12 @@ import {
   aiMarks,
   datetimeFromInput,
   datetimeToInput,
+  describeDefault,
   editFromText,
+  EXPRESSION_CHOICES,
   formatValue,
   keyFromLabel,
+  literalDefault,
   patchFor,
   propertyColumns,
   summaryText,
@@ -125,4 +128,31 @@ test("property columns: the shared type's first three table-friendly fields, non
 
 test("a typed field label becomes a key", () => {
   assert.equal(keyFromLabel("  Due date / Time "), "due_date_time");
+});
+
+test("template defaults: a widget edit becomes the new literal, an emptied list clears it", () => {
+  assert.deepEqual(literalDefault(undefined, { op: "set", value: "opt_done" }), { kind: "value", value: "opt_done" });
+  assert.deepEqual(literalDefault(undefined, { op: "set", value: 3 }), { kind: "value", value: 3 });
+  assert.deepEqual(literalDefault(["opt_budget"], { op: "add", value: "opt_hiring" }), {
+    kind: "value",
+    value: ["opt_budget", "opt_hiring"],
+  });
+  assert.deepEqual(literalDefault(["opt_budget"], { op: "add", value: "opt_budget" }), {
+    kind: "value",
+    value: ["opt_budget"],
+  });
+  assert.equal(literalDefault(["opt_budget"], { op: "remove", value: "opt_budget" }), null);
+  assert.equal(literalDefault("opt_done", { op: "clear" }), null);
+});
+
+test("template defaults: each kind is offered only the expressions that fit it, and defaults read as text", () => {
+  const offered = (kind: Field["kind"]) => EXPRESSION_CHOICES.filter((c) => c.fits(kind)).map((c) => c.kind);
+  assert.deepEqual(offered("date"), ["today", "from_previous_sibling"]);
+  assert.deepEqual(offered("datetime"), ["now", "from_previous_sibling"]);
+  assert.deepEqual(offered("text"), ["me", "from_previous_sibling"]);
+  assert.deepEqual(offered("doc_list"), ["from_previous_sibling"]);
+  assert.deepEqual(offered("json"), []);
+  assert.equal(describeDefault(status, { kind: "value", value: "opt_done" }), "Done");
+  assert.equal(describeDefault(topics, { kind: "from_previous_sibling" }), "Same as the previous page");
+  assert.equal(describeDefault(status, undefined), "No default");
 });
