@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { documentCreateShape, documentMoveShape } from "@tandem/core";
-import { json, type ToolContext } from "../shared.js";
+import { frontMatterError, json, type ToolContext } from "../shared.js";
 
 /** Document creation. */
 export function registerCreateTools(server: McpServer, ctx: ToolContext): void {
@@ -12,11 +12,13 @@ export function registerCreateTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "Create document",
       description:
-        "Create a document in a collection. Body is markdown; parentDocumentId " +
-        "nests it. Returns its absolute canonical url.",
+        "Create a document in a collection. Body is markdown without YAML front " +
+        "matter; parentDocumentId nests it. Returns its absolute canonical url.",
       inputSchema: documentCreateShape,
     },
     async (args) => {
+      const rejected = frontMatterError(args.markdown);
+      if (rejected) return rejected;
       const doc = await documents.create(args);
       logAudit("create_document", doc);
       return json(publicDoc(doc));

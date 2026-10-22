@@ -3,6 +3,7 @@ import { DocumentWriteDeniedError } from "@tandem/core";
 import { MarkdownEditError } from "@tandem/editor";
 import type { CollabWriter } from "../collab-writer.js";
 import type { Services } from "../services.js";
+import { startsWithFrontMatter } from "../transfer/markdown-zip.js";
 
 /** Decoded-bytes cap for MCP uploads (REST allows 25MB; agents send small images). */
 export const MCP_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
@@ -21,6 +22,15 @@ export function notFound(what: string) {
 
 export const READ_ONLY_MESSAGE =
   "permission denied: this document is read-only for you (its collection does not grant you write access)";
+
+/** Markdown that opens with a `---` YAML block would store a rule and a heading. */
+export function frontMatterError(markdown: string | undefined) {
+  if (!markdown || !startsWithFrontMatter(markdown)) return null;
+  return toolError(
+    "markdown starts with a YAML front matter block (---). Properties are not part of the " +
+      "markdown body: send the body without the front matter block.",
+  );
+}
 
 export const DOCUMENT_LIST_FIELDS = [
   "id",

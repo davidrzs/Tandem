@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
 import { getAuthors } from "@tandem/editor";
@@ -440,6 +441,49 @@ test("targeted edit failures are clean errors, not fake success", async () => {
     await client.callTool({ name: "get_document", arguments: { id: doc.id } }),
   );
   assert.equal(fetched.markdown, "## A\n\nsame same");
+});
+
+/** The message of a tool result that must be an error. */
+function errorText(res: unknown): string {
+  const parsed = CallToolResultSchema.parse(res);
+  assert.equal(parsed.isError, true, `expected an error: ${JSON.stringify(parsed.content)}`);
+  const first = parsed.content[0];
+  return first?.type === "text" ? first.text : "";
+}
+
+test("markdown that opens with YAML front matter is refused, not stored as a rule and heading", async () => {
+  const message =
+    "markdown starts with a YAML front matter block (---). Properties are not part of the " +
+    "markdown body: send the body without the front matter block.";
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { name: "Props", slug: "props" } }),
+  );
+
+  const created = await client.callTool({
+    name: "create_document",
+    arguments: { collectionId: col.id, markdown: "---\nstatus: draft\n---\n\nBody" },
+  });
+  assert.equal(errorText(created), message);
+  const listed = payload(
+    await client.callTool({ name: "list_documents", arguments: { collectionId: col.id } }),
+  );
+  assert.deepEqual(listed.documents, []);
+
+  const doc = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: { collectionId: col.id, markdown: "Intro\n\n---\n\nAfter the rule" },
+    }),
+  );
+  for (const [name, args] of [
+    ["append_section", { markdown: "---\nstatus: draft\n---" }],
+    ["edit_document", { old_string: "Intro", new_string: "---\ntags: [a]\n---\nIntro" }],
+  ] as const) {
+    const res = await client.callTool({ name, arguments: { id: doc.id, ...args } });
+    assert.equal(errorText(res), message, name);
+  }
+  const fetched = payload(await client.callTool({ name: "get_document", arguments: { id: doc.id } }));
+  assert.equal(fetched.markdown, "Intro\n\n---\n\nAfter the rule");
 });
 
 test("get_document on missing id returns an error result", async () => {

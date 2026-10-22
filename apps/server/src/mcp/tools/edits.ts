@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { documentUpdateShape, markdownSchema, titleSchema } from "@tandem/core";
 import { appendMarkdown, insertAfterHeading, replaceSection, replaceText } from "@tandem/editor";
-import { toolError, type ToolContext } from "../shared.js";
+import { frontMatterError, toolError, type ToolContext } from "../shared.js";
 
 /** Metadata updates and targeted body edits. */
 export function registerEditTools(server: McpServer, ctx: ToolContext): void {
@@ -51,6 +51,7 @@ export function registerEditTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ id, old_string, new_string, replace_all }) =>
+      frontMatterError(new_string) ??
       editBody("edit_document", id, (md) => replaceText(md, old_string, new_string, replace_all)),
   );
 
@@ -69,6 +70,7 @@ export function registerEditTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ id, heading, markdown }) =>
+      frontMatterError(markdown) ??
       editBody("insert_after_heading", id, (md) => insertAfterHeading(md, heading, markdown)),
   );
 
@@ -87,6 +89,7 @@ export function registerEditTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ id, heading, markdown }) =>
+      frontMatterError(markdown) ??
       editBody("replace_section", id, (md) => replaceSection(md, heading, markdown)),
   );
 
@@ -99,6 +102,7 @@ export function registerEditTools(server: McpServer, ctx: ToolContext): void {
         "cleanly with concurrent human edits via the live collaborative document.",
       inputSchema: { id: z.string().uuid(), markdown: markdownSchema.min(1) },
     },
-    async ({ id, markdown }) => editBody("append_section", id, (md) => appendMarkdown(md, markdown)),
+    async ({ id, markdown }) =>
+      frontMatterError(markdown) ?? editBody("append_section", id, (md) => appendMarkdown(md, markdown)),
   );
 }
