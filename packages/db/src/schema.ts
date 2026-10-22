@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   customType,
   doublePrecision,
@@ -151,6 +152,10 @@ export const collections = pgTable(
     description: text("description"),
     icon: text("icon"),
     color: text("color"),
+    // New pages here start from this template unless a deeper folder sets one.
+    defaultTemplateId: uuid("default_template_id").references((): AnyPgColumn => templates.documentId, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -196,6 +201,12 @@ export const documents = pgTable(
     // a scan of every readable body. NULL = written before this column existed
     // (readers fall back to scanning those rows until their next save).
     taskAssignees: text("task_assignees").array(),
+    // New pages under this one start from this template (deepest ancestor wins).
+    defaultTemplateId: uuid("default_template_id").references((): AnyPgColumn => templates.documentId, {
+      onDelete: "set null",
+    }),
+    // Provenance of a page created from a template; never updated afterwards.
+    origin: jsonb("origin").$type<DocumentOrigin>(),
 
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): any =>
@@ -228,6 +239,34 @@ export const documents = pgTable(
       .on(t.collectionId, t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
   ],
+);
+
+/** Which template a page started from: the template document and its
+ * `updated_at` at instantiation. */
+export interface DocumentOrigin {
+  templateId: string;
+  version: string;
+}
+
+/** A template is an ordinary document (same editor, blame, versions) plus
+ * this row. Template documents and their subtrees stay out of search,
+ * backlinks, recents and tasks. `default_type_id` is reserved for types. */
+export const templates = pgTable(
+  "templates",
+  {
+    documentId: uuid("document_id")
+      .primaryKey()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    defaultTypeId: uuid("default_type_id"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("templates_workspace_idx").on(t.workspaceId)],
 );
 
 /** Inline discussion on a document. A top-level comment may be anchored to a
@@ -428,3 +467,4 @@ export type DocumentSnapshot = typeof documentSnapshots.$inferSelect;
 export type InstanceSettings = typeof instanceSettings.$inferSelect;
 export type InstanceInvite = typeof instanceInvites.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
+export type Template = typeof templates.$inferSelect;
