@@ -743,6 +743,27 @@ button.doc-twist:hover .twist {
   background: var(--danger-wash);
 }
 
+.menu-note {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.chevron-down {
+  transform: rotate(90deg);
+}
+
+.template-badge {
+  flex: none;
+  margin: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
 .menu-check {
   width: 16px;
   display: inline-flex;
@@ -2268,8 +2289,17 @@ button.doc-twist:hover .twist {
   border-color: var(--accent);
 }
 
+.outline-new-group {
+  display: inline-flex;
+  gap: 2px;
+}
+
 .outline-new {
   padding: 4px 10px;
+}
+
+.outline-new-menu {
+  padding: 4px 6px;
 }
 
 .outline-table {
@@ -2705,6 +2735,15 @@ button.outline-twist:not(:disabled):hover .twist {
   color: var(--warn);
   font-size: 13px;
   padding: 9px 16px;
+}
+
+.template-banner {
+  background: var(--accent-wash);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 13px;
+  padding: 9px 16px;
+  text-align: center;
 }
 
 /* ---------- auth ---------- */

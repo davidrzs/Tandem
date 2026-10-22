@@ -1,5 +1,6 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
@@ -15,6 +16,7 @@ import {
 } from "./outline.js";
 import { timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
+import { NewPageMenu } from "./TemplateMenus.js";
 import { useCreateDocument } from "./useCreateDocument.js";
 
 const COLUMNS: { key: SortKey; label: string }[] = [
@@ -37,8 +39,12 @@ export function DocOutline({
   parentId?: string;
   canEdit: boolean;
 }) {
-  const createDocument = useCreateDocument();
+  const [dialog, setDialog] = useState<ReactNode>(null);
+  const createDocument = useCreateDocument(setDialog);
+  const workspaceId = useAppContext().collections.find((c) => c.id === collectionId)?.workspaceId;
   const toast = useToast();
+  const create = (templateId?: string | null) =>
+    void createDocument(collectionId, parentId, templateId).catch((e) => toast(friendlyError(e), "danger"));
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [sort, setSort] = useState<OutlineSort | null>(null);
   const [filter, setFilter] = useState("");
@@ -69,17 +75,23 @@ export function DocOutline({
           onChange={(e) => setFilter(e.target.value)}
         />
         {canEdit && (
-          <button
-            type="button"
-            className="btn outline-new"
-            onClick={() =>
-              void createDocument(collectionId, parentId).catch((e) => toast(friendlyError(e), "danger"))
-            }
-          >
-            <Icon name="plus" size={14} /> {parentId ? "New page" : "New document"}
-          </button>
+          <span className="outline-new-group">
+            <button type="button" className="btn outline-new" onClick={() => create()}>
+              <Icon name="plus" size={14} /> {parentId ? "New page" : "New document"}
+            </button>
+            {workspaceId && (
+              <NewPageMenu
+                workspaceId={workspaceId}
+                collectionId={collectionId}
+                parentDocumentId={parentId}
+                className="btn outline-new-menu"
+                onPick={create}
+              />
+            )}
+          </span>
         )}
       </div>
+      {dialog}
       <table className="outline-table">
         <thead>
           <tr>

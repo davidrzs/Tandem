@@ -56,6 +56,7 @@ export const ROW_PAD_PX = 4;
 
 export interface SidebarTreeProps {
   uid: string;
+  workspaceId: string | null;
   collections: Collection[];
   activeDocId: string | null;
   activeCollectionId: string | null;
@@ -69,6 +70,9 @@ export interface SidebarTreeModel {
   index: SidebarIndex;
   actions: SidebarActions;
   activeDocId: string | null;
+  workspaceId: string | null;
+  /** Template documents in this workspace, for the row badge and menu. */
+  templateIds: ReadonlySet<string>;
   canRevealActive: boolean;
   /** The row whose "More actions" menu is open, by node id. */
   menuFor: string | null;
@@ -167,6 +171,11 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
     [p.collections, folds.snapshot.expandedCollections, trees, archived, trash],
   );
   const index = useMemo(() => buildSidebarIndex(input), [input]);
+  const templates = trpc.templates.list.useQuery(
+    { workspaceId: p.workspaceId ?? "" },
+    { enabled: !!p.workspaceId },
+  );
+  const templateIds = useMemo(() => new Set(templates.data?.map((t) => t.id)), [templates.data]);
   // A new array whenever data or folds change: headless-tree rebuilds its
   // flat item list synchronously when expandedItems changes by reference, so
   // a deleted doc is never rendered from a stale list.
@@ -283,6 +292,8 @@ export function useSidebarTree(p: SidebarTreeProps): SidebarTreeModel {
     index,
     actions,
     activeDocId: p.activeDocId,
+    workspaceId: p.workspaceId,
+    templateIds,
     canRevealActive: !!p.activeDocId && !!p.activeCollectionId && index.nodes.has(p.activeCollectionId),
     menuFor,
     setMenuFor,
