@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { FieldKind } from "@tandem/db";
 import {
   classifyImportEntries,
   composeExportDoc,
@@ -14,6 +15,7 @@ import {
   startsWithFrontMatter,
   uniqueName,
 } from "./markdown-zip.js";
+import { exportFrontMatter } from "./properties-yaml.js";
 
 test("sanitizeFilename strips path/control chars and never empties", () => {
   assert.equal(sanitizeFilename('a/b:c*?"<>|d'), "abcd");
@@ -28,49 +30,83 @@ test("uniqueName dedupes case-insensitively with a suffix", () => {
   assert.equal(uniqueName(used, "Notes"), "Notes (2)");
 });
 
+const plain = { properties: {}, tandemId: null, typeName: null, hasComments: false };
+
 test("front matter emits a dash-list and parses both forms", () => {
-  assert.equal(emitFrontMatter([]), "");
-  assert.equal(emitFrontMatter(["a", "b"]), "---\ntags:\n  - a\n  - b\n---\n\n");
-  assert.equal(emitFrontMatter(["#x", "a: b"]), '---\ntags:\n  - "#x"\n  - "a: b"\n---\n\n');
-  assert.deepEqual(parseFrontMatter(emitFrontMatter(["#x", "a: b"])).tags, ["#x", "a: b"]);
+  assert.equal(emitFrontMatter({}), "");
+  assert.equal(emitFrontMatter({ tags: ["a", "b"] }), "---\ntags:\n  - a\n  - b\n---\n\n");
+  assert.equal(emitFrontMatter({ tags: ["#x", "a: b"] }), '---\ntags:\n  - "#x"\n  - "a: b"\n---\n\n');
+  assert.deepEqual(parseFrontMatter(emitFrontMatter({ tags: ["#x", "a: b"] })).tags, ["#x", "a: b"]);
   assert.deepEqual(parseFrontMatter("---\ntags:\n  - x\n  - y\n---\n\nBody").tags, ["x", "y"]);
   assert.deepEqual(parseFrontMatter("---\ntags: [p, 'q r']\n---\nBody").tags, ["p", "q r"]);
   const none = parseFrontMatter("No front matter here");
-  assert.deepEqual(none, { tags: [], dropped: [], body: "No front matter here", error: null });
+  assert.deepEqual(none, { ...plain, tags: [], body: "No front matter here", error: null });
   assert.equal(parseFrontMatter("---\ntags:\n  - x\n---\n\nHello").body, "Hello");
 });
 
-test("parseFrontMatter: block lists, quoted strings, nested maps report dropped keys", () => {
+test("parseFrontMatter keeps every other key as a property, as YAML typed it", () => {
   assert.deepEqual(
     parseFrontMatter(
-      '---\nstatus: draft\ntags:\n  - "q: r"\n  - plain\nreview:\n  owner: ana\n  due: 2026-01-02\n---\n\nBody',
+      '---\nstatus: draft\ntags:\n  - "q: r"\n  - plain\nreview:\n  owner: ana\n  due: 2026-01-02\nversion: "1.10"\nrelease: 1.10\nshipped: no\n---\n\nBody',
     ),
-    { tags: ["q: r", "plain"], dropped: ["status", "review"], body: "Body", error: null },
+    {
+      ...plain,
+      tags: ["q: r", "plain"],
+      properties: {
+        status: "draft",
+        review: { owner: "ana", due: "2026-01-02" },
+        version: "1.10",
+        release: 1.1,
+        shipped: "no",
+      },
+      body: "Body",
+      error: null,
+    },
   );
   assert.deepEqual(parseFrontMatter("---\ntags: solo\n---\nBody"), {
+    ...plain,
     tags: ["solo"],
-    dropped: [],
     body: "Body",
     error: null,
   });
   assert.deepEqual(parseFrontMatter("---\ntag: a, b\ntags: [b, 2024]\n---\nBody"), {
+    ...plain,
     tags: ["a", "b", "2024"],
-    dropped: [],
     body: "Body",
     error: null,
   });
   assert.deepEqual(parseFrontMatter("---\ntags:\n  nested: map\n---\nBody"), {
+    ...plain,
     tags: [],
-    dropped: ["tags"],
+    properties: { tags: { nested: "map" } },
     body: "Body",
     error: null,
   });
 });
 
+test("parseFrontMatter reads a Tandem export's own keys and notices comments", () => {
+  assert.deepEqual(
+    parseFrontMatter(
+      "---\n# agenda first\ntandem-id: 0b6c3f9e-1d2a-4c5b-8e7f-9a0b1c2d3e4f\ntandem-type: Meeting\nstatus: Done # was Todo\n---\nBody",
+    ),
+    {
+      tags: [],
+      properties: { status: "Done" },
+      tandemId: "0b6c3f9e-1d2a-4c5b-8e7f-9a0b1c2d3e4f",
+      typeName: "Meeting",
+      hasComments: true,
+      body: "Body",
+      error: null,
+    },
+  );
+  assert.equal(parseFrontMatter('---\nstatus: "#1 # not a comment"\n---\nBody').hasComments, false);
+});
+
 test("parseFrontMatter: BOM and CRLF before the fence", () => {
   assert.deepEqual(parseFrontMatter("\uFEFF---\r\ntags:\r\n  - x\r\nstatus: done\r\n---\r\n\r\n# T\r\n"), {
+    ...plain,
     tags: ["x"],
-    dropped: ["status"],
+    properties: { status: "done" },
     body: "# T\r\n",
     error: null,
   });
@@ -79,15 +115,15 @@ test("parseFrontMatter: BOM and CRLF before the fence", () => {
 test("parseFrontMatter: broken fences keep the original text", () => {
   const unclosed = "---\nstatus: draft\n\n# Title";
   assert.deepEqual(parseFrontMatter(unclosed), {
+    ...plain,
     tags: [],
-    dropped: [],
     body: unclosed,
     error: "it has no closing ---",
   });
   const invalid = "---\nstatus: [draft\n---\nBody";
   assert.deepEqual(parseFrontMatter(invalid), {
+    ...plain,
     tags: [],
-    dropped: [],
     body: invalid,
     error: "it isn't valid YAML",
   });
@@ -97,7 +133,7 @@ test("parseFrontMatter: broken fences keep the original text", () => {
 
 test("parseFrontMatter: rules around plain markdown are not front matter", () => {
   for (const md of ["---\n\nText after a rule", "---\nJust a heading\n---\nBody", "---\n# H1\n---\nBody"]) {
-    assert.deepEqual(parseFrontMatter(md), { tags: [], dropped: [], body: md, error: null });
+    assert.deepEqual(parseFrontMatter(md), { ...plain, tags: [], body: md, error: null });
   }
   assert.equal(startsWithFrontMatter("---\nstatus: draft\n---\nBody"), true);
   assert.equal(startsWithFrontMatter("Intro\n\n---\n\nAfter the rule"), false);
@@ -108,9 +144,82 @@ test("splitLeadingH1 pulls the title; composeExportDoc reassembles", () => {
   assert.deepEqual(splitLeadingH1("# Title\n\nBody here"), { title: "Title", body: "Body here" });
   assert.deepEqual(splitLeadingH1("No heading"), { title: null, body: "No heading" });
   assert.equal(
-    composeExportDoc({ title: "My Doc", tags: ["t"], body: "Content." }),
+    composeExportDoc({ title: "My Doc", frontMatter: { tags: ["t"] }, body: "Content." }),
     "---\ntags:\n  - t\n---\n\n# My Doc\n\nContent.\n",
   );
+});
+
+test("a Meeting page exports its values as front matter in type field order", () => {
+  const field = (id: string, key: string, kind: FieldKind, typeName: string | null, options: string[] = []) => ({
+    id,
+    workspaceId: "w",
+    typeId: typeName ? "t-meeting" : null,
+    typeName,
+    key,
+    label: key,
+    kind,
+    position: 0,
+    options: options.map((label, i) => ({ id: `${id}-o${i}`, label })),
+    retired: false,
+    aliases: [],
+  });
+  const fields = [
+    field("f-date", "date", "date", "Meeting"),
+    field("f-status", "status", "select", "Meeting", ["Todo", "Done"]),
+    field("f-attendees", "attendees", "doc_list", "Meeting"),
+    field("f-room", "room", "text", "Meeting"),
+    field("f-version", "version", "text", null),
+    field("f-budget", "budget", "number", null),
+    field("f-areas", "areas", "multi_select", null, ["Ops", "Sales"]),
+  ];
+  const titles: Record<string, string> = { "d-ana": "Ana", "d-bo": "Bo: notes" };
+  const frontMatter = exportFrontMatter(
+    {
+      id: "d-standup",
+      typeId: "t-meeting",
+      typeName: "Meeting",
+      tags: ["daily"],
+      properties: {
+        "f-version": "1.10",
+        "f-status": "f-status-o1",
+        "f-areas": ["f-areas-o1", "f-areas-o0"],
+        "f-date": "2026-10-22",
+        "f-attendees": ["d-ana", "d-bo", "d-gone"],
+        "f-budget": 1200,
+      },
+    },
+    fields,
+    (id) => titles[id] ?? null,
+  );
+  assert.equal(
+    composeExportDoc({ title: "Standup", frontMatter, body: "Notes." }),
+    [
+      "---",
+      "tandem-id: d-standup",
+      "tandem-type: Meeting",
+      "date: 2026-10-22",
+      "status: Done",
+      "attendees:",
+      '  - "[[Ana]]"',
+      '  - "[[Bo: notes]]"',
+      "areas:",
+      "  - Sales",
+      "  - Ops",
+      "budget: 1200",
+      'version: "1.10"',
+      "tags:",
+      "  - daily",
+      "---",
+      "",
+      "# Standup",
+      "",
+      "Notes.",
+      "",
+    ].join("\n"),
+  );
+  const untyped = { id: "d-plain", typeId: null, typeName: null, tags: ["x"], properties: {} };
+  assert.deepEqual(exportFrontMatter(untyped, fields, () => null), { "tandem-id": "d-plain", tags: ["x"] });
+  assert.deepEqual(exportFrontMatter(untyped, [], () => null), { tags: ["x"] });
 });
 
 test("planExportLayout nests children in a same-named folder and dedupes", () => {

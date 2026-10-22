@@ -188,7 +188,7 @@ export async function buildHttpServer(
     secret,
     mcpGate: (userId) => mcpAccessError(db, userId),
   });
-  await registerTransferRoutes(app, db, auth);
+  await registerTransferRoutes(app, db, auth, hocuspocus);
   await registerSetupRoutes(app, db, auth, { emailEnabled: !!mailer });
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump

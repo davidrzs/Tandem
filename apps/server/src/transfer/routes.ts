@@ -1,7 +1,9 @@
 import { fromNodeHeaders } from "better-auth/node";
+import type { Hocuspocus } from "@hocuspocus/server";
 import type { Database } from "@tandem/db";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Auth } from "../auth.js";
+import { createCollabWriter } from "../collab-writer.js";
 import { createServices } from "../services.js";
 import { buildExportZip } from "./export.js";
 import { importZip, ImportError } from "./import.js";
@@ -11,9 +13,16 @@ const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 /**
  * Markdown zip import/export. Both routes are session-gated and RLS-scoped:
  * a user exports only what they can read and imports into a workspace they
- * belong to. Content is attributed to the importing human (blame).
+ * belong to. Content is attributed to the importing human (blame). A
+ * re-import writes properties of pages that already exist through the live
+ * doc, so it merges with anyone editing them.
  */
-export async function registerTransferRoutes(app: FastifyInstance, db: Database, auth: Auth) {
+export async function registerTransferRoutes(
+  app: FastifyInstance,
+  db: Database,
+  auth: Auth,
+  hocuspocus: Hocuspocus,
+) {
   const sessionOf = (req: FastifyRequest) =>
     auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
 
@@ -82,11 +91,8 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
     const workspaceId = (req.query as { workspace?: string }).workspace;
     if (!workspaceId) return reply.code(400).send({ error: "workspace required" });
 
-    const services = createServices(db, { kind: "user", userId: session.user.id }, {
-      userId: session.user.id,
-      name: session.user.name ?? "",
-      ai: false,
-    });
+    const author = { userId: session.user.id, name: session.user.name ?? "", ai: false };
+    const services = createServices(db, { kind: "user", userId: session.user.id }, author);
     const member = (await services.workspaces.listMine()).some((w) => w.id === workspaceId);
     if (!member) return reply.code(403).send({ error: "not a member of that workspace" });
 
@@ -101,6 +107,7 @@ export async function registerTransferRoutes(app: FastifyInstance, db: Database,
         uid: session.user.id,
         zipName: file.filename ?? "Imported",
         buffer,
+        writer: createCollabWriter(hocuspocus, services.documents, author),
       });
       void services.settings
         .recordAudit({
