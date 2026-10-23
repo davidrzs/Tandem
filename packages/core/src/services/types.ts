@@ -35,6 +35,8 @@ const DOC_URL = /\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const DATETIME_INPUT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
 const DATETIME_STORED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const TEXT_MAX = 10_000;
+/** A plain decimal: unlike `Number()`, not `0x1F`, `0b11`, `0o7` or `Infinity`. */
+const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
 
 /** The parts of a field row the value rules read. */
 export type FieldDef = Pick<TypeField, "id" | "key" | "kind" | "options" | "retiredAt">;
@@ -96,7 +98,7 @@ const KINDS: Record<FieldKind, KindSpec> = {
   number: {
     shape: "scalar",
     invalid: (v) => (typeof v === "number" && Number.isFinite(v) ? null : "expected a number"),
-    coerce: (v) => (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : v),
+    coerce: (v) => (typeof v === "string" && DECIMAL.test(v.trim()) ? Number(v) : v),
     text: (v) => String(v),
   },
   checkbox: {

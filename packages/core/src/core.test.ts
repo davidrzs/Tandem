@@ -35,7 +35,7 @@ import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
 import { evaluateDefaults, normalizeDefault } from "./services/template-defaults.js";
 import { expandVariables, TemplateService } from "./services/templates.js";
-import { projectProperties, TypeService, type FieldDef } from "./services/types.js";
+import { parseFieldInput, projectProperties, TypeService, type FieldDef } from "./services/types.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -1614,6 +1614,27 @@ test("properties: the projection validates every kind and reports what fails", (
   assert.deepEqual(capped.propertyIssues, [
     { fieldId: "rl", code: "invalid_value", message: "holds more than 1000 values; kept the first 1000", value: 20_000 },
   ]);
+});
+
+test("properties: a number given as text must be a plain decimal", () => {
+  const field: FieldDef = { id: "n", key: "count", kind: "number", options: [], retiredAt: null };
+  assert.deepEqual(
+    ["12", " -3.5 ", "1e3", ".5", "0x1F", "0b11", "0o7", "Infinity", "1,5", "12abc"].map((input) =>
+      parseFieldInput(field, input),
+    ),
+    [
+      { value: 12 },
+      { value: -3.5 },
+      { value: 1000 },
+      { value: 0.5 },
+      { error: "expected a number" },
+      { error: "expected a number" },
+      { error: "expected a number" },
+      { error: "expected a number" },
+      { error: "expected a number" },
+      { error: "expected a number" },
+    ],
+  );
 });
 
 test("properties: option ids left by a kind change read as their labels", () => {
