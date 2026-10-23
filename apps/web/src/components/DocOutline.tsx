@@ -142,7 +142,7 @@ export function DocOutline({
                       <span className="outline-twist" aria-hidden="true" />
                     )}
                     <Icon name={hasChildren ? "folder" : "page"} size={15} className="outline-icon" />
-                    <Link to={`/d/${node.id}`} className="outline-link">
+                    <Link to={`/d/${node.id}`} className="outline-link" title={title}>
                       {title}
                     </Link>
                   </div>

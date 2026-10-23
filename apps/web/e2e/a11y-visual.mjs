@@ -121,6 +121,8 @@ try {
   const reviewRow = contents.locator("tbody tr", { hasText: "Quarterly research review" });
   const nameCut = await reviewRow.locator(".outline-link").evaluate((a) => a.scrollWidth > a.clientWidth);
   if (nameCut) throw new Error("the Contents table cuts off “Quarterly research review”");
+  const nameTitle = await reviewRow.locator(".outline-link").getAttribute("title");
+  if (nameTitle !== "Quarterly research review") throw new Error(`the review's name link has title ${nameTitle}`);
   const reviewCells = await reviewRow.locator("td.outline-field").evaluateAll((tds) =>
     tds.map((td) => ({ title: td.getAttribute("title"), cut: td.scrollWidth > td.clientWidth })),
   );
