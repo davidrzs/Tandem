@@ -1756,6 +1756,44 @@ test("properties: a stored map is projected on save, trusting nothing in it", as
   });
 });
 
+test("properties: changing or retiring a field re-projects the pages holding it", async () => {
+  const { col, types, status, due, opt } = await typedWorkspace("ty5-owner", "ty5-member");
+  const page = await new DocumentService(db, user("ty5-member")).create({
+    collectionId: col.id,
+    title: "Held",
+    properties: [
+      { op: "set", field: due.id, value: "2026-01-02" },
+      { op: "set", field: status.id, value: opt(status, "Done") },
+    ],
+  });
+  const projection = async () => {
+    const [row] = await db
+      .select({ properties: documentsTable.properties, issues: documentsTable.propertyIssues, text: documentsTable.propertiesText })
+      .from(documentsTable)
+      .where(eq(documentsTable.id, page.id));
+    return row;
+  };
+
+  await types.updateField(due.id, { kind: "number" });
+  await types.updateField(status.id, { options: [{ id: opt(status, "Open"), label: "Open" }] });
+  assert.deepEqual(await projection(), {
+    properties: { [status.id]: opt(status, "Done") },
+    issues: [
+      { fieldId: due.id, code: "invalid_value", message: "expected a number", value: "2026-01-02" },
+      { fieldId: status.id, code: "retired_option", message: "holds a retired option", value: opt(status, "Done") },
+    ],
+    text: "Done",
+  });
+  await types.retireField(due.id);
+  await types.updateField(due.id, { kind: "text" });
+  assert.deepEqual((await projection())!.issues[0], {
+    fieldId: due.id,
+    code: "retired_field",
+    message: "due is retired",
+    value: "2026-01-02",
+  });
+});
+
 test("template defaults: each expression and literal yields its stored value", () => {
   const field = (id: string, kind: FieldKind, options: string[] = []): FieldDef => ({
     id,

@@ -17,7 +17,7 @@ import {
   type PropertyIssue,
   type TypeField,
 } from "@tandem/db";
-import type { PropertiesJSON, PropertyOp } from "@tandem/editor";
+import { stateProperties, type PropertiesJSON, type PropertyOp } from "@tandem/editor";
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { INPUT_LIMITS, type PropertyPatchInput } from "../inputs.js";
 
@@ -258,6 +258,43 @@ export async function projectionColumns(
   return projectProperties(json, new Map(rows.map((f) => [f.id, f])));
 }
 
+/**
+ * Re-validate the pages holding values of `fieldIds` against the fields as
+ * they are now, so views, search and Due soon stop reading values checked
+ * against the old definition before each page's next save. Runs as the
+ * system after the definition commits: the change reaches pages the admin
+ * can't read too. Each page is locked and projected from its stored state.
+ */
+async function reprojectFieldPages(db: Database, workspaceId: string, fieldIds: string[]): Promise<void> {
+  const ids = sql.join(
+    fieldIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const pages = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.workspaceId, workspaceId),
+        sql`(EXISTS (SELECT 1 FROM jsonb_object_keys(${documents.properties}) k WHERE k IN (${ids}))
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements(${documents.propertyIssues}) i WHERE i->>'fieldId' IN (${ids})))`,
+      ),
+    );
+  for (const { id } of pages) {
+    await db.transaction(async (tx) => {
+      const page = tx as unknown as Database;
+      const [doc] = await page
+        .select({ ydocState: documents.ydocState })
+        .from(documents)
+        .where(eq(documents.id, id))
+        .for("update");
+      if (!doc?.ydocState) return;
+      const projected = await projectionColumns(page, workspaceId, stateProperties(doc.ydocState));
+      await page.update(documents).set(projected).where(eq(documents.id, id));
+    });
+  }
+}
+
 export interface FieldView {
   id: string;
   workspaceId: string;
@@ -492,16 +529,19 @@ export class TypeService {
   /** Delete a type. Pages of that type become untyped; its fields are
    * retired (kept, so stored values stay readable), never deleted. */
   async deleteType(id: string): Promise<DocumentType> {
-    return this.exec(async (db) => {
+    const { type, retired } = await this.exec(async (db) => {
       const type = await this.typeRow(db, id);
       await this.assertAdmin(db, type.workspaceId);
-      await db
+      const retired = await db
         .update(typeFields)
         .set({ retiredAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(typeFields.typeId, id), isNull(typeFields.retiredAt)));
+        .where(and(eq(typeFields.typeId, id), isNull(typeFields.retiredAt)))
+        .returning({ id: typeFields.id });
       await db.delete(documentTypes).where(eq(documentTypes.id, id));
-      return type;
+      return { type, retired: retired.map((f) => f.id) };
     });
+    if (retired.length > 0) await reprojectFieldPages(this.db, type.workspaceId, retired);
+    return type;
   }
 
   private async assertKeyFree(
@@ -610,12 +650,13 @@ export class TypeService {
     });
   }
 
-  /** Change a field's definition. Documents are never rewritten: a renamed
-   * key stays usable as an alias, and values that no longer fit a changed
-   * kind show up as issues. */
+  /** Change a field's definition. Stored values are never rewritten: a
+   * renamed key stays usable as an alias, and the pages holding the field
+   * are re-projected, so values that no longer fit a changed kind or a
+   * retired option show up as issues straight away. */
   async updateField(id: string, patch: UpdateFieldInput): Promise<FieldView> {
     assertLength([patch.label, ...(patch.options ?? []).map((o) => o.label)], INPUT_LIMITS.name, "a label");
-    return this.exec(async (db) => {
+    const updated = await this.exec(async (db) => {
       const field = await this.fieldForEdit(db, id);
       const set: Partial<typeof typeFields.$inferInsert> = { updatedAt: new Date() };
       const key = patch.key?.trim();
@@ -650,12 +691,16 @@ export class TypeService {
         .where(eq(fieldKeyAliases.fieldId, id));
       return fieldView(row!, { types: [], fields: [], aliases });
     });
+    if (patch.kind !== undefined || patch.options !== undefined) {
+      await reprojectFieldPages(this.db, updated.workspaceId, [updated.id]);
+    }
+    return updated;
   }
 
   /** Retire a field: it stops being offered and its key is free again, but
    * stored values stay readable (reported as retired). */
   async retireField(id: string): Promise<FieldView> {
-    return this.exec(async (db) => {
+    const retired = await this.exec(async (db) => {
       const field = await this.fieldRow(db, id);
       await this.assertAdmin(db, field.workspaceId);
       const [row] = await db
@@ -665,6 +710,8 @@ export class TypeService {
         .returning();
       return fieldView(row!, { types: [], fields: [], aliases: [] });
     });
+    await reprojectFieldPages(this.db, retired.workspaceId, [retired.id]);
+    return retired;
   }
 
   /** Attach a type to a page, or detach it with null. Detaching keeps every
