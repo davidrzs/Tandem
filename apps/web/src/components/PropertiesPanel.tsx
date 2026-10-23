@@ -1,11 +1,14 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { getAuthors, propertiesToJSON, propertyBlame, PROPERTIES_KEY } from "@tandem/editor";
+import { onlineManager } from "@tanstack/react-query";
+import { TRPCClientError } from "@trpc/client";
 import {
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type FocusEvent,
   type FormEvent,
@@ -155,6 +158,13 @@ function useFocusKeeper() {
   };
 }
 
+/** A failed save as a toast: the server's words naming the field by its
+ * label, or the fallback when the request never reached the server (the
+ * browser's "Failed to fetch" says nothing useful). */
+function saveError(field: Field, error: unknown, fallback: string): string {
+  return error instanceof TRPCClientError && error.data ? labelledError(field, friendlyError(error, fallback)) : fallback;
+}
+
 /**
  * The page's properties under its title: a one-line summary that opens into
  * one row per field. Values render from the live ydoc map; every change is
@@ -172,6 +182,7 @@ export function PropertiesPanel({
   onOpenChange,
   searchDocs,
   synced,
+  disconnected,
 }: {
   docId: string;
   workspaceId: string;
@@ -184,12 +195,17 @@ export function PropertiesPanel({
   searchDocs: SearchDocs;
   /** The live doc has caught up; until then its map may be empty or stale. */
   synced: boolean;
+  /** The live doc's connection is down. */
+  disconnected: boolean;
 }) {
   const toast = useToast();
   const { values, marks } = useLiveProperties(ydoc);
   const fields = trpc.types.fields.useQuery({ workspaceId });
   const types = trpc.types.list.useQuery({ workspaceId });
-  const setProperties = trpc.documents.setProperties.useMutation();
+  // Fail at once offline instead of queueing silently: a held edit would
+  // land late, over newer values, or be lost with the tab.
+  const setProperties = trpc.documents.setProperties.useMutation({ networkMode: "always" });
+  const offline = useSyncExternalStore(onlineManager.subscribe, () => !onlineManager.isOnline()) || disconnected;
   // Ad-hoc fields added here stay visible until they hold a value.
   const [added, setAdded] = useState<string[]>([]);
   const [dialog, setDialog] = useState<ReactNode>(null);
@@ -215,7 +231,7 @@ export function PropertiesPanel({
     setProperties.mutateAsync({ id: docId, ...patchFor(field, edit) }).then(
       () => true,
       (e) => {
-        toast(labelledError(field, friendlyError(e, "Couldn't save that value.")), "danger");
+        toast(saveError(field, e, "Couldn't save that value."), "danger");
         return false;
       },
     );
@@ -237,38 +253,41 @@ export function PropertiesPanel({
       </button>
       {open && (
         <div className="props-body" id={bodyId}>
-          {shown.length === 0 && <p className="props-empty">{typeName} has no fields yet.</p>}
-          {shown.map((field) => (
-            <PropertyRow
-              key={field.id}
-              field={field}
-              raw={values[field.id]}
-              marks={marks[field.id]}
-              canEdit={canEdit}
-              titleOf={titleOf}
-              searchDocs={searchDocs}
-              onEdit={(edit) => write(field, edit)}
-            />
-          ))}
-          {canDefine && (
-            <button
-              type="button"
-              className="props-add"
-              onClick={() =>
-                setDialog(
-                  <AddFieldDialog
-                    workspaceId={workspaceId}
-                    typeId={typeId}
-                    typeName={typeName}
-                    onAdded={(id) => setAdded((prev) => [...prev, id])}
-                    onClose={() => setDialog(null)}
-                  />,
-                )
-              }
-            >
-              <Icon name="plus" size={13} /> Add field
-            </button>
-          )}
+          {canEdit && offline && <p className="props-offline">Properties can't be edited offline.</p>}
+          <fieldset className="props-fields" disabled={offline}>
+            {shown.length === 0 && <p className="props-empty">{typeName} has no fields yet.</p>}
+            {shown.map((field) => (
+              <PropertyRow
+                key={field.id}
+                field={field}
+                raw={values[field.id]}
+                marks={marks[field.id]}
+                canEdit={canEdit}
+                titleOf={titleOf}
+                searchDocs={searchDocs}
+                onEdit={(edit) => write(field, edit)}
+              />
+            ))}
+            {canDefine && (
+              <button
+                type="button"
+                className="props-add"
+                onClick={() =>
+                  setDialog(
+                    <AddFieldDialog
+                      workspaceId={workspaceId}
+                      typeId={typeId}
+                      typeName={typeName}
+                      onAdded={(id) => setAdded((prev) => [...prev, id])}
+                      onClose={() => setDialog(null)}
+                    />,
+                  )
+                }
+              >
+                <Icon name="plus" size={13} /> Add field
+              </button>
+            )}
+          </fieldset>
         </div>
       )}
       {dialog}
@@ -297,6 +316,7 @@ export function TemplateDefaultsPanel({
   const fields = trpc.types.fields.useQuery({ workspaceId });
   const types = trpc.types.list.useQuery({ workspaceId });
   const setDefault = trpc.templates.setFieldDefault.useMutation({
+    networkMode: "always",
     // Returned so a save resolves only once the reloaded list holds the new default.
     onSuccess: () => utils.templates.list.invalidate(),
   });
@@ -324,7 +344,7 @@ export function TemplateDefaultsPanel({
         return true;
       },
       (e) => {
-        toast(labelledError(field, friendlyError(e, "Couldn't save that default.")), "danger");
+        toast(saveError(field, e, "Couldn't save that default."), "danger");
         return false;
       },
     );

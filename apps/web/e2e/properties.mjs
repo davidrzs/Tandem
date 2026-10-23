@@ -336,6 +336,25 @@ try {
   const after = await valuesOf(retro.id);
   if (after[status.id] !== "Open") throw new Error(`undo in the body reverted the property: ${JSON.stringify(after)}`);
 
+  if (await page.locator(".props-summary[aria-expanded=false]").isVisible()) await page.locator(".props-summary").click();
+  const statusNow = page.getByLabel("Status", { exact: true });
+  const statusDisabled = () => statusNow.evaluate((el) => el.matches(":disabled"));
+  await page.context().setOffline(true);
+  await page.getByText("Properties can't be edited offline.").waitFor({ timeout: 5000 });
+  if (!(await statusDisabled())) throw new Error("Status stays editable offline");
+  await page.context().setOffline(false);
+  await page.getByText("Properties can't be edited offline.").waitFor({ state: "detached", timeout: 40_000 });
+  if (await statusDisabled()) throw new Error("Status stays disabled back online");
+  await page.route("**/trpc/documents.setProperties**", (route) => route.abort("internetdisconnected"));
+  await statusNow.selectOption({ label: "Done" });
+  await page.locator(".toast", { hasText: "Couldn't save that value." }).waitFor({ timeout: 5000 });
+  await waitFor(
+    () => statusNow.locator("option:checked").textContent(),
+    (shown) => shown === "Open",
+    "a failed save left the select on the unsaved value",
+  );
+  await page.unroute("**/trpc/documents.setProperties**");
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
     "PROPERTIES PASS — attach, panel date + select persist, AI marker, detach keeps values, Contents sorts by a property, body undo spares properties",

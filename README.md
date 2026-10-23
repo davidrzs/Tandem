@@ -119,9 +119,11 @@ In the app, the **Type** button in a page's header attaches, changes or
 detaches its type, and owners and admins can create a type there. The page's
 properties sit under its title as one summary line that opens into a row per
 field; owners and admins also get **Add field**. Values an agent wrote carry
-an AI badge naming the agent. When every page in a Contents table shares a
-type, the table shows that type's first three text-like fields (not page
-references or JSON) as sortable columns.
+an AI badge naming the agent. Unlike the body, properties can't be edited
+offline: the panel says so and turns read-only until the page is back online.
+When every page in a Contents table shares a type, the table shows that
+type's first three text-like fields (not page references or JSON) as sortable
+columns.
 
 A template can give the pages made from it a type and default values. On a
 template's page, the **Type** button sets that type and the panel under the

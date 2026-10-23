@@ -640,6 +640,7 @@ export function Editor({
           onOpenChange={setPropertiesOpen}
           searchDocs={searchDocs}
           synced={synced}
+          disconnected={connection === "offline"}
         />
       )}
       <SubPages docId={docId} collectionId={doc.data.collectionId} canEdit={canEdit} />

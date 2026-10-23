@@ -1324,6 +1324,20 @@ button.doc-twist:hover .twist {
   color: var(--accent);
 }
 
+.props-fields {
+  display: contents;
+}
+
+.props-fields:disabled .props-value {
+  opacity: 0.6;
+}
+
+.props-offline {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-2);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
