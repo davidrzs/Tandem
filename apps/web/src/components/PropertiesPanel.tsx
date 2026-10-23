@@ -1,6 +1,15 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { getAuthors, propertiesToJSON, propertyBlame, PROPERTIES_KEY } from "@tandem/editor";
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router-dom";
 import type * as Y from "yjs";
 import { friendlyError } from "../errors.js";
@@ -316,12 +325,13 @@ function TemplateDefaultRow({
       <div className="props-value">
         {canDefine ? (
           <>
-            <select
+            <CommitSelect
               id={`${inputId}-mode`}
               className="prop-input"
               aria-label={`Default for ${field.label}`}
               value={mode}
-              onChange={(e) => (e.target.value === "value" ? onChoose() : pickMode(e.target.value))}
+              onCommit={(next) => (next === "value" ? onChoose() : pickMode(next))}
+              commitOnBlur
             >
               <option value="">No default</option>
               {field.kind !== "json" && <option value="value">A value</option>}
@@ -330,7 +340,7 @@ function TemplateDefaultRow({
                   {c.label}
                 </option>
               ))}
-            </select>
+            </CommitSelect>
             {mode === "value" && (
               <Widget
                 field={field}
@@ -529,11 +539,12 @@ function Widget({
             </span>
           ))}
           {left.length > 0 && (
-            <select
+            <CommitSelect
               className="prop-input prop-add-option"
               aria-label={`Add ${field.label}`}
               value=""
-              onChange={(e) => e.target.value && onEdit({ op: "add", value: e.target.value })}
+              onCommit={(value) => value && onEdit({ op: "add", value })}
+              commitOnBlur={false}
             >
               <option value="">{chosen.length === 0 ? "Empty" : "Add…"}</option>
               {left.map((o) => (
@@ -541,7 +552,7 @@ function Widget({
                   {o.label}
                 </option>
               ))}
-            </select>
+            </CommitSelect>
           )}
         </>
       );
@@ -659,11 +670,65 @@ function CheckboxWidget({ raw, control, onEdit }: { raw: unknown; control: Contr
   );
 }
 
+/** A native select that saves a pick made with the mouse or Enter, not each
+ * value it passes while browsing with the keyboard (with its list closed,
+ * arrow keys and type-ahead change the value at once on Windows and Linux):
+ * those stay a draft until Enter, or blur when `commitOnBlur`, and Escape
+ * drops them. */
+function CommitSelect({
+  value,
+  onCommit,
+  commitOnBlur,
+  ...props
+}: Omit<ComponentProps<"select">, "value" | "onChange" | "onKeyDown" | "onBlur"> & {
+  value: string;
+  onCommit: (value: string) => void;
+  commitOnBlur: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Set by a key for the change event its default action fires, if any; a
+  // pick from the open list comes later.
+  const browsing = useRef(false);
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    if (draft !== value) onCommit(draft);
+  };
+  return (
+    <select
+      {...props}
+      value={draft ?? value}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          setDraft(null);
+        } else {
+          browsing.current = true;
+          setTimeout(() => {
+            browsing.current = false;
+          });
+        }
+      }}
+      onChange={(e) => {
+        if (browsing.current) {
+          setDraft(e.target.value);
+          return;
+        }
+        setDraft(null);
+        if (e.target.value !== value) onCommit(e.target.value);
+      }}
+      onBlur={() => (commitOnBlur ? commit() : setDraft(null))}
+    />
+  );
+}
+
 function SelectWidget({ field, raw, control, onEdit }: { field: Field; raw: unknown; control: Control; onEdit: OnEdit }) {
   const stored = typeof raw === "string" ? raw : "";
   const [current, pick] = usePicked(stored, (value) => onEdit(value ? { op: "set", value } : { op: "clear" }));
   return (
-    <select {...control} className="prop-input" value={current} onChange={(e) => pick(e.target.value)}>
+    <CommitSelect {...control} className="prop-input" value={current} onCommit={pick} commitOnBlur>
       <option value="">Empty</option>
       {field.options
         .filter((o) => !o.retired || o.id === stored)
@@ -672,7 +737,7 @@ function SelectWidget({ field, raw, control, onEdit }: { field: Field; raw: unkn
             {o.label}
           </option>
         ))}
-    </select>
+    </CommitSelect>
   );
 }
 

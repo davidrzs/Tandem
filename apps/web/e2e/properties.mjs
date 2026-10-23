@@ -135,17 +135,28 @@ try {
   await page.getByRole("menuitem", { name: "Meeting" }).click();
   await page.locator(".props-summary[aria-expanded=true]").waitFor();
   const dateWrites = [];
+  const writes = [];
   page.on("request", (r) => {
     if (!r.url().includes("documents.setProperties")) return;
     const body = r.postData() ?? "";
+    writes.push(body);
     const set = body.match(/"set":\{"date":"([^"]*)"\}/);
     if (set) dateWrites.push(set[1]);
     if (body.includes('"unset":["date"]')) dateWrites.push(null);
   });
+  const writesTo = (key) => writes.filter((body) => body.includes(`"${key}"`)).length;
   const dateInput = page.getByLabel("Date", { exact: true });
   await dateInput.focus();
   await page.keyboard.type("10222026");
   await page.keyboard.press("Enter");
+  const statusSelect = page.getByLabel("Status", { exact: true });
+  await statusSelect.focus();
+  for (const key of ["ArrowDown", "ArrowDown", "ArrowUp"]) await page.keyboard.press(key);
+  await page.waitForTimeout(500);
+  if (writesTo("status") !== 0) throw new Error(`browsing Status with arrow keys saved ${writesTo("status")} times`);
+  await page.keyboard.press("Tab");
+  await waitFor(() => valuesOf(retro.id), (v) => v[status.id] === "Open", "leaving Status after browsing never saved it");
+  if (writesTo("status") !== 1) throw new Error(`leaving Status saved ${writesTo("status")} times`);
   await page.getByLabel("Status", { exact: true }).selectOption({ label: "Done" });
   const picked = await page.getByLabel("Status", { exact: true }).locator("option:checked").textContent();
   if (picked !== "Done") throw new Error(`the status select shows ${picked} right after picking Done`);
@@ -214,6 +225,18 @@ try {
   if ((await page.locator('.props-row[data-field="status"] .prop-ai').count()) !== 0) {
     throw new Error("a value the person set is marked as AI");
   }
+  const addTopic = page.getByLabel("Add Topics", { exact: true });
+  await addTopic.focus();
+  for (const key of ["ArrowDown", "ArrowUp", "ArrowDown"]) await page.keyboard.press(key);
+  await page.waitForTimeout(500);
+  if (writesTo("topics") !== 0) throw new Error(`browsing Add Topics with arrow keys saved ${writesTo("topics")} times`);
+  await page.keyboard.press("Enter");
+  await waitFor(
+    () => valuesOf(retro.id),
+    (v) => JSON.stringify(v[topics.id]) === '["Hiring","Budget"]',
+    "Enter on Add Topics never added the option",
+  );
+  if (writesTo("topics") !== 1) throw new Error(`adding a topic saved ${writesTo("topics")} times`);
 
   await page.getByRole("button", { name: "Page type: Meeting" }).click();
   await page.getByRole("menuitem", { name: "Detach type" }).click();
@@ -225,7 +248,11 @@ try {
   await page.getByRole("button", { name: "Page type: none" }).waitFor();
   await page.locator(".props-type", { hasText: "Properties" }).waitFor();
   const kept = await valuesOf(retro.id);
-  if (kept[status.id] !== "Done" || kept[date.id] !== "2026-10-22" || kept[topics.id]?.[0] !== "Hiring") {
+  if (
+    kept[status.id] !== "Done" ||
+    kept[date.id] !== "2026-10-22" ||
+    JSON.stringify(kept[topics.id]) !== '["Hiring","Budget"]'
+  ) {
     throw new Error(`detach lost values: ${JSON.stringify(kept)}`);
   }
   if ((await page.getByLabel("Status", { exact: true }).locator("option:checked").textContent()) !== "Done") {
