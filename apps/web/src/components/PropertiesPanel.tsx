@@ -40,6 +40,8 @@ import { useToast } from "./toast.js";
 
 type SearchDocs = (query: string) => Promise<DocCandidate[]>;
 type TitleOf = NonNullable<FormatOptions["titleOf"]>;
+/** Saves one edit; resolves false when it failed (the error is already shown). */
+type OnEdit = (edit: PropertyEdit) => Promise<boolean>;
 
 const KIND_LABELS: Record<Exclude<FieldKind, "json">, string> = {
   text: "Text",
@@ -138,7 +140,10 @@ export function PropertiesPanel({
   if (!fields.data || !types.data || (!typeId && shown.length === 0)) return null;
 
   const write = (field: Field, edit: PropertyEdit) =>
-    setProperties.mutate({ id: docId, ...patchFor(field, edit) });
+    setProperties.mutateAsync({ id: docId, ...patchFor(field, edit) }).then(
+      () => true,
+      () => false,
+    );
 
   return (
     <section className={"props-panel" + (open ? " open" : "")} aria-label="Properties">
@@ -236,7 +241,10 @@ export function TemplateDefaultsPanel({
 
   const save = (field: Field, next: DefaultInput | null) => {
     setChoosing((prev) => prev.filter((id) => id !== field.id));
-    setDefault.mutate({ templateId: template.id, fieldId: field.id, default: next });
+    return setDefault.mutateAsync({ templateId: template.id, fieldId: field.id, default: next }).then(
+      () => true,
+      () => false,
+    );
   };
 
   return (
@@ -288,7 +296,7 @@ function TemplateDefaultRow({
   titleOf: TitleOf;
   searchDocs: SearchDocs;
   onChoose: () => void;
-  onSave: (next: DefaultInput | null) => void;
+  onSave: (next: DefaultInput | null) => Promise<boolean>;
 }) {
   const inputId = useId();
   const mode = value?.kind ?? (choosing ? "value" : "");
@@ -368,7 +376,7 @@ function PropertyRow({
   canEdit: boolean;
   titleOf: TitleOf;
   searchDocs: SearchDocs;
-  onEdit: (edit: PropertyEdit) => void;
+  onEdit: OnEdit;
 }) {
   const inputId = useId();
   const labelId = `${inputId}-label`;
@@ -482,7 +490,7 @@ function Widget({
   inputId: string;
   titleOf: TitleOf;
   searchDocs: SearchDocs;
-  onEdit: (edit: PropertyEdit) => void;
+  onEdit: OnEdit;
 }) {
   switch (field.kind) {
     case "text":
@@ -490,58 +498,12 @@ function Widget({
     case "number":
       return <TextWidget field={field} raw={raw} inputId={inputId} onEdit={onEdit} />;
     case "checkbox":
-      return (
-        <input
-          id={inputId}
-          type="checkbox"
-          className="prop-checkbox"
-          checked={raw === true}
-          onChange={(e) => onEdit({ op: "set", value: e.target.checked })}
-        />
-      );
+      return <CheckboxWidget raw={raw} inputId={inputId} onEdit={onEdit} />;
     case "date":
-      return (
-        <input
-          id={inputId}
-          type="date"
-          className="prop-input"
-          value={typeof raw === "string" ? raw : ""}
-          onChange={(e) => onEdit(e.target.value ? { op: "set", value: e.target.value } : { op: "clear" })}
-        />
-      );
     case "datetime":
-      return (
-        <input
-          id={inputId}
-          type="datetime-local"
-          className="prop-input"
-          value={datetimeToInput(raw)}
-          onChange={(e) => {
-            const at = datetimeFromInput(e.target.value);
-            onEdit(at ? { op: "set", value: at } : { op: "clear" });
-          }}
-        />
-      );
-    case "select": {
-      const current = typeof raw === "string" ? raw : "";
-      return (
-        <select
-          id={inputId}
-          className="prop-input"
-          value={current}
-          onChange={(e) => onEdit(e.target.value ? { op: "set", value: e.target.value } : { op: "clear" })}
-        >
-          <option value="">Empty</option>
-          {field.options
-            .filter((o) => !o.retired || o.id === current)
-            .map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-        </select>
-      );
-    }
+      return <DateWidget field={field} raw={raw} inputId={inputId} onEdit={onEdit} />;
+    case "select":
+      return <SelectWidget field={field} raw={raw} inputId={inputId} onEdit={onEdit} />;
     case "multi_select": {
       const chosen = listValues(raw);
       const left = field.options.filter((o) => !o.retired && !chosen.includes(o.id));
@@ -625,7 +587,7 @@ function TextWidget({
   field: Field;
   raw: unknown;
   inputId: string;
-  onEdit: (edit: PropertyEdit) => void;
+  onEdit: OnEdit;
 }) {
   const toast = useToast();
   const stored = raw == null ? "" : String(raw);
@@ -661,6 +623,83 @@ function TextWidget({
         </a>
       )}
     </>
+  );
+}
+
+/** The value a person just picked, shown until the stored copy moves on (the
+ * save echoing back) or the save fails, so the control doesn't snap back to
+ * the old value while the write is in flight. */
+function usePicked<T>(stored: T, save: (value: T) => Promise<boolean>): [T, (value: T) => void] {
+  const [picked, setPicked] = useState<{ value: T; over: T } | null>(null);
+  if (picked && !Object.is(picked.over, stored)) setPicked(null);
+  const pick = (value: T) => {
+    setPicked({ value, over: stored });
+    void save(value).then((saved) => {
+      if (!saved) setPicked((p) => (p && Object.is(p.value, value) ? null : p));
+    });
+  };
+  return [picked && Object.is(picked.over, stored) ? picked.value : stored, pick];
+}
+
+function CheckboxWidget({ raw, inputId, onEdit }: { raw: unknown; inputId: string; onEdit: OnEdit }) {
+  const [checked, pick] = usePicked(raw === true, (value) => onEdit({ op: "set", value }));
+  return (
+    <input
+      id={inputId}
+      type="checkbox"
+      className="prop-checkbox"
+      checked={checked}
+      onChange={(e) => pick(e.target.checked)}
+    />
+  );
+}
+
+function SelectWidget({ field, raw, inputId, onEdit }: { field: Field; raw: unknown; inputId: string; onEdit: OnEdit }) {
+  const stored = typeof raw === "string" ? raw : "";
+  const [current, pick] = usePicked(stored, (value) => onEdit(value ? { op: "set", value } : { op: "clear" }));
+  return (
+    <select id={inputId} className="prop-input" value={current} onChange={(e) => pick(e.target.value)}>
+      <option value="">Empty</option>
+      {field.options
+        .filter((o) => !o.retired || o.id === stored)
+        .map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+    </select>
+  );
+}
+
+/** Date and date-time fields: typing a date with the keyboard changes the
+ * input once per digit, so edits stay a local draft until blur or Enter, and
+ * Escape reverts. */
+function DateWidget({ field, raw, inputId, onEdit }: { field: Field; raw: unknown; inputId: string; onEdit: OnEdit }) {
+  const datetime = field.kind === "datetime";
+  const stored = datetime ? datetimeToInput(raw) : typeof raw === "string" ? raw : "";
+  const [shown, pick] = usePicked(stored, (text) => {
+    const value = datetime ? datetimeFromInput(text) : text || null;
+    return onEdit(value ? { op: "set", value } : { op: "clear" });
+  });
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    if (draft !== shown) pick(draft);
+  };
+  return (
+    <input
+      id={inputId}
+      type={datetime ? "datetime-local" : "date"}
+      className="prop-input"
+      value={draft ?? shown}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") setDraft(null);
+      }}
+    />
   );
 }
 

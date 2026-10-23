@@ -134,13 +134,40 @@ try {
   await page.getByRole("button", { name: "Page type: none" }).click();
   await page.getByRole("menuitem", { name: "Meeting" }).click();
   await page.locator(".props-summary[aria-expanded=true]").waitFor();
-  await page.getByLabel("Date", { exact: true }).fill("2026-10-22");
+  const dateWrites = [];
+  page.on("request", (r) => {
+    if (!r.url().includes("documents.setProperties")) return;
+    const body = r.postData() ?? "";
+    const set = body.match(/"set":\{"date":"([^"]*)"\}/);
+    if (set) dateWrites.push(set[1]);
+    if (body.includes('"unset":["date"]')) dateWrites.push(null);
+  });
+  const dateInput = page.getByLabel("Date", { exact: true });
+  await dateInput.focus();
+  await page.keyboard.type("10222026");
+  await page.keyboard.press("Enter");
   await page.getByLabel("Status", { exact: true }).selectOption({ label: "Done" });
+  const picked = await page.getByLabel("Status", { exact: true }).locator("option:checked").textContent();
+  if (picked !== "Done") throw new Error(`the status select shows ${picked} right after picking Done`);
   await waitFor(
     () => valuesOf(retro.id),
     (v) => v[date.id] === "2026-10-22" && v[status.id] === "Done",
     "the panel's date and select never saved",
   );
+  if (JSON.stringify(dateWrites) !== '["2026-10-22"]') {
+    throw new Error(`typing the date saved ${JSON.stringify(dateWrites)}`);
+  }
+  await dateInput.focus();
+  await page.keyboard.type("11012026");
+  await page.keyboard.press("Escape");
+  if ((await dateInput.inputValue()) !== "2026-10-22") {
+    throw new Error(`Escape left the date at ${await dateInput.inputValue()}`);
+  }
+  await page.keyboard.press("Tab");
+  await page.waitForTimeout(500);
+  if (JSON.stringify(dateWrites) !== '["2026-10-22"]') {
+    throw new Error(`an escaped date edit saved ${JSON.stringify(dateWrites)}`);
+  }
 
   await page.reload();
   const summary = page.locator(".props-summary");
