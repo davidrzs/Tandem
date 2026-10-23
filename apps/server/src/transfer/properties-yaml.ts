@@ -263,6 +263,9 @@ export function importValue(
       }
     } else if (field.kind === "select" || field.kind === "multi_select") {
       input = selectLabels(item)[0] ?? item;
+    } else if (field.kind === "datetime" && typeof item === "string" && DATE.test(item.trim())) {
+      // A date among date-times is that day's start in UTC, so it keeps its day.
+      input = `${item.trim()}T00:00:00Z`;
     }
     const parsed = parseFieldInput({ ...field, retiredAt: null }, input);
     if ("error" in parsed) problems.push(`${JSON.stringify(item)}: ${parsed.error}`);

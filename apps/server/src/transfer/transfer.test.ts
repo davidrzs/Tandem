@@ -505,3 +505,22 @@ test("re-import keeps page references the export couldn't show", async () => {
   await reimport(md.replace('attendees:\n  - "[[Ana]]"\n', ""));
   assert.deepEqual(writes, [[{ op: "setList", field: attendees.id, values: [gone.id, binned.id] }]]);
 });
+
+test("import: a date next to date-times in one key is kept as midnight UTC", async () => {
+  const ws = await freshWorkspace("date-and-datetime");
+  const zip = Buffer.from(
+    zipSync({
+      "Repro/Date Only.md": strToU8("---\ndeadline: 2024-06-01\n---\nA."),
+      "Repro/Date Time.md": strToU8("---\ndeadline: 2024-06-02T10:00:00Z\n---\nB."),
+    }),
+  );
+  const summary = await importZip(services, { workspaceId: ws, uid: "u1", zipName: "repro.zip", buffer: zip });
+  assert.deepEqual(summary.warnings, []);
+  assert.deepEqual(
+    (await services.types.listFields(ws)).map((f) => [f.key, f.kind]),
+    [["deadline", "datetime"]],
+  );
+  const pages = await pagesIn(ws);
+  assert.deepEqual(await valuesOf(pages.get("Date Only")!), { deadline: "2024-06-01T00:00:00.000Z" });
+  assert.deepEqual(await valuesOf(pages.get("Date Time")!), { deadline: "2024-06-02T10:00:00.000Z" });
+});
