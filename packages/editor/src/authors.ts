@@ -75,12 +75,7 @@ export function getAuthors(doc: Y.Doc): Map<number, AuthorInfo> {
  * changed anything; when it didn't, no author is stamped (no phantom
  * session) and the result is null.
  */
-function runAttributed(
-  doc: Y.Doc,
-  author: AuthorInfo,
-  write: () => boolean,
-  origin?: unknown,
-): number | null {
+function runAttributed(doc: Y.Doc, author: AuthorInfo, write: () => boolean): number | null {
   const previousClientId = doc.clientID;
   doc.clientID = freshClientId(doc);
   const editClientId = doc.clientID;
@@ -89,7 +84,7 @@ function runAttributed(
     doc.transact(() => {
       changed = write();
       if (changed) stampAuthor(doc, editClientId, author);
-    }, origin);
+    });
   } finally {
     doc.clientID = previousClientId;
   }
@@ -130,12 +125,6 @@ export function applyAttributedProperties(
   author: AuthorInfo,
 ): number | null {
   return runAttributed(doc, author, () => applyPropertyPatch(doc, ops) > 0);
-}
-
-/** Give task items without a usable block id one, as `author`'s session.
- * Returns the session's clientID, or null when every item had an id. */
-export function assignTaskBlockIds(doc: Y.Doc, author: AuthorInfo, origin?: unknown): number | null {
-  return runAttributed(doc, author, () => fillTaskBlockIds(doc) > 0, origin);
 }
 
 /** Build a new Y.Doc seeded with `json`, attributed to `author` (creation). */
@@ -201,8 +190,9 @@ export function applyEditToState(
   } else if (edit.properties) {
     applyAttributedProperties(doc, edit.properties, author);
   }
-  // A state from before block ids gets them here, so its tasks project.
-  assignTaskBlockIds(doc, author);
+  // A state from before block ids gets them here, so its tasks project. Ids
+  // are bookkeeping, not writing: no session is stamped for them.
+  doc.transact(() => fillTaskBlockIds(doc));
   const contentJson =
     fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : markdownToJSON("");
   return {

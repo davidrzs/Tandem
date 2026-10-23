@@ -7,8 +7,8 @@ import {
 } from "@hocuspocus/server";
 import { type Database, SYSTEM } from "@tandem/db";
 import {
-  assignTaskBlockIds,
   COLLAB_FIELD,
+  fillTaskBlockIds,
   getAuthors,
   jsonToMarkdown,
   markdownToJSON,
@@ -185,12 +185,9 @@ export function createHocuspocus(
       }
       // Task items typed or split in the editor arrive without a block id.
       // Give them one in the live doc, so every client keeps the same id and
-      // the rows below are keyed by it.
-      assignTaskBlockIds(
-        document,
-        { userId: storeContext.userId, name: storeContext.userName ?? "", ai: false, at: Date.now() },
-        { source: "local", context: storeContext },
-      );
+      // the rows below are keyed by it. Written as the doc's own client, which
+      // no session claims: ids are bookkeeping, not anyone's writing.
+      document.transact(() => fillTaskBlockIds(document), { source: "local", context: storeContext });
       const json = yXmlFragmentToProsemirrorJSON(
         document.getXmlFragment(COLLAB_FIELD),
       );

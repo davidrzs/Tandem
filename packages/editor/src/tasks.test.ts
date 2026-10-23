@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as Y from "yjs";
-import { applyEditToState, assignTaskBlockIds, type AuthorInfo } from "./authors.js";
+import { applyEditToState, getAuthors, type AuthorInfo } from "./authors.js";
 import { jsonToMarkdown, markdownToJSON } from "./markdown.js";
 import { COLLAB_FIELD } from "./schema.js";
 import { fillTaskBlockIds, withTaskBlockIds } from "./tasks.js";
@@ -88,7 +88,7 @@ test("projectTasks reports text, state, handles, order and the blamed author", (
   );
 });
 
-test("a copied task item gets its own id; a state without ids gets them on any edit", () => {
+test("a copied task item gets its own id", () => {
   const doc = new Y.Doc();
   const fragment = doc.getXmlFragment(COLLAB_FIELD);
   const list = new Y.XmlElement("taskList");
@@ -108,5 +108,18 @@ test("a copied task item gets its own id; a state without ids gets them on any e
   const after = items.map((el) => el.getAttribute("blockId"));
   assert.equal(after[0], "aaaaaaaaaaaa");
   assert.equal(new Set(after).size, 3);
-  assert.equal(assignTaskBlockIds(doc, ann), null);
+  assert.equal(fillTaskBlockIds(doc), 0);
+});
+
+test("filling ids stamps no session, so history lists only real writing", () => {
+  const created = applyEditToState(null, { body: () => md }, ann);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, created.ydocState);
+  const before = [...getAuthors(doc).keys()];
+  const item = doc.getXmlFragment(COLLAB_FIELD).createTreeWalker((el) => el instanceof Y.XmlElement && el.nodeName === "taskItem").next().value as Y.XmlElement;
+  item.removeAttribute("blockId");
+  const edited = applyEditToState(Y.encodeStateAsUpdate(doc), { properties: [] }, bot);
+  Y.applyUpdate(doc, edited.ydocState);
+  assert.deepEqual([...getAuthors(doc).keys()], before);
+  assert.equal(edited.tasks.length, 2);
 });
