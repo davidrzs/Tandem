@@ -44,14 +44,15 @@ function isSlot(entry: unknown): entry is Slot {
   );
 }
 
-const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const keyOf = (value: unknown) => JSON.stringify(value);
+const sameValue = (a: unknown, b: unknown) => keyOf(a) === keyOf(b);
 
 /** Whether `current` already holds exactly the values in `target`, in any
  * order: setList writes nothing then. */
 function sameElements(current: unknown, target: readonly unknown[]): boolean {
   if (!Array.isArray(current)) return false;
-  const want = new Set(target.map((v) => JSON.stringify(v)));
-  const have = new Set(current.map((v) => JSON.stringify(v)));
+  const want = new Set(target.map(keyOf));
+  const have = new Set(current.map(keyOf));
   return want.size === have.size && [...want].every((key) => have.has(key));
 }
 
@@ -103,11 +104,13 @@ function removeWhere(list: Y.Array<unknown>, drop: (value: unknown) => boolean):
 }
 
 function pushMissing(list: Y.Array<unknown>, values: readonly unknown[]): boolean {
-  const present = list.toArray();
-  const missing: unknown[] = [];
-  for (const value of values) {
-    if (![...present, ...missing].some((p) => sameValue(p, value))) missing.push(value);
-  }
+  const seen = new Set(list.toArray().map(keyOf));
+  const missing = values.filter((value) => {
+    const key = keyOf(value);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   if (missing.length > 0) list.push(missing);
   return missing.length > 0;
 }
@@ -130,8 +133,9 @@ function applyOp(map: Y.Map<unknown>, op: PropertyOp): boolean {
       map.set(op.field, { v: null });
       return true;
     case "setList": {
+      const keep = new Set(op.values.map(keyOf));
       const { list, created } = listFor(map, op.field);
-      const removed = removeWhere(list, (v) => !op.values.some((w) => sameValue(v, w)));
+      const removed = removeWhere(list, (v) => !keep.has(keyOf(v)));
       const added = pushMissing(list, op.values);
       return created || removed || added;
     }
@@ -140,9 +144,12 @@ function applyOp(map: Y.Map<unknown>, op: PropertyOp): boolean {
       return pushMissing(list, op.values) || created;
     }
     case "remove": {
-      if (entry === undefined) return false;
-      const { list, created } = listFor(map, op.field);
-      return removeWhere(list, (v) => op.values.some((w) => sameValue(v, w))) || created;
+      const drop = new Set(op.values.map(keyOf));
+      if (!(entry instanceof Y.Array)) {
+        const held = entryValue(entry);
+        if (![held].flat().some((v) => v != null && drop.has(keyOf(v)))) return false;
+      }
+      return removeWhere(listFor(map, op.field).list, (v) => drop.has(keyOf(v)));
     }
   }
 }

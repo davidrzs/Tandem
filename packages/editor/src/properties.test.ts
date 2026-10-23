@@ -92,6 +92,15 @@ test("a list op on a field holding a scalar turns it into a list that keeps the 
   assert.deepEqual(propertiesToJSON(doc), { f_tags: ["alpha", "beta"] });
 });
 
+test("removing a value a scalar field doesn't hold writes nothing; removing the one it holds clears it", () => {
+  const doc = docWith({ f_tags: "alpha" });
+  const before = Y.encodeStateAsUpdate(doc);
+  assert.equal(applyAttributedProperties(doc, [{ op: "remove", field: "f_tags", values: ["beta"] }], agent), null);
+  assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+  assert.equal(applyPropertyPatch(doc, [{ op: "remove", field: "f_tags", values: ["alpha"] }]), 1);
+  assert.deepEqual(propertiesToJSON(doc), { f_tags: [] });
+});
+
 test("reads return what a client stored, unvalidated", () => {
   const doc = new Y.Doc();
   doc.getMap(PROPERTIES_KEY).set("f_raw", "done");
