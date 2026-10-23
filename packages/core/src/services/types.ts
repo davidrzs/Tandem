@@ -907,7 +907,9 @@ export class TypeService {
           );
         }
       }
-      const offered = [...new Map(tiers.flat().filter(live).map((f) => [f.id, f])).values()];
+      const offered = [
+        ...new Map(tiers.flat().filter((f) => live(f) && f.kind !== "json").map((f) => [f.id, f])).values(),
+      ];
       throw new InvalidInputError(
         `unknown field "${key}". Fields this page can take: ${
           offered.map(describeField).join("; ") || "none"

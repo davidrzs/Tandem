@@ -13,6 +13,7 @@ import {
   runAsActor,
   SYSTEM,
   user as userTable,
+  typeFields,
   workspaceMembers,
   type Actor,
   type FieldKind,
@@ -1667,6 +1668,35 @@ test("properties: patches by key and label land as ids, and the projection feeds
   await assert.rejects(() => types.planPatch(doc.id, { set: { due: "next week" } }), /due: expected a date/);
   await assert.rejects(() => types.planPatch(doc.id, { set: { status: "Open" }, unset: ["status"] }), /changed twice/);
   assert.equal(doc.workspaceId, ws.id);
+});
+
+test("properties: an unknown key's error never offers imported json fields as settable", async () => {
+  const { ws, col, types, meeting } = await typedWorkspace("ty-json-owner", "ty-json-member");
+  await db.insert(typeFields).values({
+    id: "f_raw_json",
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "raw",
+    label: "Raw",
+    kind: "json",
+    position: 10,
+    createdBy: "ty-json-owner",
+  });
+  const doc = await new DocumentService(db, user("ty-json-owner")).create({
+    collectionId: col.id,
+    title: "Imported",
+    typeId: meeting.id,
+  });
+  await assert.rejects(
+    () => types.planPatch(doc.id, { set: { nope: "x" } }),
+    (err: Error) => {
+      assert.equal(
+        err.message,
+        'unknown field "nope". Fields this page can take: status (select: Open, Done); attendees (multi_select: Ann, Bob, Cy); due (date). Only a workspace owner or admin can define new fields.',
+      );
+      return true;
+    },
+  );
 });
 
 test("properties: a renamed key keeps working as an alias; detaching keeps values; duplicate copies both", async () => {
