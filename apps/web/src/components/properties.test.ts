@@ -72,7 +72,12 @@ test("a link value becomes an href only when it is an http(s) URL", () => {
   assert.equal(safeHref(42), null);
 });
 
-test("a datetime-local value round-trips through the stored UTC instant in the reader's zone", () => {
+test("a datetime-local value round-trips through the stored UTC instant in the reader's zone", (t) => {
+  const zone = process.env.TZ;
+  t.after(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
   process.env.TZ = "America/New_York";
   assert.equal(datetimeFromInput("2026-10-22T14:30"), "2026-10-22T18:30:00.000Z");
   assert.equal(datetimeToInput("2026-10-22T18:30:00.000Z"), "2026-10-22T14:30");
