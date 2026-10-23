@@ -361,6 +361,23 @@ test("export -> import keeps every kind, and a re-import patches only what chang
 
   const copied = await importZip(services, { workspaceId: copyWs, uid: "u1", zipName: "team.zip", buffer: zipOf(exported) });
   assert.deepEqual(copied, { collections: 1, documents: 3, images: 0, warnings: [] });
+  assert.deepEqual(
+    (await services.settings.auditTrail(copyWs)).map((e) => `${e.action} ${e.detail}`).sort(),
+    [
+      'define_field field "approved" (checkbox)',
+      'define_field field "attendees" (doc_list)',
+      'define_field field "budget" (number)',
+      'define_field field "date" (date)',
+      'define_field field "lead" (doc)',
+      'define_field field "link" (url)',
+      'define_field field "raw" (json)',
+      'define_field field "start" (datetime)',
+      'define_field field "status" (select)',
+      'define_field field "topics" (multi_select)',
+      'define_field field "version" (text)',
+      'define_type type "Meeting"',
+    ],
+  );
   const copy = await pagesIn(copyWs);
   assert.deepEqual((await services.types.view(copy.get("Standup")!)).type?.name, "Meeting");
   assert.deepEqual(
@@ -436,6 +453,13 @@ test("export -> import keeps every kind, and a re-import patches only what chang
   });
   assert.deepEqual((await valuesOf(standup.id)).status, "Todo");
   assert.deepEqual((await pagesIn(teamWs)).size, 3, "no copies of the re-imported pages");
+
+  await reimport(edited("status: Done", "status: Blocked"));
+  const [optionAudit] = await services.settings.auditTrail(teamWs);
+  assert.deepEqual([optionAudit!.action, optionAudit!.detail], [
+    "update_field",
+    'field "status": options; options added "Blocked"',
+  ]);
 });
 
 test("re-import keeps page references the export couldn't show", async () => {

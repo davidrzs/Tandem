@@ -156,8 +156,12 @@ export async function importZip(
     input.workspaceId,
     sidecar,
     [...notes.values()].map((fm) => fm.properties),
-    async (ids) => (await services.documents.getMetaMany(ids)).map((meta) => meta.id),
-    warn,
+    {
+      visiblePages: async (ids) => (await services.documents.getMetaMany(ids)).map((meta) => meta.id),
+      warn,
+      audit: (action, detail) =>
+        services.settings.recordAudit({ workspaceId: input.workspaceId, userId: input.uid, ai: false, action, detail }),
+    },
   );
 
   // A collection is created with its first new page, so a re-imported export

@@ -277,6 +277,16 @@ export function importValue(
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "error");
 
+/** What an import reaches outside the field registry through. */
+export interface ImportIO {
+  /** The ids among its input the importer can open: readable, live and not
+   * templates, the same pages an export can name. */
+  visiblePages(ids: string[]): Promise<string[]>;
+  warn(message: string): void;
+  /** Record a definition the import made, as the matching tRPC route does. */
+  audit(action: string, detail: string): Promise<void>;
+}
+
 /**
  * The workspace's fields as one import sees them. A front-matter key maps
  * to the field the sidecar names by id when it exists here, else (by key or
@@ -298,19 +308,15 @@ export class ImportFields {
     private readonly fields: FieldView[],
     private readonly sidecar: FieldsSidecar | null,
     private readonly inferred: Map<string, InferredField>,
-    private readonly visiblePages: (ids: string[]) => Promise<string[]>,
-    private readonly warn: (message: string) => void,
+    private readonly io: ImportIO,
   ) {}
 
-  /** `visiblePages` returns the ids among its input the importer can open:
-   * readable, live and not templates, the same pages an export can name. */
   static async load(
     service: TypeService,
     workspaceId: string,
     sidecar: FieldsSidecar | null,
     notes: Iterable<Record<string, unknown>>,
-    visiblePages: (ids: string[]) => Promise<string[]>,
-    warn: (message: string) => void,
+    io: ImportIO,
   ): Promise<ImportFields> {
     const [types, fields] = await Promise.all([service.listTypes(workspaceId), service.listFields(workspaceId)]);
     return new ImportFields(
@@ -320,8 +326,7 @@ export class ImportFields {
       fields,
       sidecar,
       inferFields(notes),
-      visiblePages,
-      warn,
+      io,
     );
   }
 
@@ -340,16 +345,17 @@ export class ImportFields {
     if (known) return known.id;
     const described = this.sidecar?.types.find((t) => t.name.toLowerCase() === k);
     if (!described) {
-      this.warn(`Imported pages of type "${name}" without a type: this workspace has no such type.`);
+      this.io.warn(`Imported pages of type "${name}" without a type: this workspace has no such type.`);
       return null;
     }
     let typeId: string;
     try {
       typeId = (await this.service.createType(this.workspaceId, described.name)).id;
     } catch (err) {
-      this.warn(`Couldn't add the type "${described.name}" (${errorText(err)}), so its pages have no type.`);
+      this.io.warn(`Couldn't add the type "${described.name}" (${errorText(err)}), so its pages have no type.`);
       return null;
     }
+    await this.io.audit("define_type", `type "${described.name}"`);
     this.types.push({ id: typeId, name: described.name });
     for (const f of this.sidecar!.fields.filter((f) => f.type?.toLowerCase() === k)) {
       await this.define(f.key, f, typeId);
@@ -395,8 +401,9 @@ export class ImportFields {
   private async createField(key: string, described: SidecarField | null, typeId: string | null) {
     const inferred = this.inferred.get(key.toLowerCase());
     const kind = described?.kind ?? inferred?.kind ?? "text";
+    let field: FieldView;
     try {
-      const field = await this.service.createField({
+      field = await this.service.createField({
         workspaceId: this.workspaceId,
         typeId,
         key: described?.key ?? inferred?.key ?? key,
@@ -404,17 +411,18 @@ export class ImportFields {
         kind,
         options: described ? described.options.map((o) => o.label) : inferred?.options,
       });
-      this.fields.push(field);
-      if (!described && inferred?.mixed) {
-        this.warn(
-          `"${field.key}" holds different kinds of values across notes (${inferred.mixed.join(", ")}), so it became a ${kind} field.`,
-        );
-      }
-      return field;
     } catch (err) {
-      this.warn(`Couldn't add the field "${key}" (${errorText(err)}), so its values weren't imported.`);
+      this.io.warn(`Couldn't add the field "${key}" (${errorText(err)}), so its values weren't imported.`);
       return null;
     }
+    this.fields.push(field);
+    await this.io.audit("define_field", `field "${field.key}" (${field.kind})`);
+    if (!described && inferred?.mixed) {
+      this.io.warn(
+        `"${field.key}" holds different kinds of values across notes (${inferred.mixed.join(", ")}), so it became a ${kind} field.`,
+      );
+    }
+    return field;
   }
 
   /** The field with an option for every label `raw` uses; options are only
@@ -425,15 +433,23 @@ export class ImportFields {
     const known = new Set(field.options.map((o) => o.label.toLowerCase()));
     const missing = selectLabels(raw).filter((label) => !known.has(label.toLowerCase()));
     if (missing.length === 0) return field;
+    let updated: FieldView;
     try {
-      const updated = await this.service.addOptions(field.id, missing);
-      this.fields[this.fields.indexOf(field)] = updated;
-      return updated;
+      updated = await this.service.addOptions(field.id, missing);
     } catch (err) {
       this.optionsDenied.add(field.id);
-      this.warn(`Couldn't add options to "${field.key}" (${errorText(err)}).`);
+      this.io.warn(`Couldn't add options to "${field.key}" (${errorText(err)}).`);
       return field;
     }
+    const added = updated.options.filter((o) => !field.options.some((f) => f.id === o.id));
+    if (added.length > 0) {
+      await this.io.audit(
+        "update_field",
+        `field "${updated.key}": options; options ${added.map((o) => `added "${o.label}"`).join(", ")}`,
+      );
+    }
+    this.fields[this.fields.indexOf(field)] = updated;
+    return updated;
   }
 
   /**
@@ -459,7 +475,7 @@ export class ImportFields {
       if (!found) continue;
       const field = await this.withOptions(found, raw);
       const { value, problems } = importValue(field, raw, resolveLink);
-      for (const problem of problems) this.warn(`${where}: ${key}: ${problem}`);
+      for (const problem of problems) this.io.warn(`${where}: ${key}: ${problem}`);
       if (page.current && problems.length > 0) keep.add(field.id);
       else if (value !== null) target[field.id] = value;
     }
@@ -483,7 +499,7 @@ export class ImportFields {
     }
     const ids = [...new Set([...refs.values()].flat())];
     if (ids.length === 0) return;
-    const visible = new Set(await this.visiblePages(ids));
+    const visible = new Set(await this.io.visiblePages(ids));
     for (const [id, pageIds] of refs) {
       const hidden = pageIds.filter((p) => !visible.has(p));
       if (hidden.length === 0) continue;
