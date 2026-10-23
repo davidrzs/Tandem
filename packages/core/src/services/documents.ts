@@ -102,6 +102,39 @@ export interface DocumentOriginView {
 /** `getMeta`: the header's metadata plus the page's template origin. */
 export type DocumentHeaderMeta = DocumentMeta & { origin: DocumentOriginView | null };
 
+/** The page's `tasks` rows in projection form and order, as one jsonb value:
+ * selected beside a save's row lock so a save whose projection matches skips
+ * the task writes. One lookup on the page's task rows, far cheaper than the
+ * upsert and delete it saves. */
+function storedTasks(documentId: string) {
+  return sql<ProjectedTask[]>`(
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'blockId', tasks.block_id, 'text', tasks.text, 'done', tasks.done, 'handles', to_jsonb(tasks.handles),
+      'position', tasks.position, 'createdBy', tasks.created_by, 'ai', tasks.ai
+    ) ORDER BY tasks.position, tasks.block_id), '[]'::jsonb)
+    FROM tasks WHERE tasks.document_id = ${documentId}
+  )`;
+}
+
+function sameTasks(stored: readonly ProjectedTask[], rows: readonly ProjectedTask[]): boolean {
+  return (
+    stored.length === rows.length &&
+    rows.every((row, i) => {
+      const was = stored[i]!;
+      return (
+        was.blockId === row.blockId &&
+        was.text === row.text &&
+        was.done === row.done &&
+        was.position === row.position &&
+        was.createdBy === row.createdBy &&
+        was.ai === row.ai &&
+        was.handles.length === row.handles.length &&
+        was.handles.every((h, j) => h === row.handles[j])
+      );
+    })
+  );
+}
+
 /** Make the page's `tasks` rows match `rows`: insert new items, update the
  * changed ones (stamping `closed_at` when one is first seen done), delete the
  * rest. New rows are stamped `at`: now for a save, the page's last save for
@@ -466,6 +499,7 @@ export class DocumentService extends DocumentServiceBase {
           workspaceId: documents.workspaceId,
           ydocState: documents.ydocState,
           contentMd: documents.contentMd,
+          tasks: storedTasks(id),
         })
         .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
@@ -493,7 +527,7 @@ export class DocumentService extends DocumentServiceBase {
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .returning();
       if (!row) throw new DocumentWriteDeniedError();
-      await writeTaskRows(db, id, edited.tasks);
+      if (!sameTasks(doc.tasks, edited.tasks)) await writeTaskRows(db, id, edited.tasks);
       return row;
     });
   }
@@ -541,6 +575,7 @@ export class DocumentService extends DocumentServiceBase {
           workspaceId: documents.workspaceId,
           contentMd: documents.contentMd,
           title: documents.title,
+          tasks: storedTasks(id),
         })
         .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
@@ -567,7 +602,7 @@ export class DocumentService extends DocumentServiceBase {
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .returning({ id: documents.id });
       if (rows.length === 0) throw new DocumentWriteDeniedError();
-      await writeTaskRows(db, id, snapshot.tasks);
+      if (!sameTasks(prev.tasks, snapshot.tasks)) await writeTaskRows(db, id, snapshot.tasks);
       return { workspaceId: prev.workspaceId, previousMd: prev.contentMd, title: prev.title };
     });
   }

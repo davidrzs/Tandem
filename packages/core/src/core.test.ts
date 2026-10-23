@@ -28,6 +28,7 @@ import { CommentService } from "./services/comments.js";
 import { NotificationService } from "./services/notifications.js";
 import { DocumentQueryService } from "./services/document-queries.js";
 import { DocumentTreeService } from "./services/document-tree.js";
+import { rowsOf } from "./services/document-tree-internals.js";
 import { backfillTaskRows, DocumentService, normalizeTags } from "./services/documents.js";
 import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
@@ -2137,6 +2138,49 @@ test("tasks: rows follow every save, keep their ids, and survive a move; deletio
   await tree.softDelete(doc.id);
   assert.deepEqual(await queries.openTasks({ documentId: doc.id }), []);
   assert.deepEqual(await queries.openTasks({ subtreeOf: parent.id }), []);
+});
+
+test("tasks: a save that leaves the tasks unchanged writes no task rows", async () => {
+  const { col, docs } = await templateWorkspace("tq", "Quin");
+  const doc = await docs.create({ collectionId: col.id, title: "Quiet", markdown: "Intro\n\n- [ ] keep me" });
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS task_write_log (n int)`);
+  await db.execute(sql`
+    CREATE OR REPLACE FUNCTION log_task_write() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+    BEGIN INSERT INTO task_write_log VALUES (1); RETURN NULL; END $$
+  `);
+  await db.execute(sql`
+    CREATE TRIGGER task_write_spy AFTER INSERT OR UPDATE OR DELETE ON tasks
+    FOR EACH STATEMENT EXECUTE FUNCTION log_task_write()
+  `);
+  const writes = async () => {
+    const [row] = rowsOf<{ n: number }>(await db.execute(sql`SELECT count(*)::int AS n FROM task_write_log`));
+    await db.execute(sql`DELETE FROM task_write_log`);
+    return row!.n;
+  };
+  try {
+    await writes();
+    await docs.editBody(doc.id, (md) => md.replace("Intro", "Intro, reworded"));
+    assert.equal(await writes(), 0, "a body edit outside the tasks issues no task statements");
+
+    const stored = (await taskTable(doc.id)).map(({ closed: _, ...row }) => row);
+    await docs.saveCollabSnapshot(doc.id, {
+      ydocState: (await docs.get(doc.id))!.ydocState!,
+      contentMd: "Intro, reworded\n\n- [ ] keep me",
+      contentJson: null,
+      properties: {},
+      tasks: stored,
+    });
+    assert.equal(await writes(), 0, "a collab save with the same tasks issues no task statements");
+
+    await docs.editBody(doc.id, (md) => md.replace("- [ ] keep me", "- [x] keep me"));
+    assert.ok((await writes()) > 0);
+    assert.deepEqual(
+      (await taskTable(doc.id)).map((r) => [r.text, r.done, r.closed]),
+      [["keep me", true, true]],
+    );
+  } finally {
+    await db.execute(sql`DROP TRIGGER task_write_spy ON tasks`);
+  }
 });
 
 test("tasks: open tasks by page, subtree and previous meeting; changes since; live sections; due soon", async () => {
