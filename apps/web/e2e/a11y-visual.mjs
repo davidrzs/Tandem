@@ -221,7 +221,7 @@ try {
   const templateRow = page.locator(`.tree .doc-row[href="/d/${sync.id}"]`);
   await templateRow.locator(".template-badge").waitFor();
   const templateName = await templateRow.getAttribute("aria-label");
-  if (templateName !== "Client sync {{date}}, template") throw new Error(`the template row is named ${templateName}`);
+  if (templateName !== "Client sync {{date}} Template") throw new Error(`the template row is named ${templateName}`);
   const pageName = await page.locator(`.tree .doc-row[href="/d/${parentId}"]`).getAttribute("aria-label");
   if (pageName !== "Research") throw new Error(`a plain page row is named ${pageName}`);
 

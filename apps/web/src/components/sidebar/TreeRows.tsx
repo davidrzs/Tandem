@@ -147,7 +147,7 @@ function DocRow({ item, node }: RowProps<"doc">) {
     <Link
       to={`/d/${node.id}`}
       {...treeRowProps(item, node.writable)}
-      aria-label={template ? `${title}, template` : item.getItemName()}
+      aria-label={template ? `${title} Template` : item.getItemName()}
       className={cx("doc-row tree-row", active && "active", item.isUnorderedDragTarget() && "drop-into")}
       aria-current={active ? "page" : undefined}
     >
