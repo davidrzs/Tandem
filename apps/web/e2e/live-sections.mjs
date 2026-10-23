@@ -42,12 +42,30 @@ async function openPage(id) {
   await page.waitForSelector(".ProseMirror");
 }
 
-/** Start a new line after the heading `text`, once the synced body shows it. */
+/** Whether the editor's own selection (TipTap keeps the editor on its DOM
+ * node) is a caret at the end of the heading reading `text`. The DOM caret
+ * alone is not enough: ProseMirror reads it back asynchronously. */
+const caretAtEndOf = (text) =>
+  page.evaluate((text) => {
+    const { selection } = document.querySelector(".ProseMirror").editor.state;
+    const { $from, empty } = selection;
+    return empty && $from.parent.type.name === "heading" && $from.parent.textContent === text && $from.parentOffset === $from.parent.content.size;
+  }, text);
+
+/** Start a new line after the heading `text`. Live sections above it can
+ * still be growing when it is clicked, so the click is retried until the
+ * caret really sits at the heading's end. */
 async function lineAfter(text) {
   const heading = page.locator(".ProseMirror h2", { hasText: text });
   await heading.waitFor();
-  await heading.click();
-  await page.keyboard.press("End");
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    await heading.click();
+    await page.keyboard.press("End");
+    if (await caretAtEndOf(text)) break;
+    if (Date.now() > deadline) throw new Error(`could not put the caret at the end of "${text}"`);
+    await page.waitForTimeout(250);
+  }
   await page.keyboard.press("Enter");
 }
 
@@ -95,17 +113,24 @@ try {
   await page.locator('.live-section[data-live-section="since_last_meeting"] h4', { hasText: "Tasks added" }).waitFor();
 
   await openPage(project);
-  await lineAfter("Next steps");
+  await lineAfter("Overview");
   await page.keyboard.type("/under");
   await page.locator(".slash-item.selected", { hasText: "Open tasks under this page" }).waitFor();
   await page.keyboard.press("Enter");
   const inserted = page.locator('.live-section[data-live-section="open_tasks_here"]');
   await inserted.locator(".live-section-tasks li", { hasText: SLIDES }).first().waitFor();
-  await eventually(
-    async () => (await trpcQuery("documents.getMarkdown", { id: project })).markdown,
-    (md) => md.split("<!-- live-section: open_tasks_here -->").length === 3,
+  const SECTION = "<!-- live-section: open_tasks_here -->";
+  const order = await eventually(
+    async () =>
+      (await trpcQuery("documents.getMarkdown", { id: project })).markdown
+        .split("\n")
+        .filter((line) => line.trim() !== ""),
+    (lines) => lines.filter((line) => line === SECTION).length === 2,
     "the inserted section saved as a comment beside the template's own",
   );
+  if (JSON.stringify(order) !== JSON.stringify(["## Overview", SECTION, "## Next steps", SECTION])) {
+    throw new Error(`the inserted section is not right after Overview: ${JSON.stringify(order)}`);
+  }
 
   await openPage(first);
   await page.locator('.ProseMirror li[data-checked="false"]', { hasText: SLIDES }).locator('input[type="checkbox"]').click();
