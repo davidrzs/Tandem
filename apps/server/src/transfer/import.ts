@@ -156,6 +156,7 @@ export async function importZip(
     input.workspaceId,
     sidecar,
     [...notes.values()].map((fm) => fm.properties),
+    async (ids) => (await services.documents.getMetaMany(ids)).map((meta) => meta.id),
     warn,
   );
 

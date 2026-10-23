@@ -298,14 +298,18 @@ export class ImportFields {
     private readonly fields: FieldView[],
     private readonly sidecar: FieldsSidecar | null,
     private readonly inferred: Map<string, InferredField>,
+    private readonly visiblePages: (ids: string[]) => Promise<string[]>,
     private readonly warn: (message: string) => void,
   ) {}
 
+  /** `visiblePages` returns the ids among its input the importer can open:
+   * readable, live and not templates, the same pages an export can name. */
   static async load(
     service: TypeService,
     workspaceId: string,
     sidecar: FieldsSidecar | null,
     notes: Iterable<Record<string, unknown>>,
+    visiblePages: (ids: string[]) => Promise<string[]>,
     warn: (message: string) => void,
   ): Promise<ImportFields> {
     const [types, fields] = await Promise.all([service.listTypes(workspaceId), service.listFields(workspaceId)]);
@@ -316,6 +320,7 @@ export class ImportFields {
       fields,
       sidecar,
       inferFields(notes),
+      visiblePages,
       warn,
     );
   }
@@ -447,7 +452,9 @@ export class ImportFields {
    * A page already in the workspace (`current`, its projection) is diffed
    * against the fields an export writes: a key deleted from the file clears
    * its field, a field the file never could name is left alone, and so is a
-   * field whose value couldn't be read.
+   * field whose value couldn't be read. References to pages the export
+   * couldn't name (unreadable, archived, trashed, templates) stay: the file
+   * never showed them, so leaving them out of it removes nothing.
    */
   async patch(
     page: { typeId: string | null; current: Record<string, unknown> | null },
@@ -472,6 +479,31 @@ export class ImportFields {
         ([id]) => !keep.has(id) && this.fields.some((f) => f.id === id && !isReservedKey(f.key)),
       ),
     );
+    await this.keepHiddenPages(current, target);
     return diffProperties(current, target);
+  }
+
+  private async keepHiddenPages(current: Record<string, unknown>, target: Record<string, unknown>): Promise<void> {
+    const refs = new Map<string, string[]>();
+    for (const [id, value] of Object.entries(current)) {
+      const kind = this.fields.find((f) => f.id === id)?.kind;
+      if (kind === "doc" && typeof value === "string") refs.set(id, [value]);
+      if (kind === "doc_list" && Array.isArray(value)) {
+        refs.set(id, value.filter((v): v is string => typeof v === "string"));
+      }
+    }
+    const ids = [...new Set([...refs.values()].flat())];
+    if (ids.length === 0) return;
+    const visible = new Set(await this.visiblePages(ids));
+    for (const [id, pageIds] of refs) {
+      const hidden = pageIds.filter((p) => !visible.has(p));
+      if (hidden.length === 0) continue;
+      if (this.fields.find((f) => f.id === id)?.kind === "doc") {
+        target[id] ??= hidden[0];
+        continue;
+      }
+      const listed = Array.isArray(target[id]) ? (target[id] as unknown[]) : [];
+      target[id] = [...listed, ...hidden.filter((p) => !listed.includes(p))];
+    }
   }
 }

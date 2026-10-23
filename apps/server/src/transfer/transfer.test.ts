@@ -437,3 +437,47 @@ test("export -> import keeps every kind, and a re-import patches only what chang
   assert.deepEqual((await valuesOf(standup.id)).status, "Todo");
   assert.deepEqual((await pagesIn(teamWs)).size, 3, "no copies of the re-imported pages");
 });
+
+test("re-import keeps page references the export couldn't show", async () => {
+  const ws = await freshWorkspace("hidden-refs");
+  const col = await services.collections.create({ workspaceId: ws, name: "Refs", slug: "refs" });
+  const attendees = await services.types.createField({ workspaceId: ws, typeId: null, key: "attendees", kind: "doc_list" });
+  const lead = await services.types.createField({ workspaceId: ws, typeId: null, key: "lead", kind: "doc" });
+  const ana = await services.documents.create({ collectionId: col.id, title: "Ana" });
+  const gone = await services.documents.create({ collectionId: col.id, title: "Gone" });
+  const binned = await services.documents.create({ collectionId: col.id, title: "Binned" });
+  const meeting = await services.documents.create({
+    collectionId: col.id,
+    title: "Meeting",
+    properties: [
+      { op: "setList", field: attendees.id, values: [gone.id, ana.id, binned.id] },
+      { op: "set", field: lead.id, value: gone.id },
+    ],
+  });
+  await services.documentTree.archive(gone.id);
+  await services.documentTree.softDelete(binned.id);
+
+  const exported = unzipSync((await buildExportZip(services, { collectionId: col.id }, "Refs")).buffer);
+  const md = strFromU8(exported["Refs/Meeting.md"]!);
+  assert.equal(md, `---\ntandem-id: ${meeting.id}\nattendees:\n  - "[[Ana]]"\n---\n\n# Meeting\n`);
+  const writes: Array<readonly PropertyOp[]> = [];
+  const writer = {
+    setProperties: async (_docId: string, ops: readonly PropertyOp[]) => {
+      writes.push(ops);
+      return null;
+    },
+  };
+  const reimport = (text: string) =>
+    importZip(services, {
+      workspaceId: ws,
+      uid: "u1",
+      zipName: "refs.zip",
+      buffer: Buffer.from(zipSync({ ...exported, "Refs/Meeting.md": strToU8(text) })),
+      writer,
+    });
+
+  await reimport(md);
+  assert.deepEqual(writes, [], "an unchanged export keeps the hidden references");
+  await reimport(md.replace('attendees:\n  - "[[Ana]]"\n', ""));
+  assert.deepEqual(writes, [[{ op: "setList", field: attendees.id, values: [gone.id, binned.id] }]]);
+});
