@@ -1862,6 +1862,14 @@ test("properties: changing or retiring a field re-projects the pages holding it"
     message: "due is retired",
     value: "2026-01-02",
   });
+  await types.setDocumentType(page.id, due.typeId);
+  const reused = await types.createField({ workspaceId: due.workspaceId, typeId: due.typeId, key: "due", kind: "date" });
+  assert.deepEqual(await types.planPatch(page.id, { unset: ["due"] }), [{ op: "unset", field: reused.id }]);
+  assert.deepEqual(
+    await types.planPatch(page.id, { unset: [due.id] }),
+    [{ op: "unset", field: due.id }],
+    "the retired field is still reachable by id once a new field takes its key",
+  );
 });
 
 test("template defaults: each expression and literal yields its stored value", () => {

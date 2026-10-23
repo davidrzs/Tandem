@@ -33,6 +33,7 @@ import {
   heldValue,
   isEmptyValue,
   isListKind,
+  issueMessages,
   keyFromLabel,
   labelledError,
   listValues,
@@ -203,6 +204,9 @@ export function PropertiesPanel({
   const { values, marks } = useLiveProperties(ydoc);
   const fields = trpc.types.fields.useQuery({ workspaceId });
   const types = trpc.types.list.useQuery({ workspaceId });
+  // The server's reading of the page adds what the field list leaves out:
+  // retired fields still holding a value, and the issues its last save found.
+  const view = trpc.documents.properties.useQuery({ id: docId });
   // Fail at once offline instead of queueing silently: a held edit would
   // land late, over newer values, or be lost with the tab.
   const setProperties = trpc.documents.setProperties.useMutation({ networkMode: "always" });
@@ -213,11 +217,17 @@ export function PropertiesPanel({
   const bodyId = useId();
   const focusKeeper = useFocusKeeper();
 
-  const all = fields.data ?? [];
+  const retired = (view.data?.fields ?? [])
+    .filter((f) => f.retired)
+    .map((f) => ({ ...f, typeName: types.data?.find((t) => t.id === f.typeId)?.name ?? null }));
+  const retiredIds = new Set(retired.map((f) => f.id));
+  const all = (fields.data ?? []).filter((f) => !retiredIds.has(f.id));
   const typed = typeId ? all.filter((f) => f.typeId === typeId) : [];
   const shown = [
     ...typed,
-    ...all.filter((f) => f.typeId !== typeId && (!isEmptyValue(values[f.id]) || added.includes(f.id))),
+    ...[...all, ...retired].filter(
+      (f) => !typed.includes(f) && (!isEmptyValue(values[f.id]) || added.includes(f.id)),
+    ),
   ];
   const held = Object.fromEntries(shown.map((f) => [f.id, heldValue(f, values[f.id])]));
   const refIds = shown
@@ -264,6 +274,7 @@ export function PropertiesPanel({
                 field={field}
                 raw={held[field.id]}
                 marks={marks[field.id]}
+                issues={issueMessages(view.data?.issues ?? [], field.id, held[field.id])}
                 canEdit={canEdit}
                 titleOf={titleOf}
                 searchDocs={searchDocs}
@@ -464,10 +475,23 @@ function AiBadge({ mark }: { mark: AiMark | null }) {
   );
 }
 
+/** Says what the server found wrong with a field's value, on hover and to
+ * screen readers. */
+function IssueMarker({ issues }: { issues: string[] }) {
+  if (issues.length === 0) return null;
+  const text = issues.join("; ");
+  return (
+    <span className="prop-issue" role="img" aria-label={text} title={text}>
+      !
+    </span>
+  );
+}
+
 function PropertyRow({
   field,
   raw,
   marks,
+  issues,
   canEdit,
   titleOf,
   searchDocs,
@@ -476,6 +500,7 @@ function PropertyRow({
   field: Field;
   raw: unknown;
   marks: AiMark[] | undefined;
+  issues: string[];
   canEdit: boolean;
   titleOf: TitleOf;
   searchDocs: SearchDocs;
@@ -484,7 +509,8 @@ function PropertyRow({
   const inputId = useId();
   const labelId = `${inputId}-label`;
   const list = isListKind(field.kind);
-  const editable = canEdit && field.kind !== "json";
+  // A retired field's value stays readable, and can only be removed.
+  const editable = canEdit && field.kind !== "json" && !field.retired;
   // Chips plus a picker are several controls, so they share a labelled group.
   const grouped = list || field.kind === "doc";
   return (
@@ -512,6 +538,17 @@ function PropertyRow({
           <ReadValue field={field} raw={raw} marks={marks} titleOf={titleOf} />
         )}
         {!list && !isEmptyValue(raw) && <AiBadge mark={markFor(marks, raw)} />}
+        <IssueMarker issues={issues} />
+        {canEdit && field.retired && (
+          <button
+            type="button"
+            className="prop-remove-field"
+            aria-label={`Remove ${field.label}`}
+            onClick={() => onEdit({ op: "clear" })}
+          >
+            Remove
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,10 @@
 // Properties on a page: attach a type from the header, set a date and a
-// select in the panel, see them after a reload, see an agent's value marked
-// as AI, detach without losing values, sort the parent's Contents by a
-// property column, and keep a live property set through the body's undo.
+// select in the panel (by keyboard too: a half-cleared date, browsing a
+// select, focus after a control goes away, refused numbers and links), see
+// them after a reload, see an agent's value marked as AI, detach without
+// losing values, sort the parent's Contents by a property column, keep a live
+// property set through the body's undo, mark values the server reported and
+// remove a retired field's value, and refuse edits offline.
 // Needs web+api (run.sh).
 import { createHash, randomBytes } from "node:crypto";
 import { chromium } from "playwright";
@@ -259,7 +262,7 @@ try {
   const focused = () =>
     page.evaluate(() => {
       const el = document.activeElement;
-      return !el || el === document.body ? "the page body" : (el.getAttribute("aria-label") ?? el.textContent);
+      return !el || el === document.body ? "the page body" : (el.getAttribute("aria-label") ?? el.textContent.trim());
     });
   const waitForFocus = (label, after) => waitFor(focused, (now) => now === label, `focus never reached ${label} after ${after}`);
   await waitForFocus("Remove Budget", "adding the last free topic");
@@ -328,6 +331,12 @@ try {
   await trpcMutation("documents.setProperties", { id: retro.id, set: { priority: "High" } });
   await trpcMutation("types.updateField", { id: priority.id, kind: "text" });
   await waitFor(() => valuesOf(retro.id), (v) => v[priority.id] === "High", "a select turned text never read as its label");
+  const notes = await field("notes", "text");
+  const points = await field("points", "number");
+  await trpcMutation("documents.setProperties", { id: retro.id, set: { notes: "kickoff zebra notes", points: 12 } });
+  await trpcMutation("types.updateField", { id: notes.id, kind: "number" });
+  await trpcMutation("types.retireField", { id: points.id });
+  const newPoints = await field("points", "number");
 
   await page.goto(`${BASE}/d/${retro.id}`);
   await page.click(".ProseMirror");
@@ -344,6 +353,22 @@ try {
   if (await page.locator(".props-summary[aria-expanded=false]").isVisible()) await page.locator(".props-summary").click();
   const priorityText = await page.getByLabel("Priority", { exact: true }).inputValue();
   if (priorityText !== "High") throw new Error(`a select turned text shows ${priorityText}`);
+  const notesIssue = await page.locator('.props-row[data-field="notes"] .prop-issue').getAttribute("aria-label");
+  if (notesIssue !== "expected a number") throw new Error(`the text-turned-number marker reads ${notesIssue}`);
+  const retiredRow = page.locator('.props-row[data-field="points"]', { has: page.locator(".prop-remove-field") });
+  const retiredText = await retiredRow.locator(".props-value").textContent();
+  if (retiredText !== "12!Remove") throw new Error(`the retired field's row reads ${retiredText}`);
+  const retiredIssue = await retiredRow.locator(".prop-issue").getAttribute("aria-label");
+  if (retiredIssue !== "points is retired") throw new Error(`the retired field's marker reads ${retiredIssue}`);
+  await retiredRow.getByRole("button", { name: "Remove Points" }).focus();
+  await page.keyboard.press("Enter");
+  await waitFor(
+    () => valuesOf(retro.id),
+    (v) => !(points.id in v) && !(newPoints.id in v),
+    "Remove never cleared the retired field",
+  );
+  await retiredRow.waitFor({ state: "detached" });
+  await waitForFocus("Add field", "removing the retired field");
   const statusNow = page.getByLabel("Status", { exact: true });
   const statusDisabled = () => statusNow.evaluate((el) => el.matches(":disabled"));
   await page.context().setOffline(true);
@@ -364,7 +389,7 @@ try {
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "PROPERTIES PASS — attach, panel date + select persist, AI marker, detach keeps values, Contents sorts by a property, body undo spares properties",
+    "PROPERTIES PASS — attach, panel date + select persist, keyboard edits, AI marker, detach keeps values, Contents sorts by a property, body undo spares properties, issue markers, retired field removal, offline refusal",
   );
 } finally {
   await browser.close();

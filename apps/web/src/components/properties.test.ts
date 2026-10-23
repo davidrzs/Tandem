@@ -10,6 +10,7 @@ import {
   EXPRESSION_CHOICES,
   formatValue,
   heldValue,
+  issueMessages,
   keyFromLabel,
   labelledError,
   literalDefault,
@@ -54,6 +55,25 @@ test("each widget edit becomes one patch op on the field's key", () => {
   assert.deepEqual(patchFor(topics, { op: "remove", value: "opt_budget" }), {
     remove: { topics: ["opt_budget"] },
   });
+});
+
+test("a retired field is patched by id, since a new field may have taken its key", () => {
+  const points = field("points", "number", { retired: true });
+  assert.deepEqual(patchFor(points, { op: "clear" }), { unset: ["fld_points"] });
+});
+
+test("a field's issues show while they still describe its value", () => {
+  const issues = [
+    { fieldId: "fld_notes", message: "expected a number", value: "kickoff notes" },
+    { fieldId: "fld_topics", message: "holds a retired option", value: ["opt_old"] },
+    { fieldId: "fld_points", message: "points is retired", value: 12 },
+  ];
+  assert.deepEqual(issueMessages(issues, "fld_notes", "kickoff notes"), ["expected a number"]);
+  assert.deepEqual(issueMessages(issues, "fld_notes", "retyped"), []);
+  assert.deepEqual(issueMessages(issues, "fld_topics", ["opt_budget", "opt_old"]), ["holds a retired option"]);
+  assert.deepEqual(issueMessages(issues, "fld_topics", ["opt_budget"]), []);
+  assert.deepEqual(issueMessages(issues, "fld_points", 12), ["points is retired"]);
+  assert.deepEqual(issueMessages(issues, "fld_status", "opt_open"), []);
 });
 
 test("typed text: blank clears, numbers parse, urls trim, text keeps spaces", () => {

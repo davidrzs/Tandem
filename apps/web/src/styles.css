@@ -1338,6 +1338,35 @@ button.doc-twist:hover .twist {
   color: var(--ink-2);
 }
 
+.prop-issue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--warn-wash);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.prop-remove-field {
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.prop-remove-field:hover {
+  background: var(--hover);
+  color: var(--danger);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

@@ -5,9 +5,14 @@ import { authorLabel } from "./blame.js";
 /** A field definition as the app reads it (`types.fields`). */
 export type Field = RouterOutputs["types"]["fields"][number];
 export type FieldKind = Field["kind"];
-type FieldShape = Pick<Field, "id" | "key" | "kind" | "options">;
+type FieldShape = Pick<Field, "id" | "key" | "kind" | "options" | "retired">;
 
-/** A per-field patch for `documents.setProperties`, by field key. */
+/** A problem the server found with a stored value (`documents.properties`):
+ * a value that doesn't fit its field, a retired option, a retired field. */
+export type PropertyIssue = RouterOutputs["documents"]["properties"]["issues"][number];
+
+/** A per-field patch for `documents.setProperties`, by field key (by id for
+ * a retired field). */
 export interface PropertyPatch {
   set?: Record<string, unknown>;
   unset?: string[];
@@ -43,6 +48,25 @@ export function heldValue(field: Pick<Field, "kind" | "options">, raw: unknown):
   return Array.isArray(raw) ? raw.map(label) : label(raw);
 }
 
+/** The messages of a field's issues that still describe its value: issues
+ * come from the page's last save, so one about a value since replaced is
+ * stale. A list issue names the offending elements, still there if each is. */
+export function issueMessages(
+  issues: ReadonlyArray<Pick<PropertyIssue, "fieldId" | "message" | "value">>,
+  fieldId: string,
+  held: unknown,
+): string[] {
+  const heldItems = new Set((Array.isArray(held) ? held : [held]).map((v) => JSON.stringify(v)));
+  return issues
+    .filter(
+      (i) =>
+        i.fieldId === fieldId &&
+        (JSON.stringify(i.value) === JSON.stringify(held) ||
+          (Array.isArray(i.value) && Array.isArray(held) && i.value.every((v) => heldItems.has(JSON.stringify(v))))),
+    )
+    .map((i) => i.message);
+}
+
 /** A link value as an href, or null unless it is an http(s) URL: the live
  * map is writable by any collaborator, so a stored value may be anything. */
 export function safeHref(value: unknown): string | null {
@@ -55,16 +79,18 @@ export function safeHref(value: unknown): string | null {
   }
 }
 
+/** A retired field goes by its id: its key is free for a new field to take. */
 export function patchFor(field: FieldShape, edit: PropertyEdit): PropertyPatch {
+  const name = field.retired ? field.id : field.key;
   switch (edit.op) {
     case "set":
-      return { set: { [field.key]: edit.value } };
+      return { set: { [name]: edit.value } };
     case "clear":
-      return { unset: [field.key] };
+      return { unset: [name] };
     case "add":
-      return { add: { [field.key]: [edit.value] } };
+      return { add: { [name]: [edit.value] } };
     case "remove":
-      return { remove: { [field.key]: [edit.value] } };
+      return { remove: { [name]: [edit.value] } };
   }
 }
 

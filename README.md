@@ -120,8 +120,11 @@ In the app, the **Type** button in a page's header attaches, changes or
 detaches its type, and owners and admins can create a type there. The page's
 properties sit under its title as one summary line that opens into a row per
 field; owners and admins also get **Add field**. Values an agent wrote carry
-an AI badge naming the agent. Unlike the body, properties can't be edited
-offline: the panel says so and turns read-only until the page is back online.
+an AI badge naming the agent, and a value the server reported (it no longer
+fits its field, or holds a retired option) carries a marker saying why. A
+retired field's value stays in the panel, read-only, with **Remove**. Unlike
+the body, properties can't be edited offline: the panel says so and turns
+read-only until the page is back online.
 When every page in a Contents table shares a type, the table shows that
 type's first three text-like fields (not page references or JSON) as sortable
 columns.

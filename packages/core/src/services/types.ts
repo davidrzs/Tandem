@@ -832,9 +832,10 @@ export class TypeService {
    * Turn a patch by field key into per-field ops for one page. Keys and
    * option labels match case-insensitively. A key resolves first among the
    * page type's fields, then fields the page already holds, then the ad-hoc
-   * fields; old keys of renamed fields work too. Unknown keys are an error
-   * that lists the fields the page can take: only an owner or admin defines
-   * fields.
+   * fields; old keys of renamed fields work too, and a field's id names it
+   * exactly (a retired field whose key a new field reuses). Unknown keys are
+   * an error that lists the fields the page can take: only an owner or admin
+   * defines fields.
    */
   async planPatch(documentId: string, patch: PropertyPatchInput): Promise<PropertyOp[]> {
     return this.exec(async (db) => {
@@ -901,6 +902,8 @@ export class TypeService {
       registry.fields.filter((f) => f.typeId === null && live(f)),
     ];
     const resolve = (key: string): TypeField => {
+      const byId = tiers.flat().find((f) => f.id === key);
+      if (byId) return byId;
       const k = key.trim().toLowerCase();
       for (const tier of tiers) {
         const byKey = tier.filter((f) => f.key.toLowerCase() === k);
