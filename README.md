@@ -298,7 +298,9 @@ the files that had comments.
 
 ```bash
 pnpm install
-pnpm dev        # server :3001 (PGlite, zero setup) + web :5173
+cp .env.example .env
+openssl rand -base64 32   # paste this as BETTER_AUTH_SECRET in .env; the placeholder is refused
+pnpm dev        # server :3001 (PGlite, no database to install) + web :5173
 pnpm test       # unit + integration (in-memory Postgres via PGlite)
 pnpm typecheck
 pnpm --filter @tandem/web build && pnpm e2e   # Playwright, real server
