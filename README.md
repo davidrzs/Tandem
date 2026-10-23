@@ -100,8 +100,10 @@ left out of search, backlinks, recents, tags, tasks and Home.
 A page can have a type (Meeting, Project) and typed properties: text,
 number, checkbox, date, date and time, select, multi-select, URL, a page
 reference, a list of page references, and read-only imported JSON. A
-workspace owner or admin defines types and their fields, plus ad-hoc fields
-any page can hold; every definition change is in the workspace audit log.
+workspace owner or admin defines types and their fields; ad-hoc fields (any
+page can hold one) come from a markdown import or from **Add field** on a page
+that already shows properties. Every definition change is in the workspace
+audit log.
 Detaching a page's type keeps its values.
 
 Values live in the page's collaborative document, one entry per field, so
@@ -117,7 +119,8 @@ detaches its type, and owners and admins can create a type there. The page's
 properties sit under its title as one summary line that opens into a row per
 field; owners and admins also get **Add field**. Values an agent wrote carry
 an AI badge naming the agent. When every page in a Contents table shares a
-type, the table shows that type's first three fields as sortable columns.
+type, the table shows that type's first three text-like fields (not page
+references or JSON) as sortable columns.
 
 A template can give the pages made from it a type and default values. On a
 template's page, the **Type** button sets that type and the panel under the
