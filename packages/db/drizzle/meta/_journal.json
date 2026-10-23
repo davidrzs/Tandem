@@ -204,6 +204,13 @@
       "when": 1792704398200,
       "tag": "0028_black_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792768854804,
+      "tag": "0029_blue_hiroim",
+      "breakpoints": true
     }
   ]
 }

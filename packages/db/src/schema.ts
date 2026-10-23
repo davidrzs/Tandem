@@ -5,6 +5,7 @@ import {
   customType,
   doublePrecision,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -197,11 +198,6 @@ export const documents = pgTable(
     contentJson: jsonb("content_json"),
     // Live WRITE model: persisted Yjs CRDT state. Null until first edit session.
     ydocState: bytea("ydoc_state"),
-    // Lower-cased @handles of task items (`- [ ] @alice ...`) in content_md,
-    // extracted on every content write so "my todos" is an index lookup, not
-    // a scan of every readable body. NULL = written before this column existed
-    // (readers fall back to scanning those rows until their next save).
-    taskAssignees: text("task_assignees").array(),
     // New pages under this one start from this template (deepest ancestor wins).
     defaultTemplateId: uuid("default_template_id").references((): AnyPgColumn => templates.documentId, {
       onDelete: "set null",
@@ -244,7 +240,6 @@ export const documents = pgTable(
       .using("gin", sql`lower(${t.title}) gin_trgm_ops`)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
     index("documents_tags_idx").using("gin", t.tags),
-    index("documents_task_assignees_idx").using("gin", t.taskAssignees),
     index("documents_recent_idx")
       .on(t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
@@ -477,6 +472,36 @@ export const userSettings = pgTable("user_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Derived READ model of a page's task items, one row per item keyed by its
+ * block id, rewritten with every save of the page. Templates keep rows like
+ * any page; readers exclude them. */
+export const tasks = pgTable(
+  "tasks",
+  {
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+    text: text("text").notNull(),
+    done: boolean("done").notNull().default(false),
+    // Lower-cased @handles the task assigns (`- [ ] @alice …`).
+    handles: text("handles").array().notNull().default([]),
+    position: integer("position").notNull(),
+    // From blame: who wrote the item, and whether as an agent. Null when the
+    // item predates blame.
+    createdBy: text("created_by"),
+    ai: boolean("ai").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // When the save that first saw it done ran; null while open.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.documentId, t.blockId] }),
+    index("tasks_handles_idx").using("gin", t.handles),
+  ],
+);
+
 /** A user's starred documents. System-managed like user_settings (no
  * app_user grant): the service checks document readability actor-scoped,
  * then writes system-side; listing re-filters through RLS reads. */
@@ -599,3 +624,4 @@ export type NewDocument = typeof documents.$inferInsert;
 export type Template = typeof templates.$inferSelect;
 export type DocumentType = typeof documentTypes.$inferSelect;
 export type TypeField = typeof typeFields.$inferSelect;
+export type Task = typeof tasks.$inferSelect;
