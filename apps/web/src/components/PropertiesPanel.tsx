@@ -329,13 +329,16 @@ export function TemplateDefaultsPanel({
       },
     );
   };
+  const typeSentence = type
+    ? `Pages made from this template are ${type.name} pages.`
+    : "Pages made from this template have no type.";
 
   return (
     <section {...focusKeeper} className="props-panel open" aria-label="Template defaults">
       <div className="props-summary props-heading">
         <span className="props-type">Defaults for new pages</span>
-        <span className="props-summary-text">
-          {type ? `Pages made from this template are ${type.name} pages.` : "Pages made from this template have no type."}
+        <span className="props-summary-text" title={typeSentence}>
+          {typeSentence}
         </span>
       </div>
       <div className="props-body">
@@ -386,7 +389,7 @@ function TemplateDefaultRow({
   const mode = choosing ? "value" : picked;
   return (
     <div className="props-row" data-field={field.key}>
-      <label className="props-label" htmlFor={canDefine ? `${inputId}-mode` : undefined}>
+      <label className="props-label" title={field.label} htmlFor={canDefine ? `${inputId}-mode` : undefined}>
         {field.label}
       </label>
       <div className="props-value">
@@ -464,7 +467,12 @@ function PropertyRow({
   const grouped = list || field.kind === "doc";
   return (
     <div className="props-row" data-field={field.key}>
-      <label className="props-label" id={labelId} htmlFor={editable && !grouped ? inputId : undefined}>
+      <label
+        className="props-label"
+        id={labelId}
+        title={field.label}
+        htmlFor={editable && !grouped ? inputId : undefined}
+      >
         {field.label}
       </label>
       <div className="props-value" {...(grouped ? { role: "group", "aria-labelledby": labelId } : {})}>

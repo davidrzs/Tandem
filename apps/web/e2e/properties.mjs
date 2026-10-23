@@ -128,6 +128,8 @@ try {
   const owner = await field("owner", "doc");
   await field("count", "number");
   await field("site", "url");
+  const longLabel = "Executive summary of the quarterly planning review and its follow-ups";
+  await trpcMutation("types.createField", { workspaceId, typeId: type.id, key: "summary", label: longLabel, kind: "text" });
 
   const retro = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Retro" });
   const planning = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Planning" });
@@ -137,6 +139,8 @@ try {
   await page.getByRole("button", { name: "Page type: none" }).click();
   await page.getByRole("menuitem", { name: "Meeting" }).click();
   await page.locator(".props-summary[aria-expanded=true]").waitFor();
+  const longTitle = await page.locator('.props-row[data-field="summary"] .props-label').getAttribute("title");
+  if (longTitle !== longLabel) throw new Error(`the long label's tooltip reads ${longTitle}`);
   const dateWrites = [];
   const writes = [];
   page.on("request", (r) => {

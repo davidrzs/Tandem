@@ -123,6 +123,16 @@ try {
   await page.goto(`${BASE}/d/${templateId("Meeting")}`);
   const panel = page.locator('.props-panel[aria-label="Template defaults"]');
   await panel.getByText("Pages made from this template are Meeting pages.").waitFor();
+  assertEqual(
+    await panel.locator('.props-row[data-field="attendees"] .props-label').getAttribute("title"),
+    "Attendees",
+    "the attendees label's tooltip",
+  );
+  assertEqual(
+    await panel.locator(".props-summary-text").getAttribute("title"),
+    "Pages made from this template are Meeting pages.",
+    "the template sentence's tooltip",
+  );
   assertEqual(await panel.getByLabel("Default for Date").inputValue(), "today", "the date default");
   assertEqual(
     await panel.getByLabel("Default for Attendees").inputValue(),
