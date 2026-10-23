@@ -9,6 +9,7 @@ import {
   editFromText,
   EXPRESSION_CHOICES,
   formatValue,
+  heldValue,
   keyFromLabel,
   labelledError,
   literalDefault,
@@ -218,4 +219,16 @@ test("template defaults: each kind is offered only the expressions that fit it, 
   assert.equal(describeDefault(status, { kind: "value", value: "opt_done" }), "Done");
   assert.equal(describeDefault(topics, { kind: "from_previous_sibling" }), "Same as the previous page");
   assert.equal(describeDefault(status, undefined), "No default");
+});
+
+test("a field that stopped being a select reads its leftover option ids as labels", () => {
+  const priority = field("priority", "text", { options: [{ id: "o_high", label: "High" }] });
+  assert.equal(heldValue(priority, "o_high"), "High");
+  assert.equal(heldValue(priority, "kickoff notes"), "kickoff notes");
+  assert.deepEqual(heldValue({ ...priority, kind: "doc_list" }, ["o_high", "d1"]), ["High", "d1"]);
+  assert.equal(heldValue(status, "opt_done"), "opt_done");
+  assert.equal(
+    summaryText([priority], { [priority.id]: heldValue(priority, "o_high") }),
+    "Priority: High",
+  );
 });

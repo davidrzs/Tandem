@@ -324,6 +324,11 @@ try {
   const cells = await contents.locator("tbody tr").first().locator("td.outline-field").allTextContents();
   if (JSON.stringify(cells) !== '["Open","Nov 2, 2026",""]') throw new Error(`Planning's cells: ${JSON.stringify(cells)}`);
 
+  const priority = await field("priority", "select", ["Low", "High"]);
+  await trpcMutation("documents.setProperties", { id: retro.id, set: { priority: "High" } });
+  await trpcMutation("types.updateField", { id: priority.id, kind: "text" });
+  await waitFor(() => valuesOf(retro.id), (v) => v[priority.id] === "High", "a select turned text never read as its label");
+
   await page.goto(`${BASE}/d/${retro.id}`);
   await page.click(".ProseMirror");
   await page.keyboard.type("Agenda for today.");
@@ -337,6 +342,8 @@ try {
   if (after[status.id] !== "Open") throw new Error(`undo in the body reverted the property: ${JSON.stringify(after)}`);
 
   if (await page.locator(".props-summary[aria-expanded=false]").isVisible()) await page.locator(".props-summary").click();
+  const priorityText = await page.getByLabel("Priority", { exact: true }).inputValue();
+  if (priorityText !== "High") throw new Error(`a select turned text shows ${priorityText}`);
   const statusNow = page.getByLabel("Status", { exact: true });
   const statusDisabled = () => statusNow.evaluate((el) => el.matches(":disabled"));
   await page.context().setOffline(true);

@@ -1616,6 +1616,23 @@ test("properties: the projection validates every kind and reports what fails", (
   ]);
 });
 
+test("properties: option ids left by a kind change read as their labels", () => {
+  const options = [
+    { id: "o_low", label: "Low" },
+    { id: "o_high", label: "High" },
+  ];
+  const fields = new Map<string, FieldDef>([
+    ["t", { id: "t", key: "priority", kind: "text", options, retiredAt: null }],
+    ["u", { id: "u", key: "site", kind: "url", options, retiredAt: null }],
+    ["n", { id: "n", key: "notes", kind: "text", options: [], retiredAt: null }],
+  ]);
+  assert.deepEqual(projectProperties({ t: "o_high", u: "o_low", n: "o_high" }, fields), {
+    properties: { t: "High", n: "o_high" },
+    propertyIssues: [{ fieldId: "u", code: "invalid_value", message: "expected a URL", value: "Low" }],
+    propertiesText: "High\no_high",
+  });
+});
+
 test("properties: patches by key and label land as ids, and the projection feeds search", async () => {
   const { ws, col, types, meeting, status, attendees, due, opt } = await typedWorkspace("ty2-owner", "ty2-member");
   const documents = new DocumentService(db, user("ty2-owner"));

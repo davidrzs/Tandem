@@ -112,7 +112,8 @@ they merge field by field when people and agents edit at once, carry blame
 like the body, and come back when a version is restored. Every write changes
 single fields; nothing rewrites the whole set. The server validates values
 when it saves the page: one that no longer fits its field (after a kind
-change, say) is kept and reported, never dropped. Property text is searchable.
+change, say) is kept and reported, never dropped. A select changed to another
+kind reads the options it held as their labels. Property text is searchable.
 Renaming a field keeps its old key working.
 
 In the app, the **Type** button in a page's header attaches, changes or

@@ -190,7 +190,8 @@ function distinct(values: readonly unknown[]): unknown[] {
 /** Validate and normalize a properties map against the field registry.
  * Absent, null, "" and [] mean "no value". A value that fails its kind is
  * left out of `properties` and reported; values of retired fields and
- * retired options are kept and reported. */
+ * retired options are kept and reported. A field that stopped being a
+ * select still holds option ids; they read as the options' labels. */
 export function projectProperties(
   json: PropertiesJSON,
   fields: ReadonlyMap<string, FieldDef>,
@@ -201,14 +202,21 @@ export function projectProperties(
   const issue = (fieldId: string, code: PropertyIssue["code"], message: string, value: unknown) =>
     propertyIssues.push({ fieldId, code, message, value });
 
-  for (const [fieldId, raw] of Object.entries(json)) {
-    if (raw == null || raw === "" || (Array.isArray(raw) && raw.length === 0)) continue;
+  for (const [fieldId, stored] of Object.entries(json)) {
+    if (stored == null || stored === "" || (Array.isArray(stored) && stored.length === 0)) continue;
     const field = fields.get(fieldId);
     if (!field) {
-      issue(fieldId, "unknown_field", "no field has this id", raw);
+      issue(fieldId, "unknown_field", "no field has this id", stored);
       continue;
     }
     const spec = KINDS[field.kind];
+    const label = (v: unknown) => (typeof v === "string" ? (field.options.find((o) => o.id === v)?.label ?? v) : v);
+    const raw =
+      field.kind === "select" || field.kind === "multi_select" || field.options.length === 0
+        ? stored
+        : Array.isArray(stored)
+          ? stored.map(label)
+          : label(stored);
     if (spec.shape !== "any" && (spec.shape === "list") !== Array.isArray(raw)) {
       issue(fieldId, "invalid_value", spec.shape === "list" ? "expected a list" : "expected one value", raw);
       continue;

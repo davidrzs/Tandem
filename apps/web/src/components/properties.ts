@@ -34,6 +34,15 @@ export const listValues = (raw: unknown): unknown[] => (Array.isArray(raw) ? raw
 export const optionLabel = (field: Pick<Field, "options">, id: unknown) =>
   field.options.find((o) => o.id === id)?.label ?? String(id);
 
+/** A stored value as its field reads it today: a field that stopped being a
+ * select still holds option ids, which read as the options' labels (as the
+ * server's projection reads them). */
+export function heldValue(field: Pick<Field, "kind" | "options">, raw: unknown): unknown {
+  if (field.kind === "select" || field.kind === "multi_select" || field.options.length === 0) return raw;
+  const label = (v: unknown) => (typeof v === "string" ? (field.options.find((o) => o.id === v)?.label ?? v) : v);
+  return Array.isArray(raw) ? raw.map(label) : label(raw);
+}
+
 /** A link value as an href, or null unless it is an http(s) URL: the live
  * map is writable by any collaborator, so a stored value may be anything. */
 export function safeHref(value: unknown): string | null {

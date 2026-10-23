@@ -30,6 +30,7 @@ import {
   editFromText,
   EXPRESSION_CHOICES,
   formatValue,
+  heldValue,
   isEmptyValue,
   isListKind,
   keyFromLabel,
@@ -218,6 +219,7 @@ export function PropertiesPanel({
     ...typed,
     ...all.filter((f) => f.typeId !== typeId && (!isEmptyValue(values[f.id]) || added.includes(f.id))),
   ];
+  const held = Object.fromEntries(shown.map((f) => [f.id, heldValue(f, values[f.id])]));
   const refIds = shown
     .filter((f) => f.kind === "doc" || f.kind === "doc_list")
     .flatMap((f) => listValues(values[f.id]))
@@ -248,7 +250,7 @@ export function PropertiesPanel({
         <Icon name="chevron" size={12} className={"twist" + (open ? " open" : "")} />
         <span className="props-type">{typeName ?? "Properties"}</span>
         {!open && synced && (
-          <span className="props-summary-text">{summaryText(shown, values, { titleOf })}</span>
+          <span className="props-summary-text">{summaryText(shown, held, { titleOf })}</span>
         )}
       </button>
       {open && (
@@ -260,7 +262,7 @@ export function PropertiesPanel({
               <PropertyRow
                 key={field.id}
                 field={field}
-                raw={values[field.id]}
+                raw={held[field.id]}
                 marks={marks[field.id]}
                 canEdit={canEdit}
                 titleOf={titleOf}
