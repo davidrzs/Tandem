@@ -130,7 +130,7 @@ try {
     "the attendees default",
   );
   const saved = page.waitForResponse((r) => r.url().includes("templates.setFieldDefault") && r.ok());
-  await panel.locator('.props-row[data-field="status"] select').nth(1).selectOption({ label: "Done" });
+  await panel.getByLabel("Status default value").selectOption({ label: "Done" });
   await saved;
   const status = (await trpcQuery("types.fields", { workspaceId })).find(
     (f) => f.key === "status" && f.typeName === "Meeting",

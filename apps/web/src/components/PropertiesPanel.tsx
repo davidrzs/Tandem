@@ -42,6 +42,8 @@ type SearchDocs = (query: string) => Promise<DocCandidate[]>;
 type TitleOf = NonNullable<FormatOptions["titleOf"]>;
 /** Saves one edit; resolves false when it failed (the error is already shown). */
 type OnEdit = (edit: PropertyEdit) => Promise<boolean>;
+/** A scalar widget's control: its id, and its name when no <label> points at it. */
+type Control = { id: string; "aria-label"?: string };
 
 const KIND_LABELS: Record<Exclude<FieldKind, "json">, string> = {
   text: "Text",
@@ -337,6 +339,7 @@ function TemplateDefaultRow({
                 raw={value?.kind === "value" ? value.value : undefined}
                 marks={undefined}
                 inputId={inputId}
+                ariaLabel={`${field.label} default value`}
                 titleOf={titleOf}
                 searchDocs={searchDocs}
                 onEdit={(edit) => onSave(literalDefault(value?.kind === "value" ? value.value : undefined, edit))}
@@ -480,6 +483,7 @@ function Widget({
   raw,
   marks,
   inputId,
+  ariaLabel,
   titleOf,
   searchDocs,
   onEdit,
@@ -488,22 +492,25 @@ function Widget({
   raw: unknown;
   marks: AiMark[] | undefined;
   inputId: string;
+  /** Names the control when no <label> points at it. */
+  ariaLabel?: string;
   titleOf: TitleOf;
   searchDocs: SearchDocs;
   onEdit: OnEdit;
 }) {
+  const control = { id: inputId, "aria-label": ariaLabel };
   switch (field.kind) {
     case "text":
     case "url":
     case "number":
-      return <TextWidget field={field} raw={raw} inputId={inputId} onEdit={onEdit} />;
+      return <TextWidget field={field} raw={raw} control={control} onEdit={onEdit} />;
     case "checkbox":
-      return <CheckboxWidget raw={raw} inputId={inputId} onEdit={onEdit} />;
+      return <CheckboxWidget raw={raw} control={control} onEdit={onEdit} />;
     case "date":
     case "datetime":
-      return <DateWidget field={field} raw={raw} inputId={inputId} onEdit={onEdit} />;
+      return <DateWidget field={field} raw={raw} control={control} onEdit={onEdit} />;
     case "select":
-      return <SelectWidget field={field} raw={raw} inputId={inputId} onEdit={onEdit} />;
+      return <SelectWidget field={field} raw={raw} control={control} onEdit={onEdit} />;
     case "multi_select": {
       const chosen = listValues(raw);
       const left = field.options.filter((o) => !o.retired && !chosen.includes(o.id));
@@ -581,12 +588,12 @@ function Widget({
 function TextWidget({
   field,
   raw,
-  inputId,
+  control,
   onEdit,
 }: {
   field: Field;
   raw: unknown;
-  inputId: string;
+  control: Control;
   onEdit: OnEdit;
 }) {
   const toast = useToast();
@@ -604,7 +611,7 @@ function TextWidget({
   return (
     <>
       <input
-        id={inputId}
+        {...control}
         type={field.kind === "url" ? "url" : "text"}
         inputMode={field.kind === "number" ? "decimal" : undefined}
         className="prop-input prop-text"
@@ -641,11 +648,11 @@ function usePicked<T>(stored: T, save: (value: T) => Promise<boolean>): [T, (val
   return [picked && Object.is(picked.over, stored) ? picked.value : stored, pick];
 }
 
-function CheckboxWidget({ raw, inputId, onEdit }: { raw: unknown; inputId: string; onEdit: OnEdit }) {
+function CheckboxWidget({ raw, control, onEdit }: { raw: unknown; control: Control; onEdit: OnEdit }) {
   const [checked, pick] = usePicked(raw === true, (value) => onEdit({ op: "set", value }));
   return (
     <input
-      id={inputId}
+      {...control}
       type="checkbox"
       className="prop-checkbox"
       checked={checked}
@@ -654,11 +661,11 @@ function CheckboxWidget({ raw, inputId, onEdit }: { raw: unknown; inputId: strin
   );
 }
 
-function SelectWidget({ field, raw, inputId, onEdit }: { field: Field; raw: unknown; inputId: string; onEdit: OnEdit }) {
+function SelectWidget({ field, raw, control, onEdit }: { field: Field; raw: unknown; control: Control; onEdit: OnEdit }) {
   const stored = typeof raw === "string" ? raw : "";
   const [current, pick] = usePicked(stored, (value) => onEdit(value ? { op: "set", value } : { op: "clear" }));
   return (
-    <select id={inputId} className="prop-input" value={current} onChange={(e) => pick(e.target.value)}>
+    <select {...control} className="prop-input" value={current} onChange={(e) => pick(e.target.value)}>
       <option value="">Empty</option>
       {field.options
         .filter((o) => !o.retired || o.id === stored)
@@ -674,7 +681,7 @@ function SelectWidget({ field, raw, inputId, onEdit }: { field: Field; raw: unkn
 /** Date and date-time fields: typing a date with the keyboard changes the
  * input once per digit, so edits stay a local draft until blur or Enter, and
  * Escape reverts. */
-function DateWidget({ field, raw, inputId, onEdit }: { field: Field; raw: unknown; inputId: string; onEdit: OnEdit }) {
+function DateWidget({ field, raw, control, onEdit }: { field: Field; raw: unknown; control: Control; onEdit: OnEdit }) {
   const datetime = field.kind === "datetime";
   const stored = datetime ? datetimeToInput(raw) : typeof raw === "string" ? raw : "";
   const [shown, pick] = usePicked(stored, (text) => {
@@ -689,7 +696,7 @@ function DateWidget({ field, raw, inputId, onEdit }: { field: Field; raw: unknow
   };
   return (
     <input
-      id={inputId}
+      {...control}
       type={datetime ? "datetime-local" : "date"}
       className="prop-input"
       value={draft ?? shown}
