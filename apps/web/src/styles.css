@@ -842,6 +842,21 @@ button.doc-twist:hover .twist {
   background: var(--accent-wash);
 }
 
+/* A long type name must not squeeze the breadcrumbs out of the doc bar. */
+.type-btn {
+  max-width: 160px;
+}
+
+.type-btn svg {
+  flex: none;
+}
+
+.type-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- editor ---------- */
 
 .editor {

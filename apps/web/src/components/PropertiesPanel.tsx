@@ -957,13 +957,14 @@ export function TypeMenu({
   if (!canDefine && (list.length === 0 || templateId)) return null;
   const current = list.find((t) => t.id === typeId) ?? null;
   const what = templateId ? "Type of new pages" : "Page type";
+  const label = `${what}: ${current?.name ?? "none"}`;
   return (
     <>
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
-          <button type="button" className="tool-btn" title={what} aria-label={`${what}: ${current?.name ?? "none"}`}>
+          <button type="button" className="tool-btn type-btn" title={label} aria-label={label}>
             <Icon name="page" size={15} />
-            {current?.name ?? "Type"}
+            <span>{current?.name ?? "Type"}</span>
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
