@@ -115,6 +115,12 @@ test("diffProperties touches only the fields that differ", () => {
   );
 });
 
+test("diffProperties compares lists as sets, as setList applies them", () => {
+  assert.deepEqual(diffProperties({ c: ["x", "y"], d: ["x"] }, { c: ["y", "x", "x"], d: ["x", "z"] }), [
+    { op: "setList", field: "d", values: ["x", "z"] },
+  ]);
+});
+
 test("a body edit through applyEditToState keeps the properties map and its authors", () => {
   const seeded = applyEditToState(
     null,

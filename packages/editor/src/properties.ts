@@ -46,6 +46,15 @@ function isSlot(entry: unknown): entry is Slot {
 
 const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Whether `current` already holds exactly the values in `target`, in any
+ * order: setList writes nothing then. */
+function sameElements(current: unknown, target: readonly unknown[]): boolean {
+  if (!Array.isArray(current)) return false;
+  const want = new Set(target.map((v) => JSON.stringify(v)));
+  const have = new Set(current.map((v) => JSON.stringify(v)));
+  return want.size === have.size && [...want].every((key) => have.has(key));
+}
+
 function entryValue(entry: unknown): unknown {
   if (entry instanceof Y.AbstractType) return entry.toJSON();
   if (isSlot(entry)) return entry.v;
@@ -161,7 +170,7 @@ export function diffProperties(from: PropertiesJSON, to: PropertiesJSON): Proper
     if (target === null) {
       if (current !== null) ops.push({ op: "unset", field });
     } else if (Array.isArray(target)) {
-      if (!sameValue(current, target)) ops.push({ op: "setList", field, values: target });
+      if (!sameElements(current, target)) ops.push({ op: "setList", field, values: target });
     } else if (!sameValue(current, target)) {
       ops.push({ op: "set", field, value: target });
     }
