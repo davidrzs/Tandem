@@ -382,6 +382,9 @@ try {
   await page.context().setOffline(true);
   await page.getByText("Properties can't be edited offline.").waitFor({ timeout: 5000 });
   if (!(await statusDisabled())) throw new Error("Status stays editable offline");
+  for (const control of [page.getByRole("button", { name: "Remove Budget" }), page.getByRole("combobox", { name: "Owner" })]) {
+    if (!(await control.evaluate((el) => el.matches(":disabled")))) throw new Error(`${await control.getAttribute("aria-label")} stays editable offline`);
+  }
   await page.context().setOffline(false);
   await page.getByText("Properties can't be edited offline.").waitFor({ state: "detached", timeout: 40_000 });
   if (await statusDisabled()) throw new Error("Status stays disabled back online");

@@ -1081,9 +1081,14 @@ button.doc-twist:hover .twist {
   border-radius: 999px;
 }
 
-.tag-remove:hover {
+.tag-remove:not(:disabled):hover {
   opacity: 1;
   background: var(--hover-strong);
+}
+
+.tag-remove:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .tag-add {
