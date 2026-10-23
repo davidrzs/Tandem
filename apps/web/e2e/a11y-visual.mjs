@@ -1,8 +1,9 @@
-// Layout and accessibility of the typed-page UI at 800px: a long type name
-// leaves the breadcrumbs on the doc bar, the Contents table keeps page names
-// readable and shows a cut-off value in full on hover, and the quiet text of
-// the panels, Contents, live sections and Home's due list reads at 4.5:1 in
-// both themes, and keyboard focus on a panel field shows the accent ring.
+// Layout and accessibility of the typed-page UI: at 800px a long type name
+// leaves the breadcrumbs on the doc bar and the Contents table keeps page
+// names readable, titling cut-off values; the quiet text of the panels,
+// Contents, live sections and Home's due list reads at 4.5:1 in both themes;
+// keyboard focus on a panel field shows the accent ring; a sidebar template
+// row's accessible name says it is a template.
 // Needs web+api (run.sh).
 import { chromium } from "playwright";
 import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
@@ -213,9 +214,20 @@ try {
     throw new Error(`a keyboard-focused panel field shows ${JSON.stringify(focused)}`);
   }
 
+  const sync = await trpcMutation("documents.create", { collectionId, title: "Client sync {{date}}" });
+  await trpcMutation("templates.templatize", { documentId: sync.id, name: "Client sync" });
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.goto(`${BASE}/d/${sync.id}`);
+  const templateRow = page.locator(`.tree .doc-row[href="/d/${sync.id}"]`);
+  await templateRow.locator(".template-badge").waitFor();
+  const templateName = await templateRow.getAttribute("aria-label");
+  if (templateName !== "Client sync {{date}}, template") throw new Error(`the template row is named ${templateName}`);
+  const pageName = await page.locator(`.tree .doc-row[href="/d/${parentId}"]`).getAttribute("aria-label");
+  if (pageName !== "Research") throw new Error(`a plain page row is named ${pageName}`);
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "A11Y-VISUAL PASS — a long type name keeps the breadcrumbs, Contents keeps names and titles cut values, quiet text reads at 4.5:1 in both themes, panel fields show a focus ring",
+    "A11Y-VISUAL PASS — a long type name keeps the breadcrumbs, Contents keeps names and titles cut values, quiet text reads at 4.5:1 in both themes, panel fields show a focus ring, template rows say they are templates",
   );
 } finally {
   await browser.close();
