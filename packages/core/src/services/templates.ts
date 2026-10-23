@@ -38,7 +38,7 @@ export interface TemplateSummary {
   name: string;
   workspaceId: string;
   collectionId: string;
-  /** The template document's `updated_at`, recorded as `origin.version`. */
+  /** The latest `updated_at` across the copied subtree, recorded as `origin.version`. */
   version: string;
   /** The type new pages get; null leaves them untyped. */
   typeId: string | null;
@@ -165,12 +165,24 @@ async function createPages(
   return doc;
 }
 
+/** Latest `updated_at` over the template page and the descendants
+ * instantiation copies, so editing any copied page changes the version. */
+const subtreeUpdatedAt = sql<Date>`(
+  WITH RECURSIVE sub(id, depth) AS (
+    SELECT ${documents.id}, 0
+    UNION ALL
+    SELECT d.id, s.depth + 1 FROM documents d JOIN sub s ON d.parent_document_id = s.id
+    WHERE s.depth < ${TEMPLATE_SUBTREE_DEPTH} AND d.deleted_at IS NULL AND d.archived_at IS NULL
+  )
+  SELECT max(v.updated_at) FROM sub JOIN documents v ON v.id = sub.id
+)`.mapWith(documents.updatedAt);
+
 const summaryColumns = {
   id: templates.documentId,
   name: templates.name,
   workspaceId: templates.workspaceId,
   collectionId: documents.collectionId,
-  updatedAt: documents.updatedAt,
+  updatedAt: subtreeUpdatedAt,
   typeId: templates.defaultTypeId,
   defaults: templates.defaults,
 };
@@ -212,7 +224,7 @@ export class TemplateService extends DocumentServiceBase {
           workspaceId: documents.workspaceId,
           collectionId: documents.collectionId,
           title: documents.title,
-          updatedAt: documents.updatedAt,
+          updatedAt: subtreeUpdatedAt,
           writable: sql<boolean>`${documents.collectionId} IN (SELECT app_writable_collections())`,
         })
         .from(documents)

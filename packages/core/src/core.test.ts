@@ -1311,6 +1311,22 @@ test("templates: instantiate expands variables, copies 3 levels, records origin"
   );
 });
 
+test("templates: editing only a copied sub-page changes the template version", async () => {
+  const { col, docs, templates } = await templateWorkspace("tv", "Vic");
+  const tpl = await docs.create({ collectionId: col.id, title: "Root" });
+  const child = await docs.create({ collectionId: col.id, parentDocumentId: tpl.id, title: "Child" });
+  const before = await templates.templatize(tpl.id, "Versioned");
+  const listed = (await templates.list()).find((t) => t.id === tpl.id)!;
+  assert.equal(listed.version, before.version);
+
+  await docs.editBody(child.id, () => "Changed child");
+  const after = (await templates.list()).find((t) => t.id === tpl.id)!;
+  assert.notEqual(after.version, before.version);
+  assert.equal(after.version, (await docs.get(child.id))!.updatedAt.toISOString());
+  const page = await templates.instantiate({ templateId: tpl.id, collectionId: col.id });
+  assert.deepEqual(page.document!.origin, { templateId: tpl.id, version: after.version });
+});
+
 test("templates: the deepest default wins, then the collection's, else blank", async () => {
   const { col, docs, templates } = await templateWorkspace("tc", "Cai");
   const colTpl = await docs.create({ collectionId: col.id, title: "Collection default", markdown: "From collection" });
