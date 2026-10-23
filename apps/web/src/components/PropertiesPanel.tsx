@@ -726,8 +726,8 @@ function Widget({
   }
 }
 
-/** Text, link and number fields: edit freely, save on blur or Enter, revert
- * on Escape. */
+/** Text, link and number fields: edit freely, save on blur or Enter (which
+ * keeps focus in the field), revert on Escape. */
 function TextWidget({
   field,
   raw,
@@ -763,7 +763,7 @@ function TextWidget({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") commit();
           if (e.key === "Escape") setDraft(null);
         }}
       />

@@ -222,6 +222,14 @@ try {
   }
   await page.waitForTimeout(500);
   if (writesTo("count") + writesTo("site") !== 0) throw new Error("a refused number or link was saved");
+  const site = page.getByLabel("Site", { exact: true });
+  await site.fill("https://example.com");
+  await site.press("Enter");
+  await waitFor(() => valuesOf(retro.id), (v) => Object.values(v).includes("https://example.com"), "Enter in Site never saved it");
+  if (!(await site.evaluate((el) => el === document.activeElement))) throw new Error("Enter in Site moved focus out of the field");
+  await site.fill("");
+  await site.press("Enter");
+  await waitFor(() => valuesOf(retro.id), (v) => !Object.values(v).includes("https://example.com"), "emptying Site never cleared it");
 
   await page.reload();
   const summary = page.locator(".props-summary");
