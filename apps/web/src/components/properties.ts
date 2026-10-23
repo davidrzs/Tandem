@@ -74,6 +74,16 @@ export function datetimeToInput(iso: unknown): string {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
+/** The edit a date or date-time input means once committed, or null to keep
+ * the stored value: an input with one part cleared reads as "" just like an
+ * emptied one (`incomplete` tells them apart), and only an emptied one clears. */
+export function editFromDateInput(kind: FieldKind, text: string, incomplete: boolean): PropertyEdit | null {
+  if (incomplete) return null;
+  if (text === "") return { op: "clear" };
+  const value = kind === "datetime" ? datetimeFromInput(text) : text;
+  return value ? { op: "set", value } : null;
+}
+
 /** The edit a typed-in text value means for a text, url or number field:
  * blank clears, and a number that doesn't parse is no edit at all. */
 export function editFromText(kind: FieldKind, text: string): PropertyEdit | null {

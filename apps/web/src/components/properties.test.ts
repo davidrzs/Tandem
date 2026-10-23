@@ -5,6 +5,7 @@ import {
   datetimeFromInput,
   datetimeToInput,
   describeDefault,
+  editFromDateInput,
   editFromText,
   EXPRESSION_CHOICES,
   formatValue,
@@ -83,6 +84,23 @@ test("a datetime-local value round-trips through the stored UTC instant in the r
   assert.equal(datetimeToInput("2026-10-22T18:30:00.000Z"), "2026-10-22T14:30");
   assert.equal(datetimeFromInput(""), null);
   assert.equal(datetimeToInput(null), "");
+});
+
+test("a committed date input clears only when emptied, and a half-cleared one keeps the stored value", (t) => {
+  const zone = process.env.TZ;
+  t.after(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+  process.env.TZ = "America/New_York";
+  assert.equal(editFromDateInput("date", "", true), null);
+  assert.equal(editFromDateInput("datetime", "", true), null);
+  assert.deepEqual(editFromDateInput("date", "", false), { op: "clear" });
+  assert.deepEqual(editFromDateInput("date", "2026-11-05", false), { op: "set", value: "2026-11-05" });
+  assert.deepEqual(editFromDateInput("datetime", "2026-10-22T14:30", false), {
+    op: "set",
+    value: "2026-10-22T18:30:00.000Z",
+  });
 });
 
 test("stored values format for reading: labels, dates, checkboxes, page titles, restricted pages", () => {

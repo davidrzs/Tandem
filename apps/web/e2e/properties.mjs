@@ -168,6 +168,27 @@ try {
   if (JSON.stringify(dateWrites) !== '["2026-10-22"]') {
     throw new Error(`an escaped date edit saved ${JSON.stringify(dateWrites)}`);
   }
+  await dateInput.focus();
+  await page.keyboard.press("Backspace");
+  await dateInput.blur();
+  await page.waitForTimeout(500);
+  if ((await dateInput.inputValue()) !== "2026-10-22" || JSON.stringify(dateWrites) !== '["2026-10-22"]') {
+    throw new Error(`clearing the month showed ${await dateInput.inputValue()} and saved ${JSON.stringify(dateWrites)}`);
+  }
+  await dateInput.focus();
+  for (let part = 0; part < 3; part++) {
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("ArrowRight");
+  }
+  await page.keyboard.press("Enter");
+  await waitFor(() => valuesOf(retro.id), (v) => v[date.id] === undefined, "emptying every part of the date never cleared it");
+  await dateInput.focus();
+  await page.keyboard.type("10222026");
+  await page.keyboard.press("Enter");
+  await waitFor(() => valuesOf(retro.id), (v) => v[date.id] === "2026-10-22", "the retyped date never saved");
+  if (JSON.stringify(dateWrites) !== '["2026-10-22",null,"2026-10-22"]') {
+    throw new Error(`clearing and retyping the date saved ${JSON.stringify(dateWrites)}`);
+  }
 
   await page.reload();
   const summary = page.locator(".props-summary");

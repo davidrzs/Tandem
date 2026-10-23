@@ -10,9 +10,9 @@ import type { DocCandidate } from "./mention.js";
 import { ConfirmDialog, Modal, PromptDialog } from "./Modal.js";
 import {
   aiMarks,
-  datetimeFromInput,
   datetimeToInput,
   describeDefault,
+  editFromDateInput,
   editFromText,
   EXPRESSION_CHOICES,
   formatValue,
@@ -678,18 +678,23 @@ function SelectWidget({ field, raw, control, onEdit }: { field: Field; raw: unkn
 
 /** Date and date-time fields: typing a date with the keyboard changes the
  * input once per digit, so edits stay a local draft until blur or Enter, and
- * Escape reverts. */
+ * Escape reverts. So does a date left with only some of its parts cleared. */
 function DateWidget({ field, raw, control, onEdit }: { field: Field; raw: unknown; control: Control; onEdit: OnEdit }) {
   const datetime = field.kind === "datetime";
   const stored = datetime ? datetimeToInput(raw) : typeof raw === "string" ? raw : "";
   const [shown, pick] = usePicked(stored, (text) => {
-    const value = datetime ? datetimeFromInput(text) : text || null;
-    return onEdit(value ? { op: "set", value } : { op: "clear" });
+    const edit = editFromDateInput(field.kind, text, false);
+    return edit ? onEdit(edit) : Promise.resolve(false);
   });
   const [draft, setDraft] = useState<string | null>(null);
-  const commit = () => {
+  const commit = (input: HTMLInputElement) => {
     if (draft === null) return;
     setDraft(null);
+    if (!editFromDateInput(field.kind, draft, input.validity.badInput)) {
+      // The parts still filled in aren't a value; show the stored one again.
+      input.value = shown;
+      return;
+    }
     if (draft !== shown) pick(draft);
   };
   return (
@@ -699,10 +704,13 @@ function DateWidget({ field, raw, control, onEdit }: { field: Field; raw: unknow
       className="prop-input"
       value={draft ?? shown}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
+      onBlur={(e) => commit(e.currentTarget)}
       onKeyDown={(e) => {
         if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") setDraft(null);
+        if (e.key === "Escape") {
+          setDraft(null);
+          e.currentTarget.value = shown;
+        }
       }}
     />
   );
