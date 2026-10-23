@@ -430,6 +430,11 @@ export class TypeService {
     });
   }
 
+  /** One field as the actor can read it, retired or not. */
+  async getField(id: string): Promise<FieldView> {
+    return this.exec(async (db) => fieldView(await this.fieldRow(db, id), { types: [], fields: [], aliases: [] }));
+  }
+
   async createType(workspaceId: string, name: string): Promise<DocumentType> {
     return this.exec(async (db) => {
       await this.assertAdmin(db, workspaceId);

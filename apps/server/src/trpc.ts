@@ -21,7 +21,7 @@ import {
   templateVariablesSchema,
   titleSchema,
 } from "@tandem/core";
-import { FIELD_KINDS } from "@tandem/db";
+import { FIELD_KINDS, type FieldOption } from "@tandem/db";
 import { LIVE_SECTION_QUERIES, stateToJSON, type PropertyOp } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
@@ -122,6 +122,19 @@ const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 
 const uuid = z.string().uuid();
+
+/** What an option-list edit did, by label: a relabel rewrites what every page
+ * holding the option says, so the audit names old and new. */
+function optionChanges(before: readonly FieldOption[], after: readonly FieldOption[]): string {
+  const changes: string[] = [];
+  for (const option of after) {
+    const old = before.find((o) => o.id === option.id);
+    if (!old) changes.push(`added "${option.label}"`);
+    else if (option.retired && !old.retired) changes.push(`retired "${old.label}"`);
+    else if (option.label !== old.label) changes.push(`"${old.label}" -> "${option.label}"`);
+  }
+  return changes.join(", ");
+}
 
 export const appRouter = t.router({
   workspaces: t.router({
@@ -545,16 +558,38 @@ export const appRouter = t.router({
         ctx.services.templates.defaultFor(input.collectionId, input.parentDocumentId),
       ),
 
+    // Any writer may mark a page a template, which hides its subtree from
+    // search, tasks, Home and notifications for everyone, so it is audited.
     templatize: protectedProcedure
       .input(z.object({ documentId: uuid, name: titleSchema }))
-      .mutation(({ ctx, input }) => ctx.services.templates.templatize(input.documentId, input.name)),
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.templatize(input.documentId, input.name);
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "templatize",
+          detail: `template "${template.name}"`,
+          documentId: input.documentId,
+        });
+        return template;
+      }),
 
     untemplatize: protectedProcedure
       .input(z.object({ documentId: uuid }))
       .mutation(async ({ ctx, input }) => {
-        if (!(await ctx.services.templates.untemplatize(input.documentId))) {
+        const template = await ctx.services.templates.untemplatize(input.documentId);
+        if (!template) {
           throw new TRPCError({ code: "FORBIDDEN", message: "You cannot change this template." });
         }
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "untemplatize",
+          detail: `template "${template.name}"`,
+          documentId: input.documentId,
+        });
       }),
 
     setDefault: protectedProcedure
@@ -585,16 +620,37 @@ export const appRouter = t.router({
         return { ...plan, documentId: document?.id ?? null };
       }),
 
-    // A template's type and default values: owner or admin (service-checked).
+    // A template's type and default values: owner or admin (service-checked),
+    // audited like the type definitions they depend on.
     setDefaultType: protectedProcedure
       .input(z.object({ templateId: uuid, typeId: uuid.nullable() }))
-      .mutation(({ ctx, input }) => ctx.services.templates.setDefaultType(input.templateId, input.typeId)),
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.setDefaultType(input.templateId, input.typeId);
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "set_template_type",
+          detail: `template "${template.name}": type ${template.typeId ?? "none"}`,
+          documentId: input.templateId,
+        });
+        return template;
+      }),
 
     setFieldDefault: protectedProcedure
       .input(z.object({ templateId: uuid, fieldId: fieldKeySchema, default: templateDefaultSchema.nullable() }))
-      .mutation(({ ctx, input }) =>
-        ctx.services.templates.setFieldDefault(input.templateId, input.fieldId, input.default),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.setFieldDefault(input.templateId, input.fieldId, input.default);
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "set_template_default",
+          detail: `template "${template.name}": ${input.fieldId} = ${JSON.stringify(template.defaults[input.fieldId] ?? null)}`,
+          documentId: input.templateId,
+        });
+        return template;
+      }),
 
     // The Type menu's "Add starter types": Meeting, Project and Person with
     // their templates; a second run adds nothing.
@@ -707,13 +763,15 @@ export const appRouter = t.router({
       )
       .mutation(async ({ ctx, input }) => {
         const { id, ...patch } = input;
+        const before = patch.options ? await ctx.services.types.getField(id) : null;
         const field = await ctx.services.types.updateField(id, patch);
+        const options = before ? optionChanges(before.options, field.options) : "";
         await ctx.services.settings.recordAudit({
           workspaceId: field.workspaceId,
           userId: ctx.user.id,
           ai: false,
           action: "update_field",
-          detail: `field "${field.key}": ${Object.keys(patch).join(", ")}`,
+          detail: `field "${field.key}": ${Object.keys(patch).join(", ")}${options ? `; options ${options}` : ""}`,
         });
         return field;
       }),

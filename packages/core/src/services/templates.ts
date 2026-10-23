@@ -241,16 +241,17 @@ export class TemplateService extends DocumentServiceBase {
     });
   }
 
-  /** Turn a template back into an ordinary page. False when the actor may
-   * not write it (or it was not a template). Defaults pointing at it clear. */
-  async untemplatize(documentId: string): Promise<boolean> {
-    const rows = await this.exec((db) =>
+  /** Turn a template back into an ordinary page: the template it was, or
+   * null when the actor may not write it (or it was not a template).
+   * Defaults pointing at it clear. */
+  async untemplatize(documentId: string): Promise<{ workspaceId: string; name: string } | null> {
+    const [row] = await this.exec((db) =>
       db
         .delete(templates)
         .where(eq(templates.documentId, documentId))
-        .returning({ id: templates.documentId }),
+        .returning({ workspaceId: templates.workspaceId, name: templates.name }),
     );
-    return rows.length > 0;
+    return row ?? null;
   }
 
   /** Set or clear the template new pages start from at `target`. False when

@@ -1339,7 +1339,7 @@ test("templates: the deepest default wins, then the collection's, else blank", a
   assert.equal(blank.document!.contentMd, "");
   assert.equal(blank.document!.origin, null);
 
-  assert.equal(await templates.untemplatize(folderTpl.id), true);
+  assert.equal((await templates.untemplatize(folderTpl.id))?.name, "Folder default");
   assert.equal(await templates.defaultFor(col.id, sub.id), colTpl.id, "an unmarked template stops being a default");
 
   const outsider = await templateWorkspace("td", "Dee");
@@ -1385,7 +1385,7 @@ test("templates: templates and their subtrees stay out of search, backlinks, rec
   assert.deepEqual((await docs.getMetaMany([tpl.id, tplChild.id, page.id])).map((d) => d.id), [page.id]);
   assert.deepEqual((await templates.list()).map((t) => t.name), ["Zyxquux template"]);
 
-  assert.equal(await templates.untemplatize(tpl.id), true);
+  assert.equal((await templates.untemplatize(tpl.id))?.name, "Zyxquux template");
   assert.deepEqual(
     (await queries.search("zyxquux")).map((h) => h.id).sort(),
     [tpl.id, tplChild.id, page.id].sort(),

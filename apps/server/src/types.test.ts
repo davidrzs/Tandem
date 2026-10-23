@@ -49,7 +49,17 @@ test("tRPC: owners define audited types and fields; members set types and values
     const detached = await asMember.documents.setType({ id: doc.id, typeId: null });
     assert.deepEqual({ type: detached.type, values: detached.values }, { type: null, values: { [venue.id]: "ICML" } });
 
+    const neurips = venue.options.find((o) => o.label === "NeurIPS")!.id;
+    const relabelled = await asOwner.types.updateField({ id: venue.id, options: [{ id: neurips, label: "NeurIPS 2026" }, { label: "ICLR" }] });
+    const iclr = relabelled.options.find((o) => o.label === "ICLR")!.id;
     await asOwner.types.updateField({ id: venue.id, key: "conference" });
+
+    const tpl = await asMember.documents.create({ collectionId: col.id, title: "Paper template" });
+    await asMember.templates.templatize({ documentId: tpl.id, name: "Paper" });
+    await asOwner.templates.setDefaultType({ templateId: tpl.id, typeId: type.id });
+    await asOwner.templates.setFieldDefault({ templateId: tpl.id, fieldId: venue.id, default: { kind: "value", value: "ICLR" } });
+    await asMember.templates.untemplatize({ documentId: tpl.id });
+
     await asOwner.types.retireField({ id: venue.id });
     const audit = await asOwner.settings.audit({ workspaceId: ws.id });
     assert.deepEqual(
@@ -57,7 +67,12 @@ test("tRPC: owners define audited types and fields; members set types and values
       [
         ["define_type", 'type "Paper"'],
         ["define_field", 'field "venue" (select)'],
+        ["update_field", 'field "venue": options; options "NeurIPS" -> "NeurIPS 2026", retired "ICML", added "ICLR"'],
         ["update_field", 'field "conference": key'],
+        ["templatize", 'template "Paper"'],
+        ["set_template_type", `template "Paper": type ${type.id}`],
+        ["set_template_default", `template "Paper": ${venue.id} = {"kind":"value","value":"${iclr}"}`],
+        ["untemplatize", 'template "Paper"'],
         ["retire_field", 'field "conference"'],
       ],
     );
