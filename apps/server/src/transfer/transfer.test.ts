@@ -544,3 +544,19 @@ test("import: reserved keys in any case are tags and Tandem keys, never fields",
   assert.deepEqual(byTitle.get("Weird Keys")!.tags, ["capital-tag", "5"]);
   assert.deepEqual(byTitle.get("Ghostly")!.tags, []);
 });
+
+test("import: a __proto__ key is reported, not dropped silently or made a field", async () => {
+  const ws = await freshWorkspace("proto-keys");
+  const zip = Buffer.from(
+    zipSync({ "Vault/Proto.md": strToU8("---\n__proto__: x\nconstructor: y\nstatus: ok\n---\nP.") }),
+  );
+  const summary = await importZip(services, { workspaceId: ws, uid: "u1", zipName: "vault.zip", buffer: zip });
+  assert.deepEqual(summary.warnings, [
+    'Vault/Proto.md: __proto__: a key named "__proto__" can\'t be imported',
+    'Vault/Proto.md: constructor: a key named "constructor" can\'t be imported',
+  ]);
+  assert.deepEqual(
+    (await services.types.listFields(ws)).map((f) => f.key),
+    ["status"],
+  );
+});

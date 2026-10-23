@@ -1,5 +1,5 @@
 import path from "node:path";
-import { isNode, parseDocument, stringify, visit } from "yaml";
+import { isNode, isPair, isScalar, parseDocument, stringify, visit } from "yaml";
 
 /**
  * Pure helpers for markdown-zip import/export (no I/O), so the tree layout,
@@ -73,11 +73,14 @@ const FRONT_MATTER = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)??---[ \t]*(?:\r?
 // followed by a blank line is just a horizontal rule.
 const UNCLOSED_FENCE = /^\uFEFF?---[ \t]*\r?\n[ \t]*\S/;
 const FRONT_MATTER_MAX_BYTES = 64 * 1024;
+// Keys that reach an object's prototype or shadow its methods when assigned
+// by name (`__proto__` replaces the prototype outright).
+const PROTOTYPE_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototype), "prototype"]);
 
 type FrontMatterBlock =
   | { kind: "none" }
   | { kind: "broken"; reason: string }
-  | { kind: "map"; data: Record<string, unknown>; hasComments: boolean; body: string };
+  | { kind: "map"; data: Record<string, unknown>; hasComments: boolean; skipped: string[]; body: string };
 
 /** A leading `---` block counts as front matter only when it is a YAML map (or
  * empty); other content between two rules is ordinary markdown. */
@@ -88,10 +91,20 @@ function readFrontMatter(md: string): FrontMatterBlock {
   }
   const block = m[1] ?? "";
   const body = md.slice(m[0].length);
-  if (!block.trim()) return { kind: "map", data: {}, hasComments: false, body };
+  if (!block.trim()) return { kind: "map", data: {}, hasComments: false, skipped: [], body };
   if (Buffer.byteLength(block) > FRONT_MATTER_MAX_BYTES) return { kind: "broken", reason: "it is larger than 64 KiB" };
   const doc = parseDocument(block);
   if (doc.errors.length > 0) return { kind: "broken", reason: "it isn't valid YAML" };
+  const skipped: string[] = [];
+  visit(doc, {
+    Pair(_key, pair, path) {
+      const key = isScalar(pair.key) ? String(pair.key.value).trim() : null;
+      if (key === null || !PROTOTYPE_KEYS.has(key)) return;
+      const at = [...path.filter(isPair).map((p) => String(isScalar(p.key) ? p.key.value : p.key)), key];
+      skipped.push(`${at.join(".")}: a key named "${key}" can't be imported`);
+      return visit.REMOVE;
+    },
+  });
   let data: unknown;
   try {
     data = doc.toJS();
@@ -103,7 +116,7 @@ function readFrontMatter(md: string): FrontMatterBlock {
   visit(doc, (_key, node) => {
     if (isNode(node) && (node.comment || node.commentBefore)) hasComments = true;
   });
-  return { kind: "map", data: data as Record<string, unknown>, hasComments, body };
+  return { kind: "map", data: data as Record<string, unknown>, hasComments, skipped, body };
 }
 
 /** True when markdown opens with a YAML front matter block. */
@@ -146,6 +159,7 @@ export function parseFrontMatter(md: string): FrontMatter {
   };
   if (block.kind !== "map") return fm;
   const tags: string[] = [];
+  fm.skipped.push(...block.skipped);
   for (const [key, value] of Object.entries(block.data)) {
     const k = key.trim().toLowerCase();
     if (TAG_KEYS.includes(k)) {

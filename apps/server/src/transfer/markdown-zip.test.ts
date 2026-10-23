@@ -101,6 +101,29 @@ test("parseFrontMatter reads reserved keys in any case", () => {
   );
 });
 
+test("parseFrontMatter skips and reports prototype keys at any depth", () => {
+  const fm = parseFrontMatter(
+    "---\n__proto__: {polluted: 1}\nconstructor: x\nprototype: y\nhasOwnProperty: z\nmeta:\n  __proto__: {polluted: 2}\n  ok: 1\nstatus: fine\n---\nBody",
+  );
+  assert.deepEqual(fm, {
+    ...plain,
+    tags: [],
+    properties: { meta: { ok: 1 }, status: "fine" },
+    skipped: [
+      '__proto__: a key named "__proto__" can\'t be imported',
+      'constructor: a key named "constructor" can\'t be imported',
+      'prototype: a key named "prototype" can\'t be imported',
+      'hasOwnProperty: a key named "hasOwnProperty" can\'t be imported',
+      'meta.__proto__: a key named "__proto__" can\'t be imported',
+    ],
+    body: "Body",
+    error: null,
+  });
+  assert.equal(Object.getPrototypeOf(fm.properties), Object.prototype);
+  assert.equal(Object.getPrototypeOf(fm.properties.meta), Object.prototype);
+  assert.equal(({} as Record<string, unknown>).polluted, undefined);
+});
+
 test("parseFrontMatter reads a Tandem export's own keys and notices comments", () => {
   assert.deepEqual(
     parseFrontMatter(

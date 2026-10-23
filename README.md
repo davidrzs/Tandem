@@ -273,7 +273,8 @@ gets one kind across the whole vault, values that disagree become text (a
 plain date in a key that also holds date-times becomes that day at 00:00
 UTC), and nested values become read-only JSON. `tags`/`tag`, `tandem-id` and
 `tandem-type`, in any case, are always the page's tags, id and type, never
-fields. Keys that match a field (or a field's
+fields. Keys such as `__proto__` or `constructor` are skipped and named in
+the summary. Keys that match a field (or a field's
 old key) land on it; others become new fields, which needs an owner or
 admin. Re-importing an export into the same workspace updates the pages it
 came from, field by field, instead of copying them: a changed value is one
