@@ -53,7 +53,31 @@ The mention is the assignee's **email local part** (`@alice` for
 start of a line — or `- [ ] ` in a bullet list, or use `/to-do` — and `@`
 autocompletes workspace members.
 Open tasks assigned to you are listed on your start page, each linking back to
-its document; checking the box completes it everywhere.
+its document; checking the box completes it everywhere. Below them, **Due
+soon** lists pages whose due or review date (a date field keyed like `due` or
+`next_review`) has passed or falls in the next 30 days.
+
+Every save also records the page's tasks in a `tasks` table: text, done,
+assignees, order, who wrote the item (from blame), when it was added and when
+it was closed. Each task item carries a block id that stays with it through
+edits above it, rewording and markdown round trips; markdown itself never
+shows the id.
+
+### Live sections
+
+A live section is a read-only list the page works out each time it renders.
+Insert one from the `/` menu:
+
+- **Open from last time**: the open tasks of the previous page of the same
+  type under the same parent (the previous meeting).
+- **Since last meeting**: pages edited, tasks closed and tasks added since that
+  page's date, under the nearest typed page above this one (the project).
+- **Open tasks under this page**: open tasks in the pages below this one.
+
+In markdown (export, MCP, import) a live section is an HTML comment such as
+`<!-- live-section: open_from_last_time -->`. Search and the task list ignore
+it. The starter Meeting template opens with the first two and the Project
+template ends with the third.
 
 ## Templates
 
@@ -109,7 +133,8 @@ they are.
 Person (email, affiliation, aliases) with a template each. The Project
 template has a **Meetings** sub-page whose **+** makes a Meeting dated today
 with the previous meeting's attendees. Running it again adds only what is
-missing; types and templates that already exist by name are kept as they are.
+missing; types and templates that already exist by name are kept as they are
+(an older Meeting template does not gain the live sections).
 
 ## Authorship model (how blame works)
 
@@ -183,6 +208,8 @@ each tag with its document count.
 - **Collaboration**: `list_comments`, `add_comment` (reply via `parentId`),
   `resolve_comment` — comment threads sync live into open editors;
   `my_tasks` (to-dos assigned to the human the agent acts for);
+  `open_tasks` (unchecked items of one page, of a page and everything under
+  it, or of the previous page in a series, each with its stable `blockId`);
   `list_members` (names and `@handles` for assigning and mentioning).
 - **History & blame**: `list_versions`, `read_version` (a past version's
   markdown and properties), and `get_authors` — the blame view as data: every
