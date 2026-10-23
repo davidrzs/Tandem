@@ -2544,14 +2544,14 @@ button.doc-twist:hover .twist {
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .outline-count {
   flex: 1;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-3);
+  color: var(--ink-muted);
   white-space: nowrap;
 }
 
@@ -2711,7 +2711,7 @@ button.outline-twist:not(:disabled):hover .twist {
 .outline-table td.outline-updated {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-3);
+  color: var(--ink-muted);
   white-space: nowrap;
 }
 

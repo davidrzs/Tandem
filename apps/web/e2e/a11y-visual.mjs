@@ -185,6 +185,7 @@ try {
 
     await page.goto(`${BASE}/d/${parentId}`);
     await checkContrast(theme, ".outline-table th.outline-col-field button");
+    for (const s of [".sub-pages .outline-label", ".sub-pages .outline-count", ".sub-pages td.outline-updated"]) await checkContrast(theme, s);
 
     await page.goto(`${BASE}/d/${secondMeeting}`);
     await page.locator(".live-section-from").first().waitFor();
