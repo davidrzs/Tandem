@@ -164,6 +164,18 @@ try {
   assertEqual(await panel.getByLabel("Default for Date").inputValue(), "value", "the date default's mode");
   assertEqual(await dateDefault.inputValue(), "2026-10-22", "the date default's input");
 
+  // The page picker lists matches while focused, and a search still in flight
+  // when focus leaves doesn't reopen the list.
+  await panel.getByLabel("Default for Attendees").selectOption({ label: "A value" });
+  const picker = panel.getByRole("combobox", { name: "Add a page to Attendees" });
+  await picker.fill("Ann");
+  await panel.getByRole("listbox").waitFor();
+  await picker.press("Escape");
+  await picker.fill("Bob");
+  await picker.press("Tab");
+  await page.waitForTimeout(600);
+  assertEqual(await panel.getByRole("listbox").count(), 0, "picker lists open after focus left");
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
     "MEETING PASS — starter types from the Type menu, Project with Meetings, + under Meetings dated today with the previous attendees, template defaults edited",

@@ -1,6 +1,6 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { getAuthors, propertiesToJSON, propertyBlame, PROPERTIES_KEY } from "@tandem/editor";
-import { useEffect, useId, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type * as Y from "yjs";
 import { friendlyError } from "../errors.js";
@@ -714,6 +714,8 @@ function DocPicker({ label, search, onPick }: { label: string; search: SearchDoc
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<DocCandidate[]>([]);
   const [active, setActive] = useState(0);
+  // A search still in flight when the input loses focus must not reopen the list.
+  const focused = useRef(false);
   useEffect(() => {
     if (!query.trim()) {
       setHits([]);
@@ -721,11 +723,13 @@ function DocPicker({ label, search, onPick }: { label: string; search: SearchDoc
     }
     let live = true;
     const timer = setTimeout(() => {
-      void search(query).then((found) => {
-        if (!live) return;
-        setHits(found);
-        setActive(0);
-      });
+      void search(query)
+        .then((found) => {
+          if (!live || !focused.current) return;
+          setHits(found);
+          setActive(0);
+        })
+        .catch(() => setHits([]));
     }, 120);
     return () => {
       live = false;
@@ -764,7 +768,13 @@ function DocPicker({ label, search, onPick }: { label: string; search: SearchDoc
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
-        onBlur={() => setHits([])}
+        onFocus={() => {
+          focused.current = true;
+        }}
+        onBlur={() => {
+          focused.current = false;
+          setHits([]);
+        }}
       />
       {hits.length > 0 && (
         <div className="prop-picker-list menu-pop" role="listbox" id={listId}>
