@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { TRPCError } from "@trpc/server";
 import { createDatabase, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
 import { WorkspaceService } from "@tandem/core";
 import { stateProperties } from "@tandem/editor";
@@ -99,6 +100,14 @@ test("tRPC: attaching a type creates its list fields as empty arrays; detaching 
     });
     const notes = await caller.types.createField({ workspaceId: ws.id, typeId: type.id, key: "notes", kind: "doc_list" });
     await caller.types.createField({ workspaceId: ws.id, typeId: null, key: "tags", kind: "multi_select", options: ["x"] });
+    await assert.rejects(
+      () => caller.types.createField({ workspaceId: ws.id, typeId: type.id, key: "raw", kind: "json" }),
+      (err: TRPCError) => {
+        assert.equal(err.code, "BAD_REQUEST");
+        assert.equal(err.message, "json fields only come from importing pages; choose another kind");
+        return true;
+      },
+    );
 
     const col = await caller.collections.create({ name: "Notes", slug: "notes" });
     const doc = await caller.documents.create({ collectionId: col.id, title: "Standup" });

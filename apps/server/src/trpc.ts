@@ -736,6 +736,12 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        if (input.kind === "json") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "json fields only come from importing pages; choose another kind",
+          });
+        }
         const field = await ctx.services.types.createField(input);
         await ctx.services.settings.recordAudit({
           workspaceId: field.workspaceId,
