@@ -88,6 +88,7 @@ test("tools are advertised", async () => {
     "list_versions",
     "move_document",
     "my_tasks",
+    "open_tasks",
     "read_version",
     "recent_documents",
     "replace_section",
@@ -1016,5 +1017,57 @@ test("typed templates over MCP: list_templates shows type and defaults; create_f
     [...new Set(propertyBlame(doc).map((b) => `${authors.get(b.clientId)?.userId} ai=${authors.get(b.clientId)?.ai}`))],
     ["u1 ai=true"],
     "the values are the creating agent's writing",
+  );
+});
+
+test("open_tasks over MCP: by page, subtree and previous meeting, with the agent as author", async () => {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "Tasks", slug: "u1-tasks" });
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { workspaceId: ws.id, name: "Tasks", slug: "tasks-p7" } }),
+  );
+  const standup = await services.types.createType(ws.id, "Standup");
+  await services.types.createField({ workspaceId: ws.id, typeId: standup.id, key: "day", kind: "date" });
+  const create = async (args: Record<string, unknown>) =>
+    payload(await client.callTool({ name: "create_document", arguments: { collectionId: col.id, ...args } }));
+  const series = await create({ title: "Standups", markdown: "- [ ] pick a room" });
+  const monday = await create({
+    title: "Monday",
+    parentDocumentId: series.id,
+    markdown: "- [ ] @alice fix the build\n- [x] ship it",
+    type: "Standup",
+    properties: { day: "2026-10-19" },
+  });
+  const tuesday = await create({
+    title: "Tuesday",
+    parentDocumentId: series.id,
+    markdown: "- [ ] demo",
+    type: "Standup",
+    properties: { day: "2026-10-20" },
+  });
+  const open = async (args: Record<string, unknown>) =>
+    payload(await client.callTool({ name: "open_tasks", arguments: args })).map(
+      (t: { documentTitle: string; text: string; createdBy: string; ai: boolean; url: string }) => [
+        t.documentTitle,
+        t.text,
+        t.createdBy,
+        t.ai,
+        t.url,
+      ],
+    );
+  const fixTheBuild = ["Monday", "@alice fix the build", "u1", true, `http://app.test/d/${monday.id}`];
+
+  assert.deepEqual(await open({ previousSiblingOf: tuesday.id }), [fixTheBuild]);
+  assert.deepEqual(await open({ documentId: monday.id }), [fixTheBuild]);
+  assert.deepEqual(
+    (await open({ subtreeOf: series.id })).map((t: string[]) => t[1]).sort(),
+    ["@alice fix the build", "demo", "pick a room"],
+  );
+  assert.equal(
+    errorText(await client.callTool({ name: "open_tasks", arguments: { documentId: monday.id, subtreeOf: series.id } })),
+    "give exactly one of documentId, subtreeOf or previousSiblingOf",
+  );
+  assert.equal(
+    errorText(await client.callTool({ name: "open_tasks", arguments: { previousSiblingOf: randomUUID() } })),
+    "document not found",
   );
 });

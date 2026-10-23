@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createDatabase, documents, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
+import { createDatabase, documents, migrateDatabase, SYSTEM, tasks, workspaceMembers } from "@tandem/db";
 import { eq } from "drizzle-orm";
 import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, PROPERTIES_KEY, schema } from "@tandem/editor";
 import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
@@ -157,4 +157,58 @@ test("store persists via a still-authorized connection when the last editor lost
     await cols.setDefaultRole(collectionId, "read_write");
     await connection.disconnect();
   }
+});
+
+test("a live store gives new task items block ids in the shared doc and projects their rows", async () => {
+  const id = (await new DocumentService(db, u1).create({ collectionId, title: "Live tasks" })).id;
+  const rows = () =>
+    db
+      .select({ blockId: tasks.blockId, text: tasks.text, done: tasks.done, createdBy: tasks.createdBy })
+      .from(tasks)
+      .where(eq(tasks.documentId, id))
+      .orderBy(tasks.position);
+  const taskElements = (doc: Y.Doc) =>
+    doc
+      .getXmlFragment(COLLAB_FIELD)
+      .createTreeWalker((el) => el instanceof Y.XmlElement && el.nodeName === "taskItem");
+
+  const typing = await hocuspocus.openDirectConnection(id, { userId: "u1" });
+  // As a browser does: its own client writes, the server receives the update.
+  const browser = new Y.Doc();
+  prosemirrorJSONToYXmlFragment(schema, markdownToJSON("- [ ] @u1 water plants\n- [ ] call Bo"), browser.getXmlFragment(COLLAB_FIELD));
+  await typing.transact((doc) => {
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(browser));
+  });
+  await typing.disconnect();
+  await new Promise((r) => setTimeout(r, 400));
+
+  const stored = await rows();
+  assert.deepEqual(
+    stored.map(({ blockId: _, ...row }) => row),
+    [
+      { text: "@u1 water plants", done: false, createdBy: "u1" },
+      { text: "call Bo", done: false, createdBy: "u1" },
+    ],
+  );
+  const live = new Y.Doc();
+  Y.applyUpdate(live, (await new DocumentService(db, u1).get(id))!.ydocState!);
+  assert.deepEqual(
+    [...taskElements(live)].map((el) => (el as Y.XmlElement).getAttribute("blockId")),
+    stored.map((row) => row.blockId),
+    "the ids are in the persisted doc, so every client sees the same ones",
+  );
+
+  const ticking = await hocuspocus.openDirectConnection(id, { userId: "u1" });
+  await ticking.transact((doc) => {
+    ([...taskElements(doc)][1] as Y.XmlElement).setAttribute("checked", true as never);
+  });
+  await ticking.disconnect();
+  await new Promise((r) => setTimeout(r, 400));
+  assert.deepEqual(
+    (await rows()).map((row) => [row.blockId, row.done]),
+    [
+      [stored[0]!.blockId, false],
+      [stored[1]!.blockId, true],
+    ],
+  );
 });

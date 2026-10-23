@@ -22,7 +22,7 @@ import {
   titleSchema,
 } from "@tandem/core";
 import { FIELD_KINDS } from "@tandem/db";
-import { stateToJSON, type PropertyOp } from "@tandem/editor";
+import { LIVE_SECTION_QUERIES, stateToJSON, type PropertyOp } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
 
@@ -436,6 +436,16 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => ctx.services.documentTree.listArchived(input.collectionId)),
 
     myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documentQueries.listMyTodos()),
+
+    // A live section, resolved against the page that holds it on every render.
+    liveSection: protectedProcedure
+      .input(z.object({ id: uuid, query: z.enum(LIVE_SECTION_QUERIES) }))
+      .query(({ ctx, input }) => ctx.services.documentQueries.liveSection(input.id, input.query)),
+
+    // `today` is the reader's calendar day, so "overdue" matches their clock.
+    dueSoon: protectedProcedure
+      .input(z.object({ today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .query(({ ctx, input }) => ctx.services.documentQueries.dueSoon(input.today)),
 
     hasAny: protectedProcedure
       .input(z.object({ workspaceId: uuid }))

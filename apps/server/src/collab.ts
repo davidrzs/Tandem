@@ -7,10 +7,12 @@ import {
 } from "@hocuspocus/server";
 import { type Database, SYSTEM } from "@tandem/db";
 import {
+  assignTaskBlockIds,
   COLLAB_FIELD,
   getAuthors,
   jsonToMarkdown,
   markdownToJSON,
+  projectTasks,
   propertiesToJSON,
   sanitizeClientAuthorsWrites,
   scanTaskItems,
@@ -181,6 +183,14 @@ export function createHocuspocus(
       if (!storeContext) {
         throw new Error("cannot persist document without a user context that can write");
       }
+      // Task items typed or split in the editor arrive without a block id.
+      // Give them one in the live doc, so every client keeps the same id and
+      // the rows below are keyed by it.
+      assignTaskBlockIds(
+        document,
+        { userId: storeContext.userId, name: storeContext.userName ?? "", ai: false, at: Date.now() },
+        { source: "local", context: storeContext },
+      );
       const json = yXmlFragmentToProsemirrorJSON(
         document.getXmlFragment(COLLAB_FIELD),
       );
@@ -192,6 +202,7 @@ export function createHocuspocus(
         contentJson: json,
         contentMd,
         properties: propertiesToJSON(document),
+        tasks: projectTasks(document, getAuthors(document)),
       });
       // Long-session version capture (fire-and-forget; deduped + rate-limited).
       if (saved) {

@@ -1,3 +1,4 @@
+import { backfillTaskRows } from "@tandem/core";
 import { createDatabase, migrateDatabase } from "@tandem/db";
 import { buildHttpServer } from "./http.js";
 import { startMaintenance } from "./maintenance.js";
@@ -9,6 +10,9 @@ const db = createDatabase(process.env.DATABASE_URL);
 // against an old schema. MIGRATE_ON_BOOT=0 leaves it to a separate release
 // step (e.g. several instances starting at once).
 (process.env.MIGRATE_ON_BOOT === "0" ? Promise.resolve() : migrateDatabase(db))
+  // Pages last saved before the tasks table get their rows before any live
+  // session can hold them (see backfillTaskRows).
+  .then(() => backfillTaskRows(db))
   .then(() => buildHttpServer(db))
   .then((app) => {
     // Daily snapshot retention + orphaned-image GC (see maintenance.ts).

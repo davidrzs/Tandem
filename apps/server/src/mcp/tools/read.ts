@@ -326,4 +326,40 @@ export function registerDiscoveryTools(server: McpServer, ctx: ToolContext): voi
         })),
       ),
   );
+
+  server.registerTool(
+    "open_tasks",
+    {
+      title: "Open tasks",
+      description:
+        "Unchecked task items, each with its document and a stable blockId. " +
+        "Give exactly one of: documentId (that page), subtreeOf (that page and " +
+        "everything under it), or previousSiblingOf (the page before it in its " +
+        "series: same parent and type, ordered by the type's first date, e.g. " +
+        "the previous meeting).",
+      inputSchema: {
+        documentId: z.string().uuid().optional(),
+        subtreeOf: z.string().uuid().optional(),
+        previousSiblingOf: z.string().uuid().optional(),
+      },
+    },
+    async ({ documentId, subtreeOf, previousSiblingOf }) => {
+      const given = [documentId, subtreeOf, previousSiblingOf].filter((id) => id !== undefined);
+      if (given.length !== 1) {
+        return toolError("give exactly one of documentId, subtreeOf or previousSiblingOf");
+      }
+      const scope = documentId
+        ? { documentId }
+        : subtreeOf
+          ? { subtreeOf }
+          : { previousSiblingOf: previousSiblingOf! };
+      try {
+        const tasks = await documentQueries.openTasks(scope);
+        return json(tasks.map((task) => ({ ...task, url: documentUrl(task.documentId) })));
+      } catch (error) {
+        if (error instanceof NotFoundError) return notFound("document");
+        throw error;
+      }
+    },
+  );
 }
