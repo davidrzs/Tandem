@@ -16,6 +16,9 @@
   --ink-body: #343a42;
   --ink-2: #5d6570;
   --ink-3: #8b93a0;
+  /* Quiet text that, unlike --ink-3, still reads at 4.5:1 on paper,
+     surface and hover. */
+  --ink-muted: #656d79;
   --line: #e9edf0;
   --line-strong: #e0e4e9;
   --border-side: #e0e4e9;
@@ -1159,7 +1162,7 @@ button.doc-twist:hover .twist {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .props-body {
@@ -1176,7 +1179,7 @@ button.doc-twist:hover .twist {
 
 .props-label {
   overflow: hidden;
-  color: var(--ink-3);
+  color: var(--ink-muted);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1194,7 +1197,7 @@ button.doc-twist:hover .twist {
 .props-empty,
 .props-placeholder {
   margin: 0;
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .props-empty {
@@ -1236,7 +1239,7 @@ button.doc-twist:hover .twist {
 }
 
 .prop-add-option {
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .prop-chip {
@@ -1312,7 +1315,7 @@ button.doc-twist:hover .twist {
   border: none;
   border-radius: var(--radius-s);
   background: none;
-  color: var(--ink-3);
+  color: var(--ink-muted);
   font: inherit;
   cursor: pointer;
 }
@@ -2562,7 +2565,7 @@ button.doc-twist:hover .twist {
   padding: 6px 12px;
   border: none;
   background: none;
-  color: var(--ink-3);
+  color: var(--ink-muted);
   font: inherit;
   font-size: 11.5px;
   font-weight: 500;
@@ -2982,7 +2985,7 @@ button.outline-twist:not(:disabled):hover .twist {
 }
 
 .due-field {
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .due-date {
@@ -3027,13 +3030,13 @@ button.outline-twist:not(:disabled):hover .twist {
 .live-section h4 {
   margin: 10px 0 2px;
   font-size: 12px;
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .live-section-source,
 .live-section-empty {
   margin: 6px 0 0;
-  color: var(--ink-3);
+  color: var(--ink-muted);
 }
 
 .live-section-tasks,
@@ -3075,7 +3078,7 @@ p.live-section-source a:hover {
 
 .live-section-from {
   margin-left: auto;
-  color: var(--ink-3);
+  color: var(--ink-muted);
   font-size: 12px;
 }
 
@@ -4432,6 +4435,7 @@ select.code-lang:hover {
   --ink-body: #c9ced5;
   --ink-2: #929ba6;
   --ink-3: #6f7883;
+  --ink-muted: #7f8893;
   --line: #23272d;
   --line-strong: #2c3138;
   --border-side: #23272d;

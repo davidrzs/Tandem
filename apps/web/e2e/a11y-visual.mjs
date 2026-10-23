@@ -1,6 +1,8 @@
 // Layout and accessibility of the typed-page UI at 800px: a long type name
-// leaves the breadcrumbs on the doc bar, and the Contents table keeps page
-// names readable and shows a cut-off value in full on hover.
+// leaves the breadcrumbs on the doc bar, the Contents table keeps page names
+// readable and shows a cut-off value in full on hover, and the quiet text of
+// the panels, Contents, live sections and Home's due list reads at 4.5:1 in
+// both themes.
 // Needs web+api (run.sh).
 import { chromium } from "playwright";
 import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
@@ -20,6 +22,34 @@ async function trpcMutation(path, input) {
   const res = await page.request.post(`${BASE}/trpc/${path}`, { data: input });
   if (!res.ok()) throw new Error(`${path} failed: ${res.status()} ${await res.text()}`);
   return (await res.json()).result.data;
+}
+
+/** WCAG contrast of `el`'s text against the backgrounds painted under it. */
+function contrastOf(el) {
+  const parse = (css) => {
+    const [r, g, b, a = 1] = css.match(/[\d.]+/g).map(Number);
+    return { r, g, b, a };
+  };
+  const over = (top, under) => ({
+    r: top.r * top.a + under.r * (1 - top.a),
+    g: top.g * top.a + under.g * (1 - top.a),
+    b: top.b * top.a + under.b * (1 - top.a),
+    a: 1,
+  });
+  const layers = [];
+  for (let node = el; node; node = node.parentElement) {
+    const bg = parse(getComputedStyle(node).backgroundColor);
+    if (bg.a > 0) layers.unshift(bg);
+    if (bg.a === 1) break;
+  }
+  const bg = layers.reduce((under, top) => over(top, under), { r: 255, g: 255, b: 255, a: 1 });
+  const fg = over(parse(getComputedStyle(el).color), bg);
+  const lum = ({ r, g, b }) =>
+    [r, g, b]
+      .map((c) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4))
+      .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+  const [hi, lo] = [lum(fg), lum(bg)].sort((x, y) => y - x);
+  return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
 }
 
 try {
@@ -104,8 +134,71 @@ try {
   const blank = contents.locator("tbody tr", { hasText: "Second research child" }).locator("td.outline-field").nth(1);
   if ((await blank.getAttribute("title")) !== null) throw new Error("an empty property cell has a title");
 
+  await trpcMutation("templates.addStarterKit", { workspaceId, collectionId });
+  const templates = await trpcQuery("templates.list", { workspaceId });
+  const templateId = (name) => templates.find((t) => t.name === name).id;
+  const project = (await trpcMutation("templates.instantiate", { templateId: templateId("Project"), collectionId }))
+    .documentId;
+  const meetings = (await trpcQuery("documents.tree", { collectionId })).find((d) => d.id === project).children[0].id;
+  const kickoff = await trpcMutation("documents.create", {
+    collectionId,
+    parentDocumentId: meetings,
+    title: "Kickoff",
+    markdown: "## Actions\n\n- [ ] Bring the slides",
+  });
+  await trpcMutation("documents.setType", { id: kickoff.id, typeId: templates.find((t) => t.name === "Meeting").typeId });
+  const secondMeeting = (await trpcMutation("templates.instantiate", {
+    templateId: templateId("Meeting"),
+    collectionId,
+    parentDocumentId: meetings,
+  })).documentId;
+  for (let i = 0; ; i++) {
+    const carried = await trpcQuery("documents.liveSection", { id: secondMeeting, query: "open_from_last_time" });
+    if (carried.tasks.length === 1) break;
+    if (i === 80) throw new Error(`the second meeting never carried the task: ${JSON.stringify(carried)}`);
+    await page.waitForTimeout(250);
+  }
+  const yesterday = new Date(Date.now() - 86_400_000);
+  const day = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+  await trpcMutation("documents.setProperties", { id: project, set: { next_review: day } });
+
+  const lowContrast = [];
+  const checkContrast = async (theme, selector) => {
+    const target = page.locator(selector).first();
+    await target.waitFor();
+    const ratio = await target.evaluate(contrastOf);
+    if (ratio < 4.5) lowContrast.push(`${theme} ${selector} ${ratio}:1`);
+  };
+  for (const theme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto(`${BASE}/d/${sibling.id}`);
+    await checkContrast(theme, ".props-summary-text");
+    await page.locator(".props-summary").click();
+    for (const s of [".props-label", ".props-add", ".prop-add-option"]) await checkContrast(theme, s);
+
+    await page.goto(`${BASE}/d/${templateId("Meeting")}`);
+    const defaults = '.props-panel[aria-label="Template defaults"]';
+    for (const s of [`${defaults} .props-label`, `${defaults} .props-summary-text`]) await checkContrast(theme, s);
+
+    await page.goto(`${BASE}/d/${parentId}`);
+    await checkContrast(theme, ".outline-table th.outline-col-field button");
+
+    await page.goto(`${BASE}/d/${secondMeeting}`);
+    await page.locator(".live-section-from").first().waitFor();
+    for (const s of [".live-section-source", ".live-section-from", ".live-section h4", ".live-section-empty"]) {
+      await checkContrast(theme, s);
+    }
+
+    await page.goto(`${BASE}/`);
+    await checkContrast(theme, ".due-list .due-field");
+  }
+  if (lowContrast.length) throw new Error(`text below 4.5:1: ${lowContrast.join(", ")}`);
+  await page.emulateMedia({ colorScheme: "light" });
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("A11Y-VISUAL PASS — a long type name keeps the breadcrumbs, Contents keeps names and titles cut values");
+  console.log(
+    "A11Y-VISUAL PASS — a long type name keeps the breadcrumbs, Contents keeps names and titles cut values, quiet text reads at 4.5:1 in both themes",
+  );
 } finally {
   await browser.close();
 }
