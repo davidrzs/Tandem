@@ -12,6 +12,7 @@ import {
   literalDefault,
   patchFor,
   propertyColumns,
+  safeHref,
   summaryText,
   type Field,
 } from "./properties.js";
@@ -58,6 +59,17 @@ test("typed text: blank clears, numbers parse, an unparsable number is no edit, 
   assert.deepEqual(editFromText("number", "  "), { op: "clear" });
   assert.deepEqual(editFromText("url", " https://example.com "), { op: "set", value: "https://example.com" });
   assert.deepEqual(editFromText("text", " Weekly sync "), { op: "set", value: " Weekly sync " });
+});
+
+test("a link value becomes an href only when it is an http(s) URL", () => {
+  assert.equal(safeHref("https://example.com/a?b=1"), "https://example.com/a?b=1");
+  assert.equal(safeHref("http://example.com"), "http://example.com");
+  assert.equal(safeHref("javascript:alert(1)"), null);
+  assert.equal(safeHref(" JavaScript:alert(1)"), null);
+  assert.equal(safeHref("data:text/html,<script>alert(1)</script>"), null);
+  assert.equal(safeHref("/d/123"), null);
+  assert.equal(safeHref("example.com"), null);
+  assert.equal(safeHref(42), null);
 });
 
 test("a datetime-local value round-trips through the stored UTC instant in the reader's zone", () => {

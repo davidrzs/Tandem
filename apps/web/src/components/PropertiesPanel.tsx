@@ -24,6 +24,7 @@ import {
   markFor,
   optionLabel,
   patchFor,
+  safeHref,
   summaryText,
   type AiMark,
   type Field,
@@ -418,10 +419,11 @@ function ReadValue({
 }) {
   if (isEmptyValue(raw)) return <span className="props-placeholder">Empty</span>;
   if (field.kind === "json") return <code className="prop-json">{JSON.stringify(raw)}</code>;
-  if (field.kind === "url" && typeof raw === "string") {
+  const href = field.kind === "url" ? safeHref(raw) : null;
+  if (href) {
     return (
-      <a href={raw} target="_blank" rel="noreferrer" className="prop-url">
-        {raw}
+      <a href={href} target="_blank" rel="noreferrer" className="prop-url">
+        {href}
       </a>
     );
   }
@@ -623,6 +625,7 @@ function TextWidget({
     if (edit) onEdit(edit);
     else toast(`${field.label} takes a number.`, "danger");
   };
+  const href = field.kind === "url" ? safeHref(stored) : null;
   return (
     <>
       <input
@@ -639,8 +642,8 @@ function TextWidget({
           if (e.key === "Escape") setDraft(null);
         }}
       />
-      {field.kind === "url" && draft === null && stored && (
-        <a href={stored} target="_blank" rel="noreferrer" className="prop-open" aria-label={`Open ${field.label}`}>
+      {href && draft === null && (
+        <a href={href} target="_blank" rel="noreferrer" className="prop-open" aria-label={`Open ${field.label}`}>
           <Icon name="share" size={12} />
         </a>
       )}

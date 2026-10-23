@@ -34,6 +34,18 @@ export const listValues = (raw: unknown): unknown[] => (Array.isArray(raw) ? raw
 export const optionLabel = (field: Pick<Field, "options">, id: unknown) =>
   field.options.find((o) => o.id === id)?.label ?? String(id);
 
+/** A link value as an href, or null unless it is an http(s) URL: the live
+ * map is writable by any collaborator, so a stored value may be anything. */
+export function safeHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function patchFor(field: FieldShape, edit: PropertyEdit): PropertyPatch {
   switch (edit.op) {
     case "set":
