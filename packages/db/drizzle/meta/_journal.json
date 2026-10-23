@@ -218,6 +218,13 @@
       "when": 1792782584161,
       "tag": "0030_flowery_wraith",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792783153727,
+      "tag": "0031_demonic_celestials",
+      "breakpoints": true
     }
   ]
 }

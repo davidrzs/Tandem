@@ -6,6 +6,7 @@ import {
   documents,
   documents as documentsTable,
   tasks as tasksTable,
+  templates as templatesTable,
   documentTypes,
   documentSnapshots,
   migrateDatabase,
@@ -1717,6 +1718,21 @@ test("types: the service bounds names, keys, labels and options the way the API 
   await assert.rejects(() => types.addOptions(status.id, [long(201)]), /a label is longer than 200 characters/);
   await assert.rejects(() => types.updateField(status.id, { key: long(101) }), /a field key is longer than 100 characters/);
   assert.equal((await types.createType(ws.id, long(200))).name, long(200));
+});
+
+test("templates: the database keeps a template's type and defaults to owners and admins", async () => {
+  const { col, meeting } = await typedWorkspace("tg-owner", "tg-member");
+  const page = await new DocumentService(db, user("tg-member")).create({ collectionId: col.id, title: "Notes tpl" });
+  const asMember = new TemplateService(db, user("tg-member"));
+  await asMember.templatize(page.id, "Notes");
+  const memberSets = (set: Partial<typeof templatesTable.$inferInsert>) =>
+    runAsActor(db, user("tg-member"), (tx) =>
+      tx.update(templatesTable).set(set).where(eq(templatesTable.documentId, page.id)),
+    );
+  await assert.rejects(() => memberSets({ defaultTypeId: meeting.id }), /only a workspace owner or admin/);
+  await new TemplateService(db, user("tg-owner")).setDefaultType(page.id, meeting.id);
+  await assert.rejects(() => memberSets({ defaultTypeId: null }), /only a workspace owner or admin/);
+  assert.equal((await asMember.templatize(page.id, "Renamed")).typeId, meeting.id, "a member still renames a typed template");
 });
 
 test("properties: a stored map is projected on save, trusting nothing in it", async () => {
