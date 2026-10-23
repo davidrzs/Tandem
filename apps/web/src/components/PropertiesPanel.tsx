@@ -23,6 +23,7 @@ import {
   literalDefault,
   markFor,
   optionLabel,
+  pageLabel,
   patchFor,
   safeHref,
   summaryText,
@@ -33,10 +34,12 @@ import {
   type DefaultInput,
   type TemplateDefault,
   type TemplateInfo,
+  type FormatOptions,
 } from "./properties.js";
 import { useToast } from "./toast.js";
 
 type SearchDocs = (query: string) => Promise<DocCandidate[]>;
+type TitleOf = NonNullable<FormatOptions["titleOf"]>;
 
 const KIND_LABELS: Record<Exclude<FieldKind, "json">, string> = {
   text: "Text",
@@ -69,10 +72,11 @@ function useLiveProperties(ydoc: Y.Doc) {
   return state;
 }
 
-/** Current titles of the pages that doc and doc_list values point at. */
-function usePageTitles(ids: string[]): (id: string) => string | undefined {
+/** Current titles of the pages that doc and doc_list values point at: null
+ * once the server says the reader can't see one, undefined while loading. */
+function usePageTitles(ids: string[]): TitleOf {
   const metas = trpc.useQueries((t) => ids.map((id) => t.documents.getMeta({ id }, { staleTime: 30_000 })));
-  const titles = new Map(metas.flatMap((m) => (m.data ? [[m.data.id, m.data.title] as const] : [])));
+  const titles = new Map(ids.flatMap((id, i) => (metas[i]?.isSuccess ? [[id, metas[i].data?.title ?? null] as const] : [])));
   return (id) => titles.get(id);
 }
 
@@ -281,7 +285,7 @@ function TemplateDefaultRow({
   value: TemplateDefault | undefined;
   choosing: boolean;
   canDefine: boolean;
-  titleOf: (id: string) => string | undefined;
+  titleOf: TitleOf;
   searchDocs: SearchDocs;
   onChoose: () => void;
   onSave: (next: DefaultInput | null) => void;
@@ -362,7 +366,7 @@ function PropertyRow({
   raw: unknown;
   marks: AiMark[] | undefined;
   canEdit: boolean;
-  titleOf: (id: string) => string | undefined;
+  titleOf: TitleOf;
   searchDocs: SearchDocs;
   onEdit: (edit: PropertyEdit) => void;
 }) {
@@ -397,11 +401,20 @@ function PropertyRow({
   );
 }
 
-function PageLink({ id, titleOf }: { id: string; titleOf: (id: string) => string | undefined }) {
+function PageLink({ id, titleOf }: { id: string; titleOf: TitleOf }) {
+  const title = titleOf(id);
+  if (title === null) {
+    return (
+      <span className="page-ref restricted">
+        <Icon name="page" size={12} />
+        {pageLabel(title)}
+      </span>
+    );
+  }
   return (
     <Link to={`/d/${id}`} className="page-ref">
       <Icon name="page" size={12} />
-      {titleOf(id) || "Untitled"}
+      {pageLabel(title)}
     </Link>
   );
 }
@@ -415,7 +428,7 @@ function ReadValue({
   field: Field;
   raw: unknown;
   marks: AiMark[] | undefined;
-  titleOf: (id: string) => string | undefined;
+  titleOf: TitleOf;
 }) {
   if (isEmptyValue(raw)) return <span className="props-placeholder">Empty</span>;
   if (field.kind === "json") return <code className="prop-json">{JSON.stringify(raw)}</code>;
@@ -467,7 +480,7 @@ function Widget({
   raw: unknown;
   marks: AiMark[] | undefined;
   inputId: string;
-  titleOf: (id: string) => string | undefined;
+  titleOf: TitleOf;
   searchDocs: SearchDocs;
   onEdit: (edit: PropertyEdit) => void;
 }) {
@@ -579,7 +592,7 @@ function Widget({
               <button
                 type="button"
                 className="tag-remove"
-                aria-label={`Remove ${titleOf(id) || "Untitled"}`}
+                aria-label={`Remove ${pageLabel(titleOf(id))}`}
                 onClick={() => onEdit(many ? { op: "remove", value: id } : { op: "clear" })}
               >
                 <Icon name="close" size={10} />

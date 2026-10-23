@@ -80,15 +80,17 @@ test("a datetime-local value round-trips through the stored UTC instant in the r
   assert.equal(datetimeToInput(null), "");
 });
 
-test("stored values format for reading: labels, dates, checkboxes, page titles", () => {
-  const opts = { locale: "en-US", timeZone: "UTC", titleOf: (id: string) => ({ d1: "Q3 plan" })[id] };
+test("stored values format for reading: labels, dates, checkboxes, page titles, restricted pages", () => {
+  const titles: Record<string, string | null> = { d1: "Q3 plan", d2: "", d3: null };
+  const opts = { locale: "en-US", timeZone: "UTC", titleOf: (id: string) => titles[id] };
   assert.equal(formatValue(status, "opt_open", opts), "Open");
   assert.equal(formatValue(topics, ["opt_budget", "opt_hiring"], opts), "Budget, Hiring");
   assert.equal(formatValue(field("due", "date"), "2026-10-22", opts), "Oct 22, 2026");
   assert.equal(formatValue(field("starts", "datetime"), "2026-10-22T18:30:00.000Z", opts), "Oct 22, 2026, 6:30 PM");
   assert.equal(formatValue(field("done", "checkbox"), false, opts), "No");
   assert.equal(formatValue(field("cost", "number"), 1250, opts), "1,250");
-  assert.equal(formatValue(field("notes", "doc_list"), ["d1", "d2"], opts), "Q3 plan, Untitled");
+  assert.equal(formatValue(field("notes", "doc_list"), ["d1", "d2", "d3", "d4"], opts), "Q3 plan, Untitled, Restricted page, Untitled");
+  assert.equal(formatValue(field("owner", "doc"), "d3", opts), "Restricted page");
   assert.equal(formatValue(field("raw", "json"), { a: [1] }, opts), '{"a":[1]}');
   assert.equal(formatValue(status, null, opts), "");
 });

@@ -89,14 +89,19 @@ export function editFromText(kind: FieldKind, text: string): PropertyEdit | null
 export interface FormatOptions {
   locale?: string;
   timeZone?: string;
-  /** Title of a referenced page, when known. */
-  titleOf?: (id: string) => string | undefined;
+  /** Title of a referenced page, when known; null when the reader can't see it. */
+  titleOf?: (id: string) => string | null | undefined;
 }
+
+/** How a page reference reads: its title, or "Restricted page" when the
+ * reader can't see it. */
+export const pageLabel = (title: string | null | undefined) =>
+  title === null ? "Restricted page" : title || "Untitled";
 
 /** A stored value as one line of text (the collapsed summary, table cells). */
 export function formatValue(field: Pick<Field, "kind" | "options">, raw: unknown, opts: FormatOptions = {}): string {
   if (isEmptyValue(raw)) return "";
-  const page = (id: unknown) => opts.titleOf?.(String(id)) || "Untitled";
+  const page = (id: unknown) => pageLabel(opts.titleOf?.(String(id)));
   switch (field.kind) {
     case "number":
       return typeof raw === "number" ? raw.toLocaleString(opts.locale) : String(raw);
