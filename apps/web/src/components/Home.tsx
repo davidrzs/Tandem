@@ -8,7 +8,7 @@ import { useCreateDocument } from "./create-document.js";
 import { Icon } from "./Icon.js";
 import { notificationHref, notificationVerb } from "./notification-link.js";
 import { useRecentDocs } from "./recents.js";
-import { timeAgo } from "./time.js";
+import { localDay, timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
 
 interface TodoGroup {
@@ -56,9 +56,7 @@ export function Home() {
   const toast = useToast();
   const utils = trpc.useUtils();
   const todos = trpc.documents.myTodos.useQuery();
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const dueSoon = trpc.documents.dueSoon.useQuery({ today });
+  const dueSoon = trpc.documents.dueSoon.useQuery({ today: localDay() });
   const notifications = trpc.notifications.list.useQuery({
     workspaceId: workspaceId ?? undefined,
   });
