@@ -128,7 +128,8 @@ try {
   const due = page.locator(".due-list li.overdue", { hasText: "New project" });
   await due.waitFor();
   const dueText = await due.textContent();
-  if (!dueText.includes(`Overdue · ${day}`) || !dueText.includes("Next review")) {
+  const shownDay = yesterday.toLocaleDateString("en-US", { dateStyle: "medium" });
+  if (!dueText.includes(`Overdue · ${shownDay}`) || !dueText.includes("Next review")) {
     throw new Error(`Home's due row reads "${dueText}"`);
   }
 

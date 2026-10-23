@@ -8,6 +8,7 @@ import { useCreateDocument } from "./create-document.js";
 import { Icon } from "./Icon.js";
 import { notificationHref, notificationVerb } from "./notification-link.js";
 import { useRecentDocs } from "./recents.js";
+import { formatValue } from "./properties.js";
 import { localDay, timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
 
@@ -334,7 +335,7 @@ export function Home() {
                 <span className="due-field">{item.fieldLabel}</span>
                 <span className="due-date">
                   {item.overdue ? "Overdue · " : ""}
-                  {item.date}
+                  {formatValue({ kind: "date", options: [] }, item.date)}
                 </span>
               </li>
             ))}
