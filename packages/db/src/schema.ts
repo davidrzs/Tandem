@@ -433,6 +433,8 @@ export const instanceSettings = pgTable("instance_settings", {
   instanceName: text("instance_name").notNull().default("Tandem"),
   // Whether non-admin members may create additional (team) workspaces.
   allowWorkspaceCreation: boolean("allow_workspace_creation").notNull().default(true),
+  // When the boot backfill of task rows finished; set once, so later boots skip it.
+  tasksBackfilledAt: timestamp("tasks_backfilled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -1,10 +1,9 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import {
   collections,
   documents,
-  runAsActor,
-  SYSTEM,
+  instanceSettings,
   tasks,
   type Database,
   type Document,
@@ -93,11 +92,13 @@ export type DocumentMeta = Pick<
 
 /** Make the page's `tasks` rows match `rows`: insert new items, update the
  * changed ones (stamping `closed_at` when one is first seen done), delete the
- * rest. Runs inside the transaction that writes the page. */
+ * rest. New rows are stamped `at`: now for a save, the page's last save for
+ * the backfill. Runs inside the transaction that writes the page. */
 export async function writeTaskRows(
   db: Database,
   documentId: string,
   rows: readonly ProjectedTask[],
+  at = new Date(),
 ): Promise<void> {
   if (rows.length > 0) {
     const now = new Date();
@@ -113,9 +114,9 @@ export async function writeTaskRows(
           position: row.position,
           createdBy: row.createdBy,
           ai: row.ai,
-          createdAt: now,
+          createdAt: at,
           updatedAt: now,
-          closedAt: row.done ? now : null,
+          closedAt: row.done ? at : null,
         })),
       )
       .onConflictDoUpdate({
@@ -141,41 +142,73 @@ export async function writeTaskRows(
   );
 }
 
+const BACKFILL_BATCH = 200;
+
 /**
  * Project the tasks of pages last saved before the `tasks` table existed:
  * pages with a task-like line and no rows. Their items get block ids, written
- * back into ydoc_state, so later saves keep the same rows. Run at boot, before
- * any live session can hold one of these pages. Returns the pages projected.
+ * back into ydoc_state, so later saves keep the same rows, and are stamped
+ * with the page's last save so they don't read as new or newly closed. Runs
+ * once per instance, at boot, before any live session can hold one of these
+ * pages; a page that fails is logged and left for its next save. Returns the
+ * pages projected.
  */
-export async function backfillTaskRows(db: Database): Promise<number> {
-  return runAsActor(db, SYSTEM, async (sys) => {
-    const pending = await sys
+export async function backfillTaskRows(
+  db: Database,
+  log: (message: string) => void = console.error,
+): Promise<number> {
+  const [settings] = await db.select({ done: instanceSettings.tasksBackfilledAt }).from(instanceSettings);
+  if (settings?.done) return 0;
+  let projected = 0;
+  let after: string | null = null;
+  for (;;) {
+    const batch: Array<{ id: string }> = await db
       .select({ id: documents.id })
       .from(documents)
       .where(
         and(
+          after ? gt(documents.id, after) : undefined,
           sql`${documents.contentMd} ~ '\\[[ xX]\\] '`,
           sql`NOT EXISTS (SELECT 1 FROM tasks t WHERE t.document_id = ${documents.id})`,
         ),
-      );
-    let projected = 0;
-    for (const { id } of pending) {
-      const [doc] = await sys
-        .select({ ydocState: documents.ydocState, contentMd: documents.contentMd })
-        .from(documents)
-        .where(eq(documents.id, id));
-      if (!doc) continue;
-      const author = { userId: "system", name: "System", ai: true, at: Date.now() };
-      const edited = applyEditToState(doc.ydocState, {}, author, doc.contentMd);
-      if (edited.tasks.length === 0) continue;
-      await sys.transaction(async (tx) => {
-        const db = tx as unknown as Database;
-        await db.update(documents).set({ ydocState: edited.ydocState }).where(eq(documents.id, id));
-        await writeTaskRows(db, id, edited.tasks);
-      });
-      projected++;
+      )
+      .orderBy(documents.id)
+      .limit(BACKFILL_BATCH);
+    for (const { id } of batch) {
+      try {
+        if (await backfillPage(db, id)) projected++;
+      } catch (err) {
+        log(`task backfill skipped page ${id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
-    return projected;
+    if (batch.length < BACKFILL_BATCH) break;
+    after = batch[batch.length - 1]!.id;
+  }
+  const doneAt = new Date();
+  await db
+    .insert(instanceSettings)
+    .values({ id: true, tasksBackfilledAt: doneAt })
+    .onConflictDoUpdate({ target: instanceSettings.id, set: { tasksBackfilledAt: doneAt } });
+  return projected;
+}
+
+/** One page in its own short transaction, its row locked so a save from
+ * another instance waits instead of being overwritten. */
+function backfillPage(db: Database, id: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const page = tx as unknown as Database;
+    const [doc] = await page
+      .select({ ydocState: documents.ydocState, contentMd: documents.contentMd, updatedAt: documents.updatedAt })
+      .from(documents)
+      .where(eq(documents.id, id))
+      .for("update");
+    if (!doc) return false;
+    const author = { userId: "system", name: "System", ai: true, at: Date.now() };
+    const edited = applyEditToState(doc.ydocState, {}, author, doc.contentMd);
+    if (edited.tasks.length === 0) return false;
+    await page.update(documents).set({ ydocState: edited.ydocState }).where(eq(documents.id, id));
+    await writeTaskRows(page, id, edited.tasks, doc.updatedAt);
+    return true;
   });
 }
 

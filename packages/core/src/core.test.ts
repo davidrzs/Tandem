@@ -678,12 +678,18 @@ test("backfillTaskRows projects pages saved before the tasks table, once", async
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
   const col = await c1.create({ name: "Backfill", slug: "backfill" });
-  const md = "- [ ] @alice old task\n\n```\n- [ ] not a task\n```";
+  const md = "- [ ] @alice old task\n- [x] shipped\n\n```\n- [ ] not a task\n```";
   const legacy = await d1.create({ collectionId: col.id, title: "Legacy", markdown: md });
   const fenced = await d1.create({ collectionId: col.id, title: "Fenced", markdown: "```\n- [ ] code\n```" });
+  const broken = await d1.create({ collectionId: col.id, title: "Broken", markdown: "- [ ] stuck" });
+  const savedAt = new Date("2025-01-02T03:04:05.000Z");
   await runAsActor(db, SYSTEM, async (d) => {
-    await d.update(documents).set({ ydocState: null }).where(eq(documents.id, legacy.id));
-    await d.execute(sql`DELETE FROM tasks WHERE document_id = ${legacy.id}`);
+    await d.update(documents).set({ ydocState: null, updatedAt: savedAt }).where(eq(documents.id, legacy.id));
+    await d
+      .update(documents)
+      .set({ ydocState: new Uint8Array([255, 255, 255, 255]) })
+      .where(eq(documents.id, broken.id));
+    await d.execute(sql`DELETE FROM tasks WHERE document_id IN (${legacy.id}, ${broken.id})`);
   });
   const mine = async () =>
     (await new DocumentQueryService(db, user("u1")).listMyTodos())
@@ -691,10 +697,27 @@ test("backfillTaskRows projects pages saved before the tasks table, once", async
       .map((t) => [t.documentTitle, t.text, t.createdBy]);
   assert.deepEqual(await mine(), []);
 
-  assert.equal(await backfillTaskRows(db), 1);
+  const logged: string[] = [];
+  assert.equal(await backfillTaskRows(db, (message) => logged.push(message)), 1);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0]!, new RegExp(`^task backfill skipped page ${broken.id}: `));
   assert.deepEqual(await mine(), [["Legacy", "@alice old task", null]]);
+  const stamps = await runAsActor(db, SYSTEM, (d) =>
+    d
+      .select({ text: tasksTable.text, createdAt: tasksTable.createdAt, closedAt: tasksTable.closedAt })
+      .from(tasksTable)
+      .where(eq(tasksTable.documentId, legacy.id))
+      .orderBy(tasksTable.position),
+  );
+  assert.deepEqual(stamps, [
+    { text: "@alice old task", createdAt: savedAt, closedAt: null },
+    { text: "shipped", createdAt: savedAt, closedAt: savedAt },
+  ]);
   const [projected] = await taskTable(legacy.id);
-  assert.equal(await backfillTaskRows(db), 0, "a second boot finds nothing to do");
+
+  await runAsActor(db, SYSTEM, (d) => d.execute(sql`DELETE FROM tasks WHERE document_id = ${legacy.id}`));
+  assert.equal(await backfillTaskRows(db, (message) => logged.push(message)), 0, "a second boot scans nothing");
+  assert.equal(logged.length, 1);
   await d1.editBody(legacy.id, (cur) => `Intro\n\n${cur}`);
   assert.equal((await taskTable(legacy.id))[0]!.blockId, projected!.blockId, "the id written at backfill sticks");
 });
