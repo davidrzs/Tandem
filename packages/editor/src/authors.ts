@@ -4,6 +4,7 @@ import { updateYFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import { jsonToMarkdown, markdownToJSON } from "./markdown.js";
 import { applyPropertyPatch, propertiesToJSON, type PropertiesJSON, type PropertyOp } from "./properties.js";
 import { COLLAB_FIELD, schema } from "./schema.js";
+import { fillTaskBlockIds, projectTasks, withTaskBlockIds, type ProjectedTask } from "./tasks.js";
 
 /**
  * Authorship (blame) model. Every Yjs client session that inserts content gets
@@ -74,7 +75,12 @@ export function getAuthors(doc: Y.Doc): Map<number, AuthorInfo> {
  * changed anything; when it didn't, no author is stamped (no phantom
  * session) and the result is null.
  */
-function runAttributed(doc: Y.Doc, author: AuthorInfo, write: () => boolean): number | null {
+function runAttributed(
+  doc: Y.Doc,
+  author: AuthorInfo,
+  write: () => boolean,
+  origin?: unknown,
+): number | null {
   const previousClientId = doc.clientID;
   doc.clientID = freshClientId(doc);
   const editClientId = doc.clientID;
@@ -83,7 +89,7 @@ function runAttributed(doc: Y.Doc, author: AuthorInfo, write: () => boolean): nu
     doc.transact(() => {
       changed = write();
       if (changed) stampAuthor(doc, editClientId, author);
-    });
+    }, origin);
   } finally {
     doc.clientID = previousClientId;
   }
@@ -103,10 +109,12 @@ export function applyAttributedEdit(
   properties: readonly PropertyOp[] = [],
 ): number {
   return runAttributed(doc, author, () => {
+    const fragment = doc.getXmlFragment(COLLAB_FIELD);
+    const current = fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : null;
     updateYFragment(
       doc,
-      doc.getXmlFragment(COLLAB_FIELD),
-      schema.nodeFromJSON(nextJson as never),
+      fragment,
+      schema.nodeFromJSON(withTaskBlockIds(current, nextJson) as never),
       { mapping: new Map(), isOMark: new Map() },
     );
     applyPropertyPatch(doc, properties);
@@ -122,6 +130,12 @@ export function applyAttributedProperties(
   author: AuthorInfo,
 ): number | null {
   return runAttributed(doc, author, () => applyPropertyPatch(doc, ops) > 0);
+}
+
+/** Give task items without a usable block id one, as `author`'s session.
+ * Returns the session's clientID, or null when every item had an id. */
+export function assignTaskBlockIds(doc: Y.Doc, author: AuthorInfo, origin?: unknown): number | null {
+  return runAttributed(doc, author, () => fillTaskBlockIds(doc) > 0, origin);
 }
 
 /** Build a new Y.Doc seeded with `json`, attributed to `author` (creation). */
@@ -150,6 +164,7 @@ export interface EditedState {
   contentMd: string;
   contentJson: unknown;
   properties: PropertiesJSON;
+  tasks: ProjectedTask[];
 }
 
 /** A body transform (markdown in, markdown out), a property patch, or both. */
@@ -186,6 +201,8 @@ export function applyEditToState(
   } else if (edit.properties) {
     applyAttributedProperties(doc, edit.properties, author);
   }
+  // A state from before block ids gets them here, so its tasks project.
+  assignTaskBlockIds(doc, author);
   const contentJson =
     fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : markdownToJSON("");
   return {
@@ -193,6 +210,7 @@ export function applyEditToState(
     contentMd: jsonToMarkdown(contentJson),
     contentJson,
     properties: propertiesToJSON(doc),
+    tasks: projectTasks(doc, getAuthors(doc)),
   };
 }
 

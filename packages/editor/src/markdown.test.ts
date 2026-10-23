@@ -296,3 +296,13 @@ test("ordinary links do not become page references", () => {
   assert.ok(!json.includes("pageRef"));
   assert.equal(normalizeMarkdown(md), md);
 });
+
+test("a live section round-trips as an HTML comment; unknown queries are dropped", () => {
+  const md = "## Actions\n\n<!-- live-section: open_from_last_time -->\n\nNotes";
+  assert.deepEqual(JSON.parse(JSON.stringify(markdownToJSON(md))).content[1], {
+    type: "liveSection",
+    attrs: { query: "open_from_last_time" },
+  });
+  assert.equal(normalizeMarkdown(md), md);
+  assert.equal(normalizeMarkdown("<!-- live-section: everything -->\n\nNotes"), "Notes");
+});

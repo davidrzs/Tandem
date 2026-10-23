@@ -4,3 +4,4 @@ export * from "./markdown-html.js";
 export * from "./authors.js";
 export * from "./markdown-ops.js";
 export * from "./properties.js";
+export * from "./tasks.js";

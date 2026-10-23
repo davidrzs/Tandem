@@ -5,7 +5,7 @@ import {
   MarkdownSerializer,
 } from "prosemirror-markdown";
 import type { Node } from "@tiptap/pm/model";
-import { schema } from "./schema.js";
+import { isLiveSectionQuery, schema } from "./schema.js";
 
 const d = defaultMarkdownSerializer.nodes;
 const m = defaultMarkdownSerializer.marks;
@@ -390,6 +390,22 @@ function brPlugin(md: MarkdownIt) {
   });
 }
 
+const LIVE_SECTION_RE = /^\s*<!--\s*live-section:\s*([\w-]+)\s*-->\s*$/;
+
+/** markdown-it rule: a `<!-- live-section: <query> -->` comment on its own
+ * becomes a liveSection node. Unknown queries stay ordinary (dropped) HTML. */
+function liveSectionPlugin(md: MarkdownIt) {
+  md.core.ruler.push("tandem_live_section", (state) => {
+    state.tokens = state.tokens.map((tok) => {
+      const query = tok.type === "html_block" ? LIVE_SECTION_RE.exec(tok.content)?.[1] : undefined;
+      if (!isLiveSectionQuery(query)) return tok;
+      const section = new state.Token("liveSection", "div", 0);
+      section.attrSet("query", query);
+      return section;
+    });
+  });
+}
+
 /** Serialize a table cell's blocks to a single inline string (marks kept),
  * safe to drop into a `| … |` row. Line structure — multiple blocks or hard
  * breaks — is preserved as `<br>` (GitHub's idiom for multi-line cells) and
@@ -407,7 +423,7 @@ function cellToInline(cell: Node): string {
 }
 
 /** Serialize a node's inline content to markdown (marks kept), one line. */
-function inlineToMarkdown(node: Node): string {
+export function inlineToMarkdown(node: Node): string {
   if (node.content.size === 0) return "";
   const md = serializer.serialize(
     schema.node("doc", null, schema.node("paragraph", null, node.content)),
@@ -462,6 +478,10 @@ const serializer = new MarkdownSerializer(
     pageRef(state, node) {
       const title = String(node.attrs.title || "Untitled");
       state.write(`[${state.esc(title)}](/d/${node.attrs.docId})`);
+    },
+    liveSection(state, node) {
+      state.write(`<!-- live-section: ${String(node.attrs.query)} -->`);
+      state.closeBlock(node);
     },
     // GFM pipe table. The first row is written as the header (the editor always
     // inserts one). Cells hold inline content only: we serialize each cell's
@@ -562,7 +582,8 @@ const parser = new MarkdownParser(
     .use(pageRefPlugin)
     .use(calloutPlugin)
     .use(detailsPlugin)
-    .use(brPlugin),
+    .use(brPlugin)
+    .use(liveSectionPlugin),
   {
   blockquote: { block: "blockquote" },
   callout: {
@@ -621,6 +642,10 @@ const parser = new MarkdownParser(
       docId: tok.attrGet("docId"),
       title: tok.attrGet("title") ?? "",
     }),
+  },
+  liveSection: {
+    node: "liveSection",
+    getAttrs: (tok) => ({ query: tok.attrGet("query") }),
   },
   image: {
     node: "image",
