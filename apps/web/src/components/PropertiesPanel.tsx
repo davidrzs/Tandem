@@ -915,7 +915,25 @@ export function TypeMenu({
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="menu-pop" align="end" sideOffset={4}>
             {list.map((t) => (
-              <DropdownMenu.Item key={t.id} className="menu-item" onSelect={() => t.id !== typeId && attach(t.id)}>
+              <DropdownMenu.Item
+                key={t.id}
+                className="menu-item"
+                onSelect={() => {
+                  if (t.id === typeId) return;
+                  // Changing a template's type clears its defaults on the server.
+                  if (templateId && current) {
+                    setDialog(
+                      <ConfirmDialog
+                        title={`Change type to ${t.name}?`}
+                        body={`New pages from this template get the ${t.name} type, and its default values are cleared. Pages already made keep theirs.`}
+                        confirmLabel="Change type"
+                        onConfirm={() => attach(t.id)}
+                        onClose={() => setDialog(null)}
+                      />,
+                    );
+                  } else attach(t.id);
+                }}
+              >
                 <span className="menu-check">{t.id === typeId && <Icon name="check" />}</span>
                 {t.name}
               </DropdownMenu.Item>

@@ -19,6 +19,12 @@ async function trpcQuery(path, input) {
   return (await res.json()).result.data;
 }
 
+async function trpcMutation(path, input) {
+  const res = await page.request.post(`${BASE}/trpc/${path}`, { data: input });
+  if (!res.ok()) throw new Error(`${path} failed: ${res.status()} ${await res.text()}`);
+  return (await res.json()).result.data;
+}
+
 /** Waits for the debounced collab store to persist a body containing `text`. */
 async function waitForBody(id, text) {
   for (let i = 0; i < 40; i++) {
@@ -134,8 +140,52 @@ try {
   if (hits.includes(templateId) || hits.includes(childId)) throw new Error("search returned the template");
   if (!hits.includes(fromDefault)) throw new Error("search missed the page made from the template");
 
+  // Changing a typed template's type asks first: it clears the defaults.
+  const { workspaceId } = await trpcQuery("documents.getMeta", { id: templateId });
+  const agenda = await trpcMutation("types.create", { workspaceId, name: "Agenda" });
+  const retro = await trpcMutation("types.create", { workspaceId, name: "Retro" });
+  const topic = await trpcMutation("types.createField", {
+    workspaceId,
+    typeId: agenda.id,
+    key: "topic",
+    label: "Topic",
+    kind: "text",
+  });
+  await trpcMutation("templates.setDefaultType", { templateId, typeId: agenda.id });
+  await trpcMutation("templates.setFieldDefault", {
+    templateId,
+    fieldId: topic.id,
+    default: { kind: "value", value: "Roadmap" },
+  });
+  const weeklySync = async () => {
+    const t = (await trpcQuery("templates.list", { workspaceId })).find((t) => t.id === templateId);
+    return JSON.stringify({ typeId: t.typeId, defaults: t.defaults });
+  };
+  await page.goto(`${BASE}/d/${templateId}`);
+  await page.getByRole("button", { name: "Type of new pages: Agenda" }).click();
+  await page.getByRole("menuitem", { name: "Retro" }).click();
+  const confirm = page.getByRole("dialog");
+  const confirmBody = await confirm.locator(".dialog-body").textContent();
+  if (confirmBody !== "New pages from this template get the Retro type, and its default values are cleared. Pages already made keep theirs.") {
+    throw new Error(`type change confirm says: ${confirmBody}`);
+  }
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  const kept = await weeklySync();
+  if (kept !== JSON.stringify({ typeId: agenda.id, defaults: { [topic.id]: { kind: "value", value: "Roadmap" } } })) {
+    throw new Error(`cancelling the type change still changed the template: ${kept}`);
+  }
+  await page.getByRole("button", { name: "Type of new pages: Agenda" }).click();
+  await page.getByRole("menuitem", { name: "Retro" }).click();
+  const changed = page.waitForResponse((r) => r.url().includes("templates.setDefaultType") && r.ok());
+  await page.getByRole("dialog").getByRole("button", { name: "Change type" }).click();
+  await changed;
+  const after = await weeklySync();
+  if (after !== JSON.stringify({ typeId: retro.id, defaults: {} })) throw new Error(`after the type change: ${after}`);
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("TEMPLATES PASS — folder default with prompt, sub-page copied, Blank kept, Contents menu, search skips templates");
+  console.log(
+    "TEMPLATES PASS — folder default with prompt, sub-page copied, Blank kept, Contents menu, search skips templates, type change confirmed",
+  );
 } finally {
   await browser.close();
 }
