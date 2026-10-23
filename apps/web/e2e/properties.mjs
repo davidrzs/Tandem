@@ -126,6 +126,8 @@ try {
   const date = await field("date", "date");
   const topics = await field("topics", "multi_select", ["Budget", "Hiring"]);
   const owner = await field("owner", "doc");
+  await field("count", "number");
+  await field("site", "url");
 
   const retro = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Retro" });
   const planning = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Planning" });
@@ -201,6 +203,18 @@ try {
   if (JSON.stringify(dateWrites) !== '["2026-10-22",null,"2026-10-22"]') {
     throw new Error(`clearing and retyping the date saved ${JSON.stringify(dateWrites)}`);
   }
+  for (const [label, typed, toastText] of [
+    ["Count", "0x1F", "Count takes a number."],
+    ["Site", "example.com", "Site takes a link that starts with http:// or https://."],
+  ]) {
+    const input = page.getByLabel(label, { exact: true });
+    await input.fill(typed);
+    await input.press("Enter");
+    await page.locator(".toast", { hasText: toastText }).waitFor({ timeout: 5000 });
+    if ((await input.inputValue()) !== "") throw new Error(`${label} kept ${await input.inputValue()} after a refused value`);
+  }
+  await page.waitForTimeout(500);
+  if (writesTo("count") + writesTo("site") !== 0) throw new Error("a refused number or link was saved");
 
   await page.reload();
   const summary = page.locator(".props-summary");

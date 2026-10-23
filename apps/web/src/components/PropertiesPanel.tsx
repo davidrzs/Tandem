@@ -30,6 +30,7 @@ import {
   isEmptyValue,
   isListKind,
   keyFromLabel,
+  labelledError,
   listValues,
   literalDefault,
   markFor,
@@ -188,9 +189,7 @@ export function PropertiesPanel({
   const { values, marks } = useLiveProperties(ydoc);
   const fields = trpc.types.fields.useQuery({ workspaceId });
   const types = trpc.types.list.useQuery({ workspaceId });
-  const setProperties = trpc.documents.setProperties.useMutation({
-    onError: (e) => toast(friendlyError(e, "Couldn't save that value."), "danger"),
-  });
+  const setProperties = trpc.documents.setProperties.useMutation();
   // Ad-hoc fields added here stay visible until they hold a value.
   const [added, setAdded] = useState<string[]>([]);
   const [dialog, setDialog] = useState<ReactNode>(null);
@@ -215,7 +214,10 @@ export function PropertiesPanel({
   const write = (field: Field, edit: PropertyEdit) =>
     setProperties.mutateAsync({ id: docId, ...patchFor(field, edit) }).then(
       () => true,
-      () => false,
+      (e) => {
+        toast(labelledError(field, friendlyError(e, "Couldn't save that value.")), "danger");
+        return false;
+      },
     );
 
   return (
@@ -297,7 +299,6 @@ export function TemplateDefaultsPanel({
   const setDefault = trpc.templates.setFieldDefault.useMutation({
     // Returned so a save resolves only once the reloaded list holds the new default.
     onSuccess: () => utils.templates.list.invalidate(),
-    onError: (e) => toast(friendlyError(e, "Couldn't save that default."), "danger"),
   });
   // Fields switched to "A value" whose value isn't chosen yet.
   const [choosing, setChoosing] = useState<string[]>([]);
@@ -322,7 +323,10 @@ export function TemplateDefaultsPanel({
         setChoosing((prev) => prev.filter((id) => id !== field.id));
         return true;
       },
-      () => false,
+      (e) => {
+        toast(labelledError(field, friendlyError(e, "Couldn't save that default.")), "danger");
+        return false;
+      },
     );
   };
 
@@ -675,9 +679,9 @@ function TextWidget({
     if (draft === null) return;
     setDraft(null);
     if (draft === stored) return;
-    const edit = editFromText(field.kind, draft);
-    if (edit) onEdit(edit);
-    else toast(`${field.label} takes a number.`, "danger");
+    const edit = editFromText(field, draft);
+    if ("error" in edit) toast(edit.error, "danger");
+    else onEdit(edit);
   };
   const href = field.kind === "url" ? safeHref(stored) : null;
   return (

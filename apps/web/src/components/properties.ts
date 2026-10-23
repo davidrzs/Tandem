@@ -84,16 +84,32 @@ export function editFromDateInput(kind: FieldKind, text: string, incomplete: boo
   return value ? { op: "set", value } : null;
 }
 
+/** A plain decimal number: what a person means by one, unlike the rest of
+ * what `Number()` reads (`0x1F`, `0b11`, `0o7`, `Infinity`). */
+const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+
 /** The edit a typed-in text value means for a text, url or number field:
- * blank clears, and a number that doesn't parse is no edit at all. */
-export function editFromText(kind: FieldKind, text: string): PropertyEdit | null {
+ * blank clears, and a number or link that doesn't fit is an error naming the
+ * field by its label. */
+export function editFromText(field: Pick<Field, "kind" | "label">, text: string): PropertyEdit | { error: string } {
   const trimmed = text.trim();
   if (trimmed === "") return { op: "clear" };
-  if (kind === "number") {
+  if (field.kind === "number") {
     const n = Number(trimmed);
-    return Number.isFinite(n) ? { op: "set", value: n } : null;
+    return DECIMAL.test(trimmed) && Number.isFinite(n)
+      ? { op: "set", value: n }
+      : { error: `${field.label} takes a number.` };
   }
-  return { op: "set", value: kind === "text" ? text : trimmed };
+  if (field.kind === "url" && !safeHref(trimmed)) {
+    return { error: `${field.label} takes a link that starts with http:// or https://.` };
+  }
+  return { op: "set", value: field.kind === "text" ? text : trimmed };
+}
+
+/** A save error as the panel shows it: the server names a field by its key
+ * (agents write by key), a person knows it by its label. */
+export function labelledError(field: Pick<Field, "key" | "label">, message: string): string {
+  return message.startsWith(`${field.key}: `) ? `${field.label}: ${message.slice(field.key.length + 2)}` : message;
 }
 
 export interface FormatOptions {

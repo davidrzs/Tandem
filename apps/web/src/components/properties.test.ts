@@ -10,6 +10,7 @@ import {
   EXPRESSION_CHOICES,
   formatValue,
   keyFromLabel,
+  labelledError,
   literalDefault,
   patchFor,
   propertyColumns,
@@ -54,12 +55,37 @@ test("each widget edit becomes one patch op on the field's key", () => {
   });
 });
 
-test("typed text: blank clears, numbers parse, an unparsable number is no edit, urls trim, text keeps spaces", () => {
-  assert.deepEqual(editFromText("number", " 42.5 "), { op: "set", value: 42.5 });
-  assert.equal(editFromText("number", "4 2"), null);
-  assert.deepEqual(editFromText("number", "  "), { op: "clear" });
-  assert.deepEqual(editFromText("url", " https://example.com "), { op: "set", value: "https://example.com" });
-  assert.deepEqual(editFromText("text", " Weekly sync "), { op: "set", value: " Weekly sync " });
+test("typed text: blank clears, numbers parse, urls trim, text keeps spaces", () => {
+  const count = field("count", "number");
+  const site = field("site", "url");
+  assert.deepEqual(editFromText(count, " 42.5 "), { op: "set", value: 42.5 });
+  assert.deepEqual(editFromText(count, "-.5e3"), { op: "set", value: -500 });
+  assert.deepEqual(editFromText(count, "  "), { op: "clear" });
+  assert.deepEqual(editFromText(site, " https://example.com "), { op: "set", value: "https://example.com" });
+  assert.deepEqual(editFromText(field("notes", "text"), " Weekly sync "), { op: "set", value: " Weekly sync " });
+});
+
+test("a number that isn't plain decimal and a link that isn't http(s) are errors naming the field's label", () => {
+  const count = field("count", "number");
+  for (const typed of ["4 2", "0x1F", "0b11", "0o7", "Infinity", "1,5", "12abc", "1e400"]) {
+    assert.deepEqual(editFromText(count, typed), { error: "Count takes a number." }, typed);
+  }
+  for (const typed of ["example.com", "javascript:alert(1)", "data:text/html,hi"]) {
+    assert.deepEqual(
+      editFromText(field("site", "url"), typed),
+      { error: "Site takes a link that starts with http:// or https://." },
+      typed,
+    );
+  }
+});
+
+test("a server error naming a field by key names it by label", () => {
+  const notes = field("notes", "text", { label: "Meeting notes" });
+  assert.equal(
+    labelledError(notes, "notes: text is longer than 10000 characters"),
+    "Meeting notes: text is longer than 10000 characters",
+  );
+  assert.equal(labelledError(notes, "You cannot edit this document."), "You cannot edit this document.");
 });
 
 test("a link value becomes an href only when it is an http(s) URL", () => {
