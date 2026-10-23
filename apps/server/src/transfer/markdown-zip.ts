@@ -69,9 +69,11 @@ export function emitFrontMatter(data: Record<string, unknown>): string {
 }
 
 const FRONT_MATTER = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)??---[ \t]*(?:\r?\n|$)(?:\r?\n)*/;
-// An opening fence followed by content but never closed; a lone leading `---`
-// followed by a blank line is just a horizontal rule.
-const UNCLOSED_FENCE = /^\uFEFF?---[ \t]*\r?\n[ \t]*\S/;
+// An opening fence followed by content but never closed, taken to run to the
+// first blank line. It counts only when it opens with a `key:` line: a lone
+// leading `---` followed by text is just a horizontal rule.
+const UNCLOSED_FENCE = /^\uFEFF?---[ \t]*\r?\n((?:[ \t]*\S[^\n]*(?:\n|$))+)(?:[ \t]*\r?\n)*/;
+const KEY_LINE = /^[ \t]*[^\s#:][^:\n]*:(?:[ \t]|\r?\n|$)/;
 const FRONT_MATTER_MAX_BYTES = 64 * 1024;
 // Keys that reach an object's prototype or shadow its methods when assigned
 // by name (`__proto__` replaces the prototype outright).
@@ -79,22 +81,34 @@ const PROTOTYPE_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototype),
 
 type FrontMatterBlock =
   | { kind: "none" }
-  | { kind: "broken"; reason: string }
+  | { kind: "broken"; reason: string; body: string }
   | { kind: "map"; data: Record<string, unknown>; hasComments: boolean; skipped: string[]; body: string };
+
+/** A block that can't be read, as a yaml code block opening the body: left
+ * as markdown, its closing `---` would turn it into a setext heading. */
+function keptAsText(reason: string, yaml: string, rest: string): FrontMatterBlock {
+  const text = yaml.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+  let longest = 2;
+  for (const run of text.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
+  const fence = "`".repeat(longest + 1);
+  return { kind: "broken", reason, body: `${fence}yaml\n${text}\n${fence}\n\n${rest}` };
+}
 
 /** A leading `---` block counts as front matter only when it is a YAML map (or
  * empty); other content between two rules is ordinary markdown. */
 function readFrontMatter(md: string): FrontMatterBlock {
   const m = FRONT_MATTER.exec(md);
   if (!m) {
-    return UNCLOSED_FENCE.test(md) ? { kind: "broken", reason: "it has no closing ---" } : { kind: "none" };
+    const open = UNCLOSED_FENCE.exec(md);
+    if (!open || !KEY_LINE.test(open[1]!)) return { kind: "none" };
+    return keptAsText("it has no closing ---", open[1]!, md.slice(open[0].length));
   }
   const block = m[1] ?? "";
   const body = md.slice(m[0].length);
   if (!block.trim()) return { kind: "map", data: {}, hasComments: false, skipped: [], body };
-  if (Buffer.byteLength(block) > FRONT_MATTER_MAX_BYTES) return { kind: "broken", reason: "it is larger than 64 KiB" };
+  if (Buffer.byteLength(block) > FRONT_MATTER_MAX_BYTES) return keptAsText("it is larger than 64 KiB", block, body);
   const doc = parseDocument(block);
-  if (doc.errors.length > 0) return { kind: "broken", reason: "it isn't valid YAML" };
+  if (doc.errors.length > 0) return keptAsText("it isn't valid YAML", block, body);
   const skipped: string[] = [];
   visit(doc, {
     Pair(_key, pair, path) {
@@ -109,7 +123,7 @@ function readFrontMatter(md: string): FrontMatterBlock {
   try {
     data = doc.toJS();
   } catch {
-    return { kind: "broken", reason: "it isn't valid YAML" };
+    return keptAsText("it isn't valid YAML", block, body);
   }
   if (data === null || typeof data !== "object" || Array.isArray(data)) return { kind: "none" };
   let hasComments = !!(doc.commentBefore || doc.comment);
@@ -136,7 +150,8 @@ export interface FrontMatter {
   /** What the block held that isn't imported, and why. */
   skipped: string[];
   body: string;
-  /** Why a leading `---` block couldn't be read; `body` is then the input as is. */
+  /** Why a leading `---` block couldn't be read; `body` then opens with the
+   * block as a yaml code block. */
   error: string | null;
 }
 
@@ -154,7 +169,7 @@ export function parseFrontMatter(md: string): FrontMatter {
     typeName: null,
     hasComments: false,
     skipped: [],
-    body: md,
+    body: block.kind === "broken" ? block.body : md,
     error: block.kind === "broken" ? block.reason : null,
   };
   if (block.kind !== "map") return fm;

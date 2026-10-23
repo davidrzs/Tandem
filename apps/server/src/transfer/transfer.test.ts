@@ -560,3 +560,27 @@ test("import: a __proto__ key is reported, not dropped silently or made a field"
     ["status"],
   );
 });
+
+test("import: front matter kept as text becomes a yaml code block, not a heading", async () => {
+  const ws = await freshWorkspace("kept-as-text");
+  const huge = "x".repeat(200 * 1024);
+  const zip = Buffer.from(
+    zipSync({
+      "Vault/Huge.md": strToU8(`---\nnote: ${huge}\nother: 1\n---\nBody.`),
+      "Vault/Unclosed.md": strToU8("---\nstatus: draft\n\nBody."),
+    }),
+  );
+  const summary = await importZip(services, { workspaceId: ws, uid: "u1", zipName: "vault.zip", buffer: zip });
+  assert.deepEqual(summary.warnings, [
+    "Kept the front matter of Vault/Huge.md as text: it is larger than 64 KiB",
+    "Kept the front matter of Vault/Unclosed.md as text: it has no closing ---",
+  ]);
+  const pages = await pagesIn(ws);
+  const hugeMd = (await services.documents.get(pages.get("Huge")!))!.contentMd;
+  assert.equal(hugeMd, `\`\`\`yaml\nnote: ${huge}\nother: 1\n\`\`\`\n\nBody.`);
+  assert.doesNotMatch(hugeMd, /^#/m);
+  assert.equal(
+    (await services.documents.get(pages.get("Unclosed")!))!.contentMd,
+    "```yaml\nstatus: draft\n```\n\nBody.",
+  );
+});

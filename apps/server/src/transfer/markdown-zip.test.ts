@@ -153,21 +153,29 @@ test("parseFrontMatter: BOM and CRLF before the fence", () => {
   });
 });
 
-test("parseFrontMatter: broken fences keep the original text", () => {
-  const unclosed = "---\nstatus: draft\n\n# Title";
-  assert.deepEqual(parseFrontMatter(unclosed), {
+test("parseFrontMatter: broken front matter is kept as a yaml code block", () => {
+  assert.deepEqual(parseFrontMatter("---\nstatus: draft\nowner: ana\n\n# Title"), {
     ...plain,
     tags: [],
-    body: unclosed,
+    body: "```yaml\nstatus: draft\nowner: ana\n```\n\n# Title",
     error: "it has no closing ---",
   });
-  const invalid = "---\nstatus: [draft\n---\nBody";
-  assert.deepEqual(parseFrontMatter(invalid), {
+  assert.deepEqual(parseFrontMatter("\uFEFF---\r\nstatus: draft\r\n"), {
     ...plain,
     tags: [],
-    body: invalid,
+    body: "```yaml\nstatus: draft\n```\n\n",
+    error: "it has no closing ---",
+  });
+  assert.deepEqual(parseFrontMatter("---\nstatus: [draft\n---\nBody"), {
+    ...plain,
+    tags: [],
+    body: "```yaml\nstatus: [draft\n```\n\nBody",
     error: "it isn't valid YAML",
   });
+  assert.equal(
+    parseFrontMatter("---\nnote: ```x```\nbad: [\n---\n\nBody").body,
+    "````yaml\nnote: ```x```\nbad: [\n````\n\nBody",
+  );
   const duplicate = "---\nstatus: a\nstatus: b\n---\nBody";
   assert.equal(parseFrontMatter(duplicate).error, "it isn't valid YAML");
 });
@@ -180,15 +188,30 @@ test("parseFrontMatter: an alias bomb or an oversized block is broken, not a cra
     levels.push(`${next}: &${next} [*${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}]`);
   }
   const bomb = `---\n${levels.join("\n")}\n---\nBody`;
-  assert.deepEqual(parseFrontMatter(bomb), { ...plain, tags: [], body: bomb, error: "it isn't valid YAML" });
+  assert.deepEqual(parseFrontMatter(bomb), {
+    ...plain,
+    tags: [],
+    body: `\`\`\`yaml\n${levels.join("\n")}\n\`\`\`\n\nBody`,
+    error: "it isn't valid YAML",
+  });
   assert.equal(startsWithFrontMatter(bomb), false);
   const huge = `---\nnote: ${"x".repeat(64 * 1024)}\n---\nBody`;
-  assert.equal(parseFrontMatter(huge).error, "it is larger than 64 KiB");
+  assert.deepEqual(parseFrontMatter(huge), {
+    ...plain,
+    tags: [],
+    body: `\`\`\`yaml\nnote: ${"x".repeat(64 * 1024)}\n\`\`\`\n\nBody`,
+    error: "it is larger than 64 KiB",
+  });
   assert.equal(parseFrontMatter(`---\nnote: ${"x".repeat(60 * 1024)}\n---\nBody`).error, null);
 });
 
 test("parseFrontMatter: rules around plain markdown are not front matter", () => {
-  for (const md of ["---\n\nText after a rule", "---\nJust a heading\n---\nBody", "---\n# H1\n---\nBody"]) {
+  for (const md of [
+    "---\n\nText after a rule",
+    "---\nJust a heading\n---\nBody",
+    "---\n# H1\n---\nBody",
+    "---\nText right after a rule\n\nMore.",
+  ]) {
     assert.deepEqual(parseFrontMatter(md), { ...plain, tags: [], body: md, error: null });
   }
   assert.equal(startsWithFrontMatter("---\nstatus: draft\n---\nBody"), true);
