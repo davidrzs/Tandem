@@ -536,13 +536,51 @@ export class TypeService {
     return row;
   }
 
+  /** The field, locked for the rest of the transaction so concurrent edits
+   * to its options queue instead of overwriting each other. The admin check
+   * comes first: RLS hides rows a non-admin can't update from FOR UPDATE. */
+  private async fieldForEdit(db: Database, id: string): Promise<TypeField> {
+    await this.assertAdmin(db, (await this.fieldRow(db, id)).workspaceId);
+    const [row] = await db.select().from(typeFields).where(eq(typeFields.id, id)).for("update");
+    if (!row) throw new NotFoundError("field not found");
+    return row;
+  }
+
+  /** Give a select field an option for each label it lacks (matched
+   * case-insensitively against live options). Only ever appends, so options
+   * added or relabelled since the caller read the field survive. */
+  async addOptions(id: string, labels: readonly string[]): Promise<FieldView> {
+    return this.exec(async (db) => {
+      const field = await this.fieldForEdit(db, id);
+      const known = new Set(field.options.filter((o) => !o.retired).map((o) => o.label.toLowerCase()));
+      const added: FieldOption[] = [];
+      for (const label of labels.map((l) => l.trim()).filter(Boolean)) {
+        if (known.has(label.toLowerCase())) continue;
+        known.add(label.toLowerCase());
+        added.push({ id: shortId("o"), label });
+      }
+      const [row] =
+        added.length === 0
+          ? [field]
+          : await db
+              .update(typeFields)
+              .set({ options: [...field.options, ...added], updatedAt: new Date() })
+              .where(eq(typeFields.id, id))
+              .returning();
+      const aliases = await db
+        .select({ key: fieldKeyAliases.key, fieldId: fieldKeyAliases.fieldId })
+        .from(fieldKeyAliases)
+        .where(eq(fieldKeyAliases.fieldId, id));
+      return fieldView(row!, { types: [], fields: [], aliases });
+    });
+  }
+
   /** Change a field's definition. Documents are never rewritten: a renamed
    * key stays usable as an alias, and values that no longer fit a changed
    * kind show up as issues. */
   async updateField(id: string, patch: UpdateFieldInput): Promise<FieldView> {
     return this.exec(async (db) => {
-      const field = await this.fieldRow(db, id);
-      await this.assertAdmin(db, field.workspaceId);
+      const field = await this.fieldForEdit(db, id);
       const set: Partial<typeof typeFields.$inferInsert> = { updatedAt: new Date() };
       const key = patch.key?.trim();
       if (key && key !== field.key) {

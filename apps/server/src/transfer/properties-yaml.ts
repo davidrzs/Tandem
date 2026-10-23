@@ -423,21 +423,10 @@ export class ImportFields {
     if (field.kind !== "select" && field.kind !== "multi_select") return field;
     if (this.optionsDenied.has(field.id)) return field;
     const known = new Set(field.options.map((o) => o.label.toLowerCase()));
-    const missing = [
-      ...new Map(
-        selectLabels(raw)
-          .filter((label) => !known.has(label.toLowerCase()))
-          .map((label) => [label.toLowerCase(), label]),
-      ).values(),
-    ];
+    const missing = selectLabels(raw).filter((label) => !known.has(label.toLowerCase()));
     if (missing.length === 0) return field;
     try {
-      const updated = await this.service.updateField(field.id, {
-        options: [
-          ...field.options.filter((o) => !o.retired).map((o) => ({ id: o.id, label: o.label })),
-          ...missing.map((label) => ({ label })),
-        ],
-      });
+      const updated = await this.service.addOptions(field.id, missing);
       this.fields[this.fields.indexOf(field)] = updated;
       return updated;
     } catch (err) {

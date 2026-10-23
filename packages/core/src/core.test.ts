@@ -1649,6 +1649,27 @@ test("properties: a renamed key keeps working as an alias; detaching keeps value
   await assert.rejects(() => new TypeService(db, user("u1")).setDocumentType(doc.id, null), /document not found/);
 });
 
+test("types: addOptions only appends, keeping options edited since the caller read the field", async () => {
+  const { types, status, opt } = await typedWorkspace("ty-add-owner", "ty-add-member");
+  await types.updateField(status.id, {
+    options: [{ id: opt(status, "Open"), label: "Opened" }, { id: opt(status, "Done"), label: "Done" }, { label: "Blocked" }],
+  });
+  const added = await types.addOptions(status.id, ["done", "Later", "later", " "]);
+  assert.deepEqual(
+    added.options.map((o) => [o.label, o.retired ?? false]),
+    [
+      ["Opened", false],
+      ["Done", false],
+      ["Blocked", false],
+      ["Later", false],
+    ],
+  );
+  await assert.rejects(
+    () => new TypeService(db, user("ty-add-member")).addOptions(status.id, ["Sneaky"]),
+    /owner or admin/,
+  );
+});
+
 test("properties: a stored map is projected on save, trusting nothing in it", async () => {
   const { col, status, opt } = await typedWorkspace("ty4-owner", "ty4-member");
   const documents = new DocumentService(db, user("ty4-owner"));
