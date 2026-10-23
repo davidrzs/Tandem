@@ -17,7 +17,7 @@ import {
   TypeService,
   WorkspaceService,
 } from "@tandem/core";
-import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+import { prosemirrorJSONToYDoc, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
@@ -178,6 +178,59 @@ test("restoring a version from before a property change brings the old value bac
 
   const again = await writer.restoreTo(docId, (await snapshots.get(withOpen!.id))!);
   assert.equal(again.changed, false, "restoring the same state twice is a no-op");
+});
+
+test("restoring an older snapshot of the same page, without block ids and lists reordered, is a no-op", async () => {
+  const meta = (await documents.getMeta(docId))!;
+  const labels = await new TypeService(db, u1).createField({
+    workspaceId: meta.workspaceId,
+    typeId: null,
+    key: "labels",
+    kind: "multi_select",
+    options: ["A", "B"],
+  });
+  const [a, b] = labels.options.map((o) => o.id) as [string, string];
+  const page = await documents.create({
+    collectionId: meta.collectionId,
+    title: "Tasks",
+    markdown: "- [ ] write it",
+    properties: [{ op: "setList", field: labels.id, values: [a, b] }],
+  });
+  const live = new Y.Doc();
+  Y.applyUpdate(live, await liveState(page.id));
+  const json = JSON.stringify(yXmlFragmentToProsemirrorJSON(live.getXmlFragment(COLLAB_FIELD)));
+  assert.match(json, /"blockId":"[0-9a-f]+"/);
+  const old = prosemirrorJSONToYDoc(schema, JSON.parse(json.replace(/"blockId":"[0-9a-f]+"/g, '"blockId":null')), COLLAB_FIELD);
+  old.getMap("properties").set(labels.id, Y.Array.from([b, a]));
+
+  assert.deepEqual(await writer.restoreTo(page.id, { ydocState: Y.encodeStateAsUpdate(old) }), { changed: false });
+});
+
+test("restore diffs properties against the doc as it is when the restore lands", async () => {
+  const meta = (await documents.getMeta(docId))!;
+  const phase = await new TypeService(db, u1).createField({
+    workspaceId: meta.workspaceId,
+    typeId: null,
+    key: "phase",
+    kind: "text",
+  });
+  const page = await documents.create({
+    collectionId: meta.collectionId,
+    title: "Gap",
+    markdown: "Before.",
+    properties: [{ op: "set", field: phase.id, value: "draft" }],
+  });
+  const snapshot = await liveState(page.id);
+  await writer.transform(page.id, (md) => md.replace("Before.", "After."));
+  const racing = createCollabWriter(hocuspocus, documents, u1Human, {
+    capturePreRestore: () => writer.setProperties(page.id, [{ op: "set", field: phase.id, value: "final" }]),
+  } as unknown as SnapshotService);
+
+  assert.deepEqual(await racing.restoreTo(page.id, { ydocState: snapshot }), { changed: true });
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, await liveState(page.id));
+  assert.deepEqual(propertiesToJSON(doc), { [phase.id]: "draft" });
+  assert.equal(await liveMarkdown(page.id), "Before.");
 });
 
 test("a read-only member cannot restore", async () => {

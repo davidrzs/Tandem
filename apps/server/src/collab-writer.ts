@@ -8,6 +8,7 @@ import {
   propertiesToJSON,
   stateProperties,
   stateToJSON,
+  withTaskBlockIds,
   type AuthorIdentity,
   type PropertyOp,
 } from "@tandem/editor";
@@ -116,19 +117,21 @@ export function createCollabWriter(
       });
       try {
         let currentJson: unknown;
-        let propertyOps: PropertyOp[] = [];
+        let unchanged = false;
         let liveState: Uint8Array = new Uint8Array();
         await connection.transact((doc) => {
           const fragment = doc.getXmlFragment(COLLAB_FIELD);
           currentJson =
             fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : markdownToJSON("");
-          propertyOps = diffProperties(propertiesToJSON(doc), targetProperties);
+          // Snapshots from before block ids existed lack them; the live ids
+          // are what applying the snapshot would keep.
+          unchanged =
+            JSON.stringify(withTaskBlockIds(currentJson, targetJson)) === JSON.stringify(currentJson) &&
+            diffProperties(propertiesToJSON(doc), targetProperties).length === 0;
           liveState = Y.encodeStateAsUpdate(doc);
         });
         // Already there — don't write (a stampAuthor would add a phantom session).
-        if (JSON.stringify(currentJson) === JSON.stringify(targetJson) && propertyOps.length === 0) {
-          return { changed: false };
-        }
+        if (unchanged) return { changed: false };
         if (snapshots) {
           const meta = await documents.getMeta(docId);
           if (meta) {
@@ -143,7 +146,8 @@ export function createCollabWriter(
           }
         }
         await connection.transact((doc) => {
-          applyAttributedEdit(doc, targetJson, { ...author, at: Date.now() }, propertyOps);
+          const ops = diffProperties(propertiesToJSON(doc), targetProperties);
+          applyAttributedEdit(doc, targetJson, { ...author, at: Date.now() }, ops);
         });
         return { changed: true };
       } finally {
