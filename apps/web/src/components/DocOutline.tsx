@@ -147,11 +147,14 @@ export function DocOutline({
                     </Link>
                   </div>
                 </td>
-                {properties.map((f) => (
-                  <td key={f.id} className="outline-field">
-                    {formatValue(f, node.properties[f.id])}
-                  </td>
-                ))}
+                {properties.map((f) => {
+                  const text = formatValue(f, node.properties[f.id]);
+                  return (
+                    <td key={f.id} className="outline-field" title={text || undefined}>
+                      {text}
+                    </td>
+                  );
+                })}
                 <td className="outline-pages">{hasChildren ? descendants : "—"}</td>
                 <td className="outline-updated">{timeAgo(node.updatedAt)}</td>
               </tr>

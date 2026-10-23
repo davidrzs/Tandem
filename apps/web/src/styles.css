@@ -2650,8 +2650,10 @@ button.outline-twist:not(:disabled):hover .twist {
   font-variant-numeric: tabular-nums;
 }
 
-.outline-table th.outline-col-field {
-  width: 18%;
+/* Property columns split what Name leaves, so long values cannot squeeze the
+   page names down to a few letters. */
+.outline-table:has(.outline-col-field) th.outline-col-name {
+  width: 35%;
 }
 
 .outline-table td.outline-field {
