@@ -1701,6 +1701,24 @@ test("types: addOptions only appends, keeping options edited since the caller re
   );
 });
 
+test("types: the service bounds names, keys, labels and options the way the API does", async () => {
+  const { ws, types, meeting, status } = await typedWorkspace("ty-len-owner", "ty-len-member");
+  const long = (n: number) => "x".repeat(n);
+  await assert.rejects(() => types.createType(ws.id, long(201)), /a type name is longer than 200 characters/);
+  await assert.rejects(() => types.renameType(meeting.id, long(201)), /a type name is longer than 200 characters/);
+  await assert.rejects(
+    () => types.createField({ workspaceId: ws.id, typeId: null, key: long(101), kind: "text" }),
+    /a field key is longer than 100 characters/,
+  );
+  await assert.rejects(
+    () => types.createField({ workspaceId: ws.id, typeId: null, key: "k", kind: "select", options: [long(201)] }),
+    /a label is longer than 200 characters/,
+  );
+  await assert.rejects(() => types.addOptions(status.id, [long(201)]), /a label is longer than 200 characters/);
+  await assert.rejects(() => types.updateField(status.id, { key: long(101) }), /a field key is longer than 100 characters/);
+  assert.equal((await types.createType(ws.id, long(200))).name, long(200));
+});
+
 test("properties: a stored map is projected on save, trusting nothing in it", async () => {
   const { col, status, opt } = await typedWorkspace("ty4-owner", "ty4-member");
   const documents = new DocumentService(db, user("ty4-owner"));

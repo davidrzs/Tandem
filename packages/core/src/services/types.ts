@@ -19,7 +19,7 @@ import {
 } from "@tandem/db";
 import type { PropertiesJSON, PropertyOp } from "@tandem/editor";
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import type { PropertyPatchInput } from "../inputs.js";
+import { INPUT_LIMITS, type PropertyPatchInput } from "../inputs.js";
 
 /**
  * Types, fields and property values. A page's values live in its ydoc
@@ -315,6 +315,14 @@ export interface UpdateFieldInput {
 export const shortId = (prefix: string) =>
   `${prefix}_${[...randomBytes(10)].map((b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("")}`;
 
+/** The tRPC schemas bound these too, but import passes YAML keys, labels and
+ * sidecar names straight through. */
+function assertLength(values: ReadonlyArray<string | undefined>, max: number, what: string): void {
+  if (values.some((v) => v !== undefined && v.trim().length > max)) {
+    throw new InvalidInputError(`${what} is longer than ${max} characters`);
+  }
+}
+
 /** Types, fields, template defaults and the starter kit are defined by a
  * workspace owner or admin (operator default 3). System actors pass. */
 export async function assertCanDefine(db: Database, actor: Actor, workspaceId: string): Promise<void> {
@@ -448,6 +456,7 @@ export class TypeService {
   }
 
   private async assertTypeNameFree(db: Database, workspaceId: string, name: string, except?: string) {
+    assertLength([name.trim()], INPUT_LIMITS.name, "a type name");
     const [clash] = await db
       .select({ id: documentTypes.id })
       .from(documentTypes)
@@ -502,6 +511,7 @@ export class TypeService {
     key: string,
     except?: string,
   ): Promise<void> {
+    assertLength([key], INPUT_LIMITS.tag, "a field key");
     const [clash] = await db
       .select({ id: typeFields.id })
       .from(typeFields)
@@ -519,6 +529,7 @@ export class TypeService {
   async createField(input: CreateFieldInput): Promise<FieldView> {
     const key = input.key.trim();
     if (!key) throw new InvalidInputError("a field needs a key");
+    assertLength([input.label, ...(input.options ?? [])], INPUT_LIMITS.name, "a label");
     return this.exec(async (db) => {
       await this.assertAdmin(db, input.workspaceId);
       if (input.typeId) {
@@ -573,6 +584,7 @@ export class TypeService {
    * case-insensitively against live options). Only ever appends, so options
    * added or relabelled since the caller read the field survive. */
   async addOptions(id: string, labels: readonly string[]): Promise<FieldView> {
+    assertLength(labels, INPUT_LIMITS.name, "a label");
     return this.exec(async (db) => {
       const field = await this.fieldForEdit(db, id);
       const known = new Set(field.options.filter((o) => !o.retired).map((o) => o.label.toLowerCase()));
@@ -602,6 +614,7 @@ export class TypeService {
    * key stays usable as an alias, and values that no longer fit a changed
    * kind show up as issues. */
   async updateField(id: string, patch: UpdateFieldInput): Promise<FieldView> {
+    assertLength([patch.label, ...(patch.options ?? []).map((o) => o.label)], INPUT_LIMITS.name, "a label");
     return this.exec(async (db) => {
       const field = await this.fieldForEdit(db, id);
       const set: Partial<typeof typeFields.$inferInsert> = { updatedAt: new Date() };
