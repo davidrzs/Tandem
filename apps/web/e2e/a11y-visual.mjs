@@ -186,7 +186,7 @@ try {
 
     await page.goto(`${BASE}/d/${secondMeeting}`);
     await page.locator(".live-section-from").first().waitFor();
-    for (const s of [".live-section-source", ".live-section-from", ".live-section h4", ".live-section-empty"]) {
+    for (const s of [".doc-origin", ".live-section-source", ".live-section-from", ".live-section h4", ".live-section-empty"]) {
       await checkContrast(theme, s);
     }
 
