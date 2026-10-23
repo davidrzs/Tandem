@@ -164,6 +164,14 @@ test("templates over MCP: list_templates, then create_from_template with and wit
   assert.equal((await services.documents.get(made.document.id))!.contentMd, "Hi User One, client Acme");
   const copied = await services.documentTree.subtree(made.document.id, 5);
   assert.deepEqual(copied.nodes.map((n) => n.title), ["Agenda"]);
+
+  const fetched = payload(await client.callTool({ name: "get_document", arguments: { id: made.document.id } }));
+  assert.deepEqual(fetched.origin, { templateId: tpl.id, templateName: "Standup", version: made.template.version });
+  const plain = payload(await client.callTool({ name: "get_document", arguments: { id: tpl.id } }));
+  assert.equal(plain.origin, null);
+  await services.templates.untemplatize(tpl.id);
+  const orphan = payload(await client.callTool({ name: "get_document", arguments: { id: made.document.id } }));
+  assert.deepEqual(orphan.origin, { templateId: tpl.id, templateName: null, version: made.template.version });
 });
 
 test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async () => {

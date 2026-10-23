@@ -124,16 +124,19 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       description:
         "Fetch a single document's markdown content, metadata, and absolute " +
         "canonical url by id, plus its type and properties beside the markdown " +
-        "(display values keyed by field; page references as {id, title, url}) " +
-        "and any stored values that fail their field as property_issues.",
+        "(display values keyed by field; page references as {id, title, url}), " +
+        "any stored values that fail their field as property_issues, and origin: " +
+        "the {templateId, templateName, version} it was created from, or null.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       const doc = await documents.get(id);
       if (!doc) return notFound("document");
+      const [view, meta] = await Promise.all([services.types.view(id), documents.getMeta(id)]);
       return json({
         ...publicDoc(doc),
-        ...publicProperties(await services.types.view(id)),
+        ...publicProperties(view),
+        origin: meta?.origin ?? null,
         markdown: documents.toMarkdown(doc),
       });
     },

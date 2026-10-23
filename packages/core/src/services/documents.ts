@@ -90,6 +90,18 @@ export type DocumentMeta = Pick<
   | "deletedAt"
 >;
 
+/** Where a page came from: the template it was instantiated from and that
+ * template's version then. `templateName` is the template's current name,
+ * null once it is trashed or no longer a template (or unreadable). */
+export interface DocumentOriginView {
+  templateId: string;
+  templateName: string | null;
+  version: string;
+}
+
+/** `getMeta`: the header's metadata plus the page's template origin. */
+export type DocumentHeaderMeta = DocumentMeta & { origin: DocumentOriginView | null };
+
 /** Make the page's `tasks` rows match `rows`: insert new items, update the
  * changed ones (stamping `closed_at` when one is first seen done), delete the
  * rest. New rows are stamped `at`: now for a save, the page's last save for
@@ -312,14 +324,27 @@ export class DocumentService extends DocumentServiceBase {
     );
   }
 
-  /** Metadata only (no body/binary) — for the editor header. */
-  async getMeta(id: string): Promise<DocumentMeta | null> {
+  /** Metadata only (no body/binary) plus template origin — for the editor header. */
+  async getMeta(id: string): Promise<DocumentHeaderMeta | null> {
     return this.exec(async (db) => {
       const [row] = await db
-        .select(documentMetaColumns)
+        .select({
+          ...documentMetaColumns,
+          origin: documents.origin,
+          templateName: sql<string | null>`(
+            SELECT t.name FROM templates t
+            WHERE t.document_id::text = ${documents.origin}->>'templateId'
+              AND EXISTS (SELECT 1 FROM documents td WHERE td.id = t.document_id AND td.deleted_at IS NULL)
+          )`,
+        })
         .from(documents)
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
-      return row ?? null;
+      if (!row) return null;
+      const { origin, templateName, ...meta } = row;
+      return {
+        ...meta,
+        origin: origin ? { templateId: origin.templateId, templateName, version: origin.version } : null,
+      };
     });
   }
 

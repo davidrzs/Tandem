@@ -1325,6 +1325,12 @@ test("templates: editing only a copied sub-page changes the template version", a
   assert.equal(after.version, (await docs.get(child.id))!.updatedAt.toISOString());
   const page = await templates.instantiate({ templateId: tpl.id, collectionId: col.id });
   assert.deepEqual(page.document!.origin, { templateId: tpl.id, version: after.version });
+  assert.deepEqual((await docs.getMeta(page.document!.id))!.origin, {
+    templateId: tpl.id,
+    templateName: "Versioned",
+    version: after.version,
+  });
+  assert.equal((await docs.getMeta(tpl.id))!.origin, null);
 });
 
 test("templates: the deepest default wins, then the collection's, else blank", async () => {

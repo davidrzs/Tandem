@@ -91,7 +91,8 @@ template and a **Blank page**.
 A new page copies the template's body and up to three levels of its sub-pages,
 as writing by whoever created it. `{{date}}`, `{{title}}`, `{{me}}` and
 `{{parent}}` are filled in; any other `{{name}}` is asked for when the page is
-created. The new page remembers which template and version it came from, and
+created. The new page remembers which template and version it came from (its
+header shows "From template …"), and
 later edits to the template never change it. Templates and their sub-pages are
 left out of search, backlinks, recents, tags, tasks and Home.
 
@@ -179,6 +180,9 @@ its edits are blamed to your AI). The agent has colleague-level access:
   folder's default, as **+** in the app; `variables` answers the template's
   prompts; the created page comes back with its committed `type` and
   `properties`; `dryRun` returns the expanded pages without creating anything).
+  `get_document` returns `origin`: `{templateId, templateName, version}` for a
+  page made from a template (`templateName` is null once it is no longer a
+  template), else null.
 - **Properties**: `get_document` returns `type`, `properties` (display values
   by field key; page references as `{id, title, url}`) and `property_issues`
   beside `markdown`, never inside it. `set_properties` takes a patch (`set`,

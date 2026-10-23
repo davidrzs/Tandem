@@ -109,6 +109,8 @@ try {
   if ((await page.inputValue(".title-input")) !== `Sync ${today}`) {
     throw new Error(`title was ${await page.inputValue(".title-input")}`);
   }
+  const originLine = await page.locator(".doc-bar .doc-origin").textContent();
+  if (originLine !== "From template Weekly sync") throw new Error(`header origin line was ${JSON.stringify(originLine)}`);
   const subtree = (await trpcQuery("documents.tree", { collectionId: (await trpcQuery("documents.getMeta", { id: fromDefault })).collectionId }))
     .find((d) => d.title === "Meetings")
     .children.find((d) => d.id === fromDefault);

@@ -348,6 +348,11 @@ export function Editor({
     <div className="doc-page">
       <div className="doc-bar">
         <Breadcrumbs docId={docId} collectionId={doc.data.collectionId} currentTitle={title} />
+        {doc.data.origin?.templateName && (
+          <span className="doc-origin" title={`Created from the template "${doc.data.origin.templateName}"`}>
+            From template {doc.data.origin.templateName}
+          </span>
+        )}
         <div className="doc-bar-actions">
           {!canEdit && <span className="save-state">Read only</span>}
           <span className={`save-state status-${status.tone}`}>
