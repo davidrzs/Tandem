@@ -120,13 +120,16 @@ export interface FrontMatter {
   typeName: string | null;
   /** The block had YAML comments, which properties can't keep. */
   hasComments: boolean;
+  /** What the block held that isn't imported, and why. */
+  skipped: string[];
   body: string;
   /** Why a leading `---` block couldn't be read; `body` is then the input as is. */
   error: string | null;
 }
 
-/** Split YAML front matter off a note: its tags (`tags:` or `tag:`, as a list
- * or a comma-separated string), the Tandem keys, and every other key as a
+/** Split YAML front matter off a note: its tags (`tags:` or `tag:` in any
+ * case, as a list, a comma-separated string or a number), the Tandem keys,
+ * and every other key as a property. A reserved key never becomes a
  * property. MUST run before the body is parsed: unstripped front matter
  * parses as a rule and a heading. */
 export function parseFrontMatter(md: string): FrontMatter {
@@ -137,16 +140,20 @@ export function parseFrontMatter(md: string): FrontMatter {
     tandemId: null,
     typeName: null,
     hasComments: false,
+    skipped: [],
     body: md,
     error: block.kind === "broken" ? block.reason : null,
   };
   if (block.kind !== "map") return fm;
   const tags: string[] = [];
   for (const [key, value] of Object.entries(block.data)) {
-    const list = TAG_KEYS.includes(key) ? tagList(value) : null;
-    if (list) tags.push(...list);
-    else if (key === TANDEM_ID_KEY) fm.tandemId = typeof value === "string" ? value.trim() : null;
-    else if (key === TANDEM_TYPE_KEY) fm.typeName = typeof value === "string" ? value.trim() || null : null;
+    const k = key.trim().toLowerCase();
+    if (TAG_KEYS.includes(k)) {
+      const list = tagList(value);
+      if (list) tags.push(...list);
+      else fm.skipped.push(`${key}: ${JSON.stringify(value)} isn't a list of tags`);
+    } else if (k === TANDEM_ID_KEY) fm.tandemId = typeof value === "string" ? value.trim() : null;
+    else if (k === TANDEM_TYPE_KEY) fm.typeName = typeof value === "string" ? value.trim() || null : null;
     else fm.properties[key] = value;
   }
   return { ...fm, tags: [...new Set(tags)], hasComments: block.hasComments, body: block.body };
@@ -154,6 +161,7 @@ export function parseFrontMatter(md: string): FrontMatter {
 
 function tagList(value: unknown): string[] | null {
   if (value === null) return [];
+  if (typeof value === "number") return [String(value)];
   const items = typeof value === "string" ? value.split(",") : Array.isArray(value) ? value : null;
   if (!items) return null;
   return items

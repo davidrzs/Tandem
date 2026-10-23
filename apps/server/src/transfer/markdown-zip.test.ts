@@ -30,7 +30,7 @@ test("uniqueName dedupes case-insensitively with a suffix", () => {
   assert.equal(uniqueName(used, "Notes"), "Notes (2)");
 });
 
-const plain = { properties: {}, tandemId: null, typeName: null, hasComments: false };
+const plain = { properties: {}, tandemId: null, typeName: null, hasComments: false, skipped: [] };
 
 test("front matter emits a dash-list and parses both forms", () => {
   assert.equal(emitFrontMatter({}), "");
@@ -78,10 +78,27 @@ test("parseFrontMatter keeps every other key as a property, as YAML typed it", (
   assert.deepEqual(parseFrontMatter("---\ntags:\n  nested: map\n---\nBody"), {
     ...plain,
     tags: [],
-    properties: { tags: { nested: "map" } },
+    skipped: ['tags: {"nested":"map"} isn\'t a list of tags'],
     body: "Body",
     error: null,
   });
+});
+
+test("parseFrontMatter reads reserved keys in any case", () => {
+  assert.deepEqual(
+    parseFrontMatter(
+      "---\nTags: [capital-tag]\ntags: 5\nTAG: loud\nTandem-Id: 0b6c3f9e-1d2a-4c5b-8e7f-9a0b1c2d3e4f\nTANDEM-TYPE: Ghost\nstatus: ok\n---\nBody",
+    ),
+    {
+      ...plain,
+      tags: ["capital-tag", "5", "loud"],
+      properties: { status: "ok" },
+      tandemId: "0b6c3f9e-1d2a-4c5b-8e7f-9a0b1c2d3e4f",
+      typeName: "Ghost",
+      body: "Body",
+      error: null,
+    },
+  );
 });
 
 test("parseFrontMatter reads a Tandem export's own keys and notices comments", () => {
@@ -95,6 +112,7 @@ test("parseFrontMatter reads a Tandem export's own keys and notices comments", (
       tandemId: "0b6c3f9e-1d2a-4c5b-8e7f-9a0b1c2d3e4f",
       typeName: "Meeting",
       hasComments: true,
+      skipped: [],
       body: "Body",
       error: null,
     },

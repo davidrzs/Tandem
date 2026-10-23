@@ -271,7 +271,9 @@ the zip root. An import keeps front matter as properties: with that file the
 kinds and options come back exactly; without it (an Obsidian vault) each key
 gets one kind across the whole vault, values that disagree become text (a
 plain date in a key that also holds date-times becomes that day at 00:00
-UTC), and nested values become read-only JSON. Keys that match a field (or a field's
+UTC), and nested values become read-only JSON. `tags`/`tag`, `tandem-id` and
+`tandem-type`, in any case, are always the page's tags, id and type, never
+fields. Keys that match a field (or a field's
 old key) land on it; others become new fields, which needs an owner or
 admin. Re-importing an export into the same workspace updates the pages it
 came from, field by field, instead of copying them: a changed value is one

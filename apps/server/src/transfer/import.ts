@@ -137,6 +137,7 @@ export async function importZip(
     if (!d.mdPath) continue;
     const fm = parseFrontMatter(readMd(d.mdPath));
     if (fm.error) warn(`Kept the front matter of ${d.mdPath} as text: ${fm.error}`);
+    for (const reason of fm.skipped) warn(`${d.mdPath}: ${reason}`);
     notes.set(d.mdPath, fm);
   }
 

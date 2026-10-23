@@ -524,3 +524,23 @@ test("import: a date next to date-times in one key is kept as midnight UTC", asy
   assert.deepEqual(await valuesOf(pages.get("Date Only")!), { deadline: "2024-06-01T00:00:00.000Z" });
   assert.deepEqual(await valuesOf(pages.get("Date Time")!), { deadline: "2024-06-02T10:00:00.000Z" });
 });
+
+test("import: reserved keys in any case are tags and Tandem keys, never fields", async () => {
+  const ws = await freshWorkspace("reserved-case");
+  const zip = Buffer.from(
+    zipSync({
+      "Vault/Weird Keys.md": strToU8("---\nTags: [capital-tag]\ntags: 5\n---\nW."),
+      "Vault/Ghostly.md": strToU8("---\nTandem-Type: Ghost\nTANDEM-ID: not-an-id\nTAGS:\n  nested: map\n---\nG."),
+    }),
+  );
+  const summary = await importZip(services, { workspaceId: ws, uid: "u1", zipName: "vault.zip", buffer: zip });
+  assert.deepEqual(summary.warnings, [
+    'Vault/Ghostly.md: TAGS: {"nested":"map"} isn\'t a list of tags',
+    'Imported pages of type "Ghost" without a type: this workspace has no such type.',
+  ]);
+  assert.deepEqual(await services.types.listFields(ws), []);
+  const col = (await services.collections.list()).find((c) => c.workspaceId === ws)!;
+  const byTitle = new Map((await services.documentTree.tree(col.id)).map((d) => [d.title, d]));
+  assert.deepEqual(byTitle.get("Weird Keys")!.tags, ["capital-tag", "5"]);
+  assert.deepEqual(byTitle.get("Ghostly")!.tags, []);
+});
