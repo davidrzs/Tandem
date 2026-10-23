@@ -3,9 +3,11 @@ import { getAuthors, propertiesToJSON, propertyBlame, PROPERTIES_KEY } from "@ta
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentProps,
+  type FocusEvent,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -93,6 +95,65 @@ function usePageTitles(ids: string[]): TitleOf {
   return (id) => titles.get(id);
 }
 
+const FOCUSABLE = "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled)";
+
+/** Where a control sits: its field's row, and its place among the
+ * focusable controls of that row and of the whole panel. */
+interface Place {
+  el: HTMLElement;
+  row: HTMLElement | null;
+  inRow: number;
+  inPanel: number;
+}
+
+function placeOf(el: HTMLElement, root: HTMLElement): Place {
+  const row = el.closest<HTMLElement>("[data-field]");
+  return {
+    el,
+    row,
+    inRow: row ? [...row.querySelectorAll(FOCUSABLE)].indexOf(el) : -1,
+    inPanel: [...root.querySelectorAll(FOCUSABLE)].indexOf(el),
+  };
+}
+
+/** Keeps keyboard focus in a panel when the focused control goes away (a
+ * removed chip, a picker replaced by the page it picked, an Add control out
+ * of options, a removed field): focus moves to the control that now sits
+ * where it was, in its field's row while the row is there. Spread the result
+ * on the panel's root. */
+function useFocusKeeper() {
+  const ref = useRef<HTMLElement>(null);
+  const last = useRef<Place | null>(null);
+  useLayoutEffect(() => {
+    const seen = last.current;
+    if (!seen || !ref.current) return;
+    if (seen.el.isConnected) {
+      last.current = placeOf(seen.el, ref.current);
+      return;
+    }
+    last.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const inRow = seen.row?.isConnected ? [...seen.row.querySelectorAll<HTMLElement>(FOCUSABLE)] : [];
+    const [list, index] =
+      inRow.length > 0 ? [inRow, seen.inRow] : [[...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)], seen.inPanel];
+    list[Math.min(index, list.length - 1)]?.focus();
+  });
+  return {
+    ref,
+    onFocus: (e: FocusEvent<HTMLElement>) => {
+      last.current = placeOf(e.target, e.currentTarget);
+    },
+    onBlur: (e: FocusEvent<HTMLElement>) => {
+      const el = e.target;
+      // Removing the focused control blurs it too; only a control still on
+      // the page was left on purpose.
+      setTimeout(() => {
+        if (last.current?.el === el && el.isConnected && document.activeElement !== el) last.current = null;
+      });
+    },
+  };
+}
+
 /**
  * The page's properties under its title: a one-line summary that opens into
  * one row per field. Values render from the live ydoc map; every change is
@@ -134,6 +195,7 @@ export function PropertiesPanel({
   const [added, setAdded] = useState<string[]>([]);
   const [dialog, setDialog] = useState<ReactNode>(null);
   const bodyId = useId();
+  const focusKeeper = useFocusKeeper();
 
   const all = fields.data ?? [];
   const typed = typeId ? all.filter((f) => f.typeId === typeId) : [];
@@ -157,7 +219,7 @@ export function PropertiesPanel({
     );
 
   return (
-    <section className={"props-panel" + (open ? " open" : "")} aria-label="Properties">
+    <section {...focusKeeper} className={"props-panel" + (open ? " open" : "")} aria-label="Properties">
       <button
         type="button"
         className="props-summary"
@@ -239,6 +301,7 @@ export function TemplateDefaultsPanel({
   });
   // Fields switched to "A value" whose value isn't chosen yet.
   const [choosing, setChoosing] = useState<string[]>([]);
+  const focusKeeper = useFocusKeeper();
   const type = types.data?.find((t) => t.id === template.typeId) ?? null;
   const typed = type ? (fields.data ?? []).filter((f) => f.typeId === type.id) : [];
   const refIds = typed
@@ -264,7 +327,7 @@ export function TemplateDefaultsPanel({
   };
 
   return (
-    <section className="props-panel open" aria-label="Template defaults">
+    <section {...focusKeeper} className="props-panel open" aria-label="Template defaults">
       <div className="props-summary props-heading">
         <span className="props-type">Defaults for new pages</span>
         <span className="props-summary-text">

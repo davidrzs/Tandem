@@ -125,6 +125,7 @@ try {
   const status = await field("status", "select", ["Open", "Done"]);
   const date = await field("date", "date");
   const topics = await field("topics", "multi_select", ["Budget", "Hiring"]);
+  const owner = await field("owner", "doc");
 
   const retro = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Retro" });
   const planning = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Planning" });
@@ -237,6 +238,27 @@ try {
     "Enter on Add Topics never added the option",
   );
   if (writesTo("topics") !== 1) throw new Error(`adding a topic saved ${writesTo("topics")} times`);
+  const focused = () =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      return !el || el === document.body ? "the page body" : (el.getAttribute("aria-label") ?? el.textContent);
+    });
+  const waitForFocus = (label, after) => waitFor(focused, (now) => now === label, `focus never reached ${label} after ${after}`);
+  await waitForFocus("Remove Budget", "adding the last free topic");
+  await page.keyboard.press("Enter");
+  await waitForFocus("Add Topics", "removing Budget");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await waitForFocus("Remove Budget", "adding Budget again");
+  await page.getByRole("combobox", { name: "Owner" }).focus();
+  await page.keyboard.type("Planning");
+  await page.getByRole("option", { name: "Planning" }).waitFor();
+  await page.keyboard.press("Enter");
+  await waitForFocus("Planning", "picking the owner");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await waitForFocus("Owner", "removing the owner");
+  await waitFor(() => valuesOf(retro.id), (v) => v[owner.id] === undefined, "removing the owner never cleared it");
 
   await page.getByRole("button", { name: "Page type: Meeting" }).click();
   await page.getByRole("menuitem", { name: "Detach type" }).click();
