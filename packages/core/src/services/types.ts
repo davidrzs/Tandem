@@ -157,8 +157,6 @@ const KINDS: Record<FieldKind, KindSpec> = {
 
 export const isListKind = (kind: FieldKind) => KINDS[kind].shape === "list";
 
-const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
 /** Lenient input (an option label, a page url, a date-time without a zone)
  * mapped to the stored form of one value, or why it doesn't fit the field. */
 export function parseFieldInput(field: FieldDef, input: unknown): { value: unknown } | { error: string } {
@@ -173,6 +171,20 @@ export interface PropertyProjection {
   properties: Record<string, unknown>;
   propertyIssues: PropertyIssue[];
   propertiesText: string;
+}
+
+/** Lists are client-writable, so the projection bounds the work one save
+ * can cost. */
+const MAX_LIST_VALUES = 1000;
+
+function distinct(values: readonly unknown[]): unknown[] {
+  const seen = new Set<string>();
+  return values.filter((v) => {
+    const key = JSON.stringify(v);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Validate and normalize a properties map against the field registry.
@@ -201,10 +213,16 @@ export function projectProperties(
       issue(fieldId, "invalid_value", spec.shape === "list" ? "expected a list" : "expected one value", raw);
       continue;
     }
-    const values =
-      spec.shape === "list" && Array.isArray(raw)
-        ? raw.filter((v, i, all) => all.findIndex((w) => sameValue(v, w)) === i)
-        : [raw];
+    let values = spec.shape === "list" && Array.isArray(raw) ? distinct(raw) : [raw];
+    if (values.length > MAX_LIST_VALUES) {
+      issue(
+        fieldId,
+        "invalid_value",
+        `holds more than ${MAX_LIST_VALUES} values; kept the first ${MAX_LIST_VALUES}`,
+        values.length,
+      );
+      values = values.slice(0, MAX_LIST_VALUES);
+    }
     const valid = values.filter((v) => spec.invalid(v, field) === null);
     const bad = values.filter((v) => spec.invalid(v, field) !== null);
     if (bad.length > 0) {

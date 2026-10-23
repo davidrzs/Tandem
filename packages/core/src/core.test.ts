@@ -1558,6 +1558,14 @@ test("properties: the projection validates every kind and reports what fails", (
     [["d", "expected a date (YYYY-MM-DD)"]],
     "a month that doesn't exist is an issue, not a thrown RangeError",
   );
+  const refs = Array.from({ length: 20_000 }, (_, i) => `6f1c1c7e-2a7e-4c55-9d0a-${String(i).padStart(12, "0")}`);
+  const started = performance.now();
+  const capped = projectProperties({ rl: [refs[1], ...refs, refs[0]] }, fields);
+  assert.ok(performance.now() - started < 2000, "deduplicating a long list is linear");
+  assert.deepEqual(capped.properties.rl, [refs[1], refs[0], ...refs.slice(2, 1000)]);
+  assert.deepEqual(capped.propertyIssues, [
+    { fieldId: "rl", code: "invalid_value", message: "holds more than 1000 values; kept the first 1000", value: 20_000 },
+  ]);
 });
 
 test("properties: patches by key and label land as ids, and the projection feeds search", async () => {
