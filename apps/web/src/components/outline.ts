@@ -1,12 +1,17 @@
 import type { RouterOutputs } from "@tandem/server/trpc";
+import { sortValue, type Field } from "./properties.js";
 
 /** A `documents.tree` node, narrowed to what the Contents table and the
  * sidebar read. */
-export type DocumentNode = Pick<RouterOutputs["documents"]["tree"][number], "id" | "title" | "position" | "updatedAt"> & {
+export type DocumentNode = Pick<
+  RouterOutputs["documents"]["tree"][number],
+  "id" | "title" | "position" | "updatedAt" | "typeId" | "properties"
+> & {
   children: DocumentNode[];
 };
 
-export type SortKey = "name" | "pages" | "updated";
+/** A built-in column, or a property column by field id. */
+export type SortKey = "name" | "pages" | "updated" | `field:${string}`;
 export interface OutlineSort {
   key: SortKey;
   dir: "asc" | "desc";
@@ -44,14 +49,15 @@ export function findDocument(nodes: DocumentNode[], id: string): DocumentNode | 
   return null;
 }
 
-/** Names read A to Z first; counts and dates read largest and newest first. */
-const FIRST_DIR: Record<SortKey, OutlineSort["dir"]> = { name: "asc", pages: "desc", updated: "desc" };
+/** Names and properties read A to Z first; counts and dates read largest
+ * and newest first. */
+const FIRST_DIR: Record<string, OutlineSort["dir"]> = { pages: "desc", updated: "desc" };
 
 /** The sort after clicking a column header: a new column starts in its natural
  * direction, the active column flips. */
 export function nextSort(sort: OutlineSort | null, key: SortKey): OutlineSort {
   if (sort?.key === key) return { key, dir: sort.dir === "asc" ? "desc" : "asc" };
-  return { key, dir: FIRST_DIR[key] };
+  return { key, dir: FIRST_DIR[key] ?? "asc" };
 }
 
 interface Stats {
@@ -61,10 +67,16 @@ interface Stats {
 }
 
 /** The visible rows of a document tree, depth-first. Sorting reorders each
- * sibling group and never breaks the hierarchy. A filter keeps titles that
- * contain it (case-insensitively) plus their ancestors, which open to show
- * the matches regardless of `expanded`. */
-export function outlineRows(nodes: DocumentNode[], view: OutlineView): OutlineRow[] {
+ * sibling group and never breaks the hierarchy; pages without a value for a
+ * sorted property come last either way. A filter keeps titles that contain
+ * it (case-insensitively) plus their ancestors, which open to show the
+ * matches regardless of `expanded`. `fields` defines the property columns
+ * a `field:` sort can name. */
+export function outlineRows(
+  nodes: DocumentNode[],
+  view: OutlineView,
+  fields: ReadonlyArray<Pick<Field, "id" | "kind" | "options">> = [],
+): OutlineRow[] {
   const query = view.filter.trim().toLowerCase();
   const stats = new Map<DocumentNode, Stats>();
   const measure = (node: DocumentNode): Stats => {
@@ -83,7 +95,7 @@ export function outlineRows(nodes: DocumentNode[], view: OutlineView): OutlineRo
   };
   nodes.forEach(measure);
 
-  const sortValue: Record<SortKey, (node: DocumentNode) => string | number> = {
+  const builtin: Record<string, (node: DocumentNode) => string | number | null> = {
     name: displayTitle,
     pages: (node) => stats.get(node)!.descendants,
     updated: (node) => new Date(node.updatedAt).getTime(),
@@ -91,15 +103,19 @@ export function outlineRows(nodes: DocumentNode[], view: OutlineView): OutlineRo
   const order = (list: DocumentNode[]) => {
     const sort = view.sort;
     if (!sort) return list;
-    const value = sortValue[sort.key];
+    const field = fields.find((f) => `field:${f.id}` === sort.key);
+    const value = field
+      ? (node: DocumentNode) => sortValue(field, node.properties[field.id])
+      : (builtin[sort.key] ?? (() => null));
     const sign = sort.dir === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       const va = value(a);
       const vb = value(b);
+      if (va === null || vb === null) return va === vb ? 0 : va === null ? 1 : -1;
       const cmp =
-        typeof va === "string"
-          ? va.localeCompare(vb as string, undefined, { numeric: true, sensitivity: "base" })
-          : va - (vb as number);
+        typeof va === "string" || typeof vb === "string"
+          ? String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" })
+          : va - vb;
       return sign * cmp;
     });
   };

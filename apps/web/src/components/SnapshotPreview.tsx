@@ -4,11 +4,11 @@ import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
-import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { createLowlight, common } from "lowlight";
+import { LiveSection, TaskItem } from "@tandem/editor";
 import { ClientImage } from "./image-node.js";
 import { createMathExtension } from "./math.js";
 import { ClientPageRef } from "./page-ref.js";
@@ -31,8 +31,9 @@ export function SnapshotPreview({ contentJson }: { contentJson: unknown }) {
         Link.configure({ openOnClick: false }),
         ClientImage,
         TaskList,
-        TaskItem.configure({ nested: true }),
+        TaskItem,
         ClientPageRef,
+        LiveSection,
         Table.configure({ resizable: false }),
         TableRow,
         TableHeader,

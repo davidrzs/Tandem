@@ -1,3 +1,4 @@
+import { DEFAULT_EXPRESSIONS } from "@tandem/db";
 import { z } from "zod";
 
 /**
@@ -56,3 +57,35 @@ export const documentSearchShape = {
   limit: z.number().int().min(1).max(100).optional(),
   tag: tagSchema.optional(),
 };
+
+/** Answers to a template's `{{name}}` prompts (and overrides of its built-ins). */
+export const templateVariablesSchema = z
+  .record(z.string().max(INPUT_LIMITS.tag), z.string().max(INPUT_LIMITS.description))
+  .refine((vars) => Object.keys(vars).length <= INPUT_LIMITS.tags, "too many variables");
+
+export const fieldKeySchema = z.string().trim().min(1).max(INPUT_LIMITS.tag);
+const propertyValuesSchema = z
+  .record(fieldKeySchema, z.unknown())
+  .refine((values) => Object.keys(values).length <= INPUT_LIMITS.tags, "too many fields");
+
+/** A property patch by field key: `set` replaces a value (a list field takes
+ * the whole list), `unset` clears, `add` and `remove` change list fields. */
+export const propertyPatchShape = {
+  set: propertyValuesSchema.optional(),
+  unset: z.array(fieldKeySchema).max(INPUT_LIMITS.tags).optional(),
+  add: propertyValuesSchema.optional(),
+  remove: propertyValuesSchema.optional(),
+};
+export const propertyPatchSchema = z.object(propertyPatchShape);
+export type PropertyPatchInput = z.infer<typeof propertyPatchSchema>;
+
+/** One field's template default: a literal value (checked against the
+ * field's kind) or an expression evaluated when a page is created. Literals
+ * are scalars, or a list of option or page ids for list fields. */
+export const templateDefaultSchema = z.union([
+  z.object({
+    kind: z.literal("value"),
+    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()).max(INPUT_LIMITS.tags)]),
+  }),
+  z.object({ kind: z.enum(DEFAULT_EXPRESSIONS) }),
+]);

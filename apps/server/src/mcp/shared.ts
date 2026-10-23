@@ -1,8 +1,9 @@
-import type { DocumentMeta, SearchHit } from "@tandem/core";
+import type { DocumentMeta, DocumentRef, PropertyView, SearchHit } from "@tandem/core";
 import { DocumentWriteDeniedError } from "@tandem/core";
 import { MarkdownEditError } from "@tandem/editor";
 import type { CollabWriter } from "../collab-writer.js";
 import type { Services } from "../services.js";
+import { startsWithFrontMatter } from "../transfer/markdown-zip.js";
 
 /** Decoded-bytes cap for MCP uploads (REST allows 25MB; agents send small images). */
 export const MCP_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
@@ -21,6 +22,16 @@ export function notFound(what: string) {
 
 export const READ_ONLY_MESSAGE =
   "permission denied: this document is read-only for you (its collection does not grant you write access)";
+
+/** Markdown that opens with a `---` YAML block would store a rule and a heading. */
+export function frontMatterError(markdown: string | undefined) {
+  if (!markdown || !startsWithFrontMatter(markdown)) return null;
+  return toolError(
+    "markdown starts with a YAML front matter block (---). Properties are not part of the " +
+      "markdown body: send the body without the front matter block, and set the values with " +
+      "set_properties (or create_document's properties).",
+  );
+}
 
 export const DOCUMENT_LIST_FIELDS = [
   "id",
@@ -132,6 +143,35 @@ export function createToolContext(
     ...(d.rank !== undefined ? { rank: d.rank } : {}),
     url: documentUrl(d.id),
   });
+  /** A page's properties for agents: display values keyed by field key
+   * (page references as {id, title, url}), beside the markdown. */
+  const publicProperties = (view: PropertyView) => {
+    const properties: Record<string, unknown> = {};
+    const keyOf = new Map<string, string>();
+    const link = (ref: DocumentRef) => ({ ...ref, url: documentUrl(ref.id) });
+    for (const field of view.fields) {
+      if (!(field.id in view.values)) continue;
+      const key = field.key in properties ? `${field.key} (${field.id})` : field.key;
+      keyOf.set(field.id, key);
+      const value = view.values[field.id];
+      properties[key] =
+        field.kind === "doc"
+          ? link(value as DocumentRef)
+          : field.kind === "doc_list"
+            ? (value as DocumentRef[]).map(link)
+            : value;
+    }
+    return {
+      type: view.type,
+      properties,
+      property_issues: view.issues.map((i) => ({
+        field: keyOf.get(i.fieldId) ?? i.key ?? i.fieldId,
+        code: i.code,
+        message: i.message,
+        value: i.value,
+      })),
+    };
+  };
   const readableSearchSnippet = (snippet: string) =>
     snippet.replaceAll("\x02", "**").replaceAll("\x03", "**");
   const explainSearchHit = (hit: SearchHit): string => {
@@ -287,6 +327,7 @@ export function createToolContext(
     collectionUrl,
     commentUrl,
     publicDoc,
+    publicProperties,
     readableSearchSnippet,
     explainSearchHit,
     flattenDocumentTree,

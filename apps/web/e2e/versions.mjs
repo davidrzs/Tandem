@@ -59,8 +59,15 @@ try {
     return t.includes("Version one.") && !t.includes("Version two.");
   });
 
+  // Restoring the version the page already matches says so instead of closing silently.
+  await page.locator(".history-item.version").last().click();
+  await page.waitForSelector(".preview-banner");
+  await page.getByRole("button", { name: "Restore this version" }).click();
+  await page.waitForSelector(".preview-banner", { state: "detached" });
+  await page.locator(".toast", { hasText: "No changes to restore." }).waitFor({ timeout: 5000 });
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("VERSIONS PASS — versions captured, previewed, and restored");
+  console.log("VERSIONS PASS — versions captured, previewed, and restored; an identical restore says so");
 } finally {
   await browser.close();
 }

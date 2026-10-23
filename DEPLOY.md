@@ -38,6 +38,12 @@ The app applies pending migrations on boot, before it serves. Running several
 instances? Set `MIGRATE_ON_BOOT=0` and run the release step once per deploy
 instead: `docker compose --env-file .env.deploy --profile release run --rm migrate`.
 
+Upgrading to typed properties: migration 0027 recomputes every page's
+`search_vector` and rebuilds its index under an exclusive lock on `documents`,
+so on a large instance plan a maintenance window and run it as the release
+step (`MIGRATE_ON_BOOT=0`). The first boot afterwards also backfills task rows
+once, page by page.
+
 Rate limits key on the client IP from `X-Forwarded-For`. `TRUST_PROXY` is the
 number of proxies in front of the app: 1 for this compose (Caddy) or a platform
 proxy like Traefik alone, 2 for Traefik in front of Caddy, 0 if the app port is

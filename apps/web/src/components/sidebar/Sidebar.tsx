@@ -176,6 +176,7 @@ export function Sidebar({
 
         <SidebarTree
           uid={uid}
+          workspaceId={workspaceId}
           loading={loading}
           collections={collections}
           activeDocId={activeDocId}

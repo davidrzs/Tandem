@@ -12,7 +12,12 @@ import {
   searchPaths,
 } from "./document-tree-internals.js";
 
-export interface DocumentNode extends DocumentMeta {
+/** A tree entry carries the page's validated properties (by field id) for
+ * the Contents table's columns; other listings stay metadata-only. */
+type TreeEntry = DocumentMeta & Pick<Document, "properties">;
+const treeColumns = { ...documentMetaColumns, properties: documents.properties };
+
+export interface DocumentNode extends TreeEntry {
   children: DocumentNode[];
 }
 
@@ -292,10 +297,10 @@ export class DocumentTreeService extends DocumentServiceBase {
     });
   }
 
-  async listByCollection(collectionId: string): Promise<DocumentMeta[]> {
+  async listByCollection(collectionId: string): Promise<TreeEntry[]> {
     return this.exec((db) =>
       db
-        .select(documentMetaColumns)
+        .select(treeColumns)
         .from(documents)
         .where(
           and(
@@ -318,14 +323,14 @@ export class DocumentTreeService extends DocumentServiceBase {
     collectionId: string,
     maxDepth: number,
     rootId: string | null = null,
-  ): Promise<DocumentMeta[]> {
+  ): Promise<TreeEntry[]> {
     const active = [
       eq(documents.collectionId, collectionId),
       isNull(documents.deletedAt),
       isNull(documents.archivedAt),
     ] as const;
     const roots = await db
-      .select(documentMetaColumns)
+      .select(treeColumns)
       .from(documents)
       .where(
         and(
@@ -338,7 +343,7 @@ export class DocumentTreeService extends DocumentServiceBase {
     let parentIds = roots.map((row) => row.id);
     for (let depth = 2; depth <= maxDepth && parentIds.length > 0; depth += 1) {
       const level = await db
-        .select(documentMetaColumns)
+        .select(treeColumns)
         .from(documents)
         .where(and(...active, inArray(documents.parentDocumentId, parentIds)))
         .orderBy(asc(documents.position), asc(documents.id));
@@ -352,7 +357,7 @@ export class DocumentTreeService extends DocumentServiceBase {
    * parent the top level hangs from (null for collection roots). A child whose
    * parent is missing (archived separately) is omitted rather than promoted to
    * a fake root. */
-  private static nest(flat: DocumentMeta[], rootParentId: string | null): DocumentNode[] {
+  private static nest(flat: TreeEntry[], rootParentId: string | null): DocumentNode[] {
     const byId = new Map<string, DocumentNode>();
     for (const d of flat) byId.set(d.id, { ...d, children: [] });
     const roots: DocumentNode[] = [];

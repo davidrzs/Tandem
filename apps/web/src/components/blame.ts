@@ -22,11 +22,17 @@ interface BlamePluginState {
 }
 
 /** How an author reads in blame: "David" for humans, "David's AI" for their
- * agent. The ownerless local agent keeps its stored name. */
-export function authorLabel(info: { name: string; ai: boolean; userId: string }): string {
+ * agent, "David's AI (Claude)" when the stamp names the agent. The ownerless
+ * local agent keeps its stored name. */
+export function authorLabel(info: {
+  name: string;
+  ai: boolean;
+  userId: string;
+  agent?: string;
+}): string {
   if (!info.ai) return info.name || "Unknown";
-  if (!info.name || info.userId === "system") return info.name || "AI";
-  return `${info.name}'s AI`;
+  const base = !info.name || info.userId === "system" ? info.name || "AI" : `${info.name}'s AI`;
+  return info.agent ? `${base} (${info.agent})` : base;
 }
 
 function computeDecorations(

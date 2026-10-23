@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { trpc } from "../../trpc.js";
+import { useToast } from "../toast.js";
 
 /** Version snapshots for the history rail, plus the read-only preview. */
 export function useSnapshots(docId: string, rail: null | "comments" | "history") {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const versions = trpc.documents.listSnapshots.useQuery(
     { documentId: docId },
     { enabled: rail === "history" },
@@ -14,8 +16,9 @@ export function useSnapshots(docId: string, rail: null | "comments" | "history")
     { enabled: !!previewId },
   );
   const restore = trpc.documents.restoreSnapshot.useMutation({
-    onSuccess: () => {
+    onSuccess: ({ changed }) => {
       setPreviewId(null);
+      if (!changed) toast("No changes to restore.");
       void utils.documents.listSnapshots.invalidate({ documentId: docId });
     },
   });

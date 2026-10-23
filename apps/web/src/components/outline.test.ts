@@ -7,6 +7,8 @@ const doc = (id: string, title: string, updatedAt: string, children: DocumentNod
   title,
   position: 0,
   updatedAt,
+  typeId: null,
+  properties: {},
   children,
 });
 
@@ -108,4 +110,45 @@ test("a header click starts a column in its natural direction and flips the acti
   assert.deepEqual(nextSort(null, "updated"), { key: "updated", dir: "desc" });
   assert.deepEqual(nextSort({ key: "updated", dir: "desc" }, "updated"), { key: "updated", dir: "asc" });
   assert.deepEqual(nextSort({ key: "name", dir: "desc" }, "pages"), { key: "pages", dir: "desc" });
+});
+
+const status = {
+  id: "fld_status",
+  kind: "select" as const,
+  options: [
+    { id: "opt_todo", label: "Todo" },
+    { id: "opt_doing", label: "Doing" },
+    { id: "opt_done", label: "Done" },
+  ],
+};
+const due = { id: "fld_due", kind: "date" as const, options: [] };
+const meeting = (id: string, properties: Record<string, unknown>): DocumentNode => ({
+  ...doc(id, id, "2026-10-01"),
+  typeId: "type_meeting",
+  properties,
+});
+const meetings = [
+  meeting("retro", { fld_status: "opt_done", fld_due: "2026-10-20" }),
+  meeting("planning", { fld_status: "opt_todo", fld_due: "2026-11-02" }),
+  meeting("standup", {}),
+  meeting("review", { fld_status: "opt_doing", fld_due: "2026-10-09" }),
+];
+const ids = (rows: OutlineRow[]) => rows.map((r) => r.node.id);
+
+test("a select column sorts by the option order, and pages without a value come last both ways", () => {
+  const sorted = (dir: "asc" | "desc") =>
+    ids(outlineRows(meetings, view({ sort: { key: "field:fld_status", dir } }), [status, due]));
+  assert.deepEqual(sorted("asc"), ["planning", "review", "retro", "standup"]);
+  assert.deepEqual(sorted("desc"), ["retro", "review", "planning", "standup"]);
+});
+
+test("a date column sorts chronologically", () => {
+  assert.deepEqual(
+    ids(outlineRows(meetings, view({ sort: { key: "field:fld_due", dir: "asc" } }), [status, due])),
+    ["review", "retro", "planning", "standup"],
+  );
+});
+
+test("a property column starts ascending on its first click", () => {
+  assert.deepEqual(nextSort({ key: "updated", dir: "desc" }, "field:fld_due"), { key: "field:fld_due", dir: "asc" });
 });

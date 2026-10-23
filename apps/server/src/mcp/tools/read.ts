@@ -20,10 +20,12 @@ import {
 /** Document listing, reading, and search. */
 export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   const {
+    services,
     documents,
     documentTree,
     documentQueries,
     publicDoc,
+    publicProperties,
     readableSearchSnippet,
     explainSearchHit,
     flattenDocumentTree,
@@ -121,13 +123,22 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       title: "Get document",
       description:
         "Fetch a single document's markdown content, metadata, and absolute " +
-        "canonical url by id.",
+        "canonical url by id, plus its type and properties beside the markdown " +
+        "(display values keyed by field; page references as {id, title, url}), " +
+        "any stored values that fail their field as property_issues, and origin: " +
+        "the {templateId, templateName, version} it was created from, or null.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       const doc = await documents.get(id);
       if (!doc) return notFound("document");
-      return json({ ...publicDoc(doc), markdown: documents.toMarkdown(doc) });
+      const [view, meta] = await Promise.all([services.types.view(id), documents.getMeta(id)]);
+      return json({
+        ...publicDoc(doc),
+        ...publicProperties(view),
+        origin: meta?.origin ?? null,
+        markdown: documents.toMarkdown(doc),
+      });
     },
   );
 
@@ -317,5 +328,41 @@ export function registerDiscoveryTools(server: McpServer, ctx: ToolContext): voi
           url: documentUrl(task.documentId),
         })),
       ),
+  );
+
+  server.registerTool(
+    "open_tasks",
+    {
+      title: "Open tasks",
+      description:
+        "Unchecked task items, each with its document and a stable blockId. " +
+        "Give exactly one of: documentId (that page), subtreeOf (that page and " +
+        "everything under it), or previousSiblingOf (the page before it in its " +
+        "series: same parent and type, ordered by the type's first date, e.g. " +
+        "the previous meeting).",
+      inputSchema: {
+        documentId: z.string().uuid().optional(),
+        subtreeOf: z.string().uuid().optional(),
+        previousSiblingOf: z.string().uuid().optional(),
+      },
+    },
+    async ({ documentId, subtreeOf, previousSiblingOf }) => {
+      const given = [documentId, subtreeOf, previousSiblingOf].filter((id) => id !== undefined);
+      if (given.length !== 1) {
+        return toolError("give exactly one of documentId, subtreeOf or previousSiblingOf");
+      }
+      const scope = documentId
+        ? { documentId }
+        : subtreeOf
+          ? { subtreeOf }
+          : { previousSiblingOf: previousSiblingOf! };
+      try {
+        const tasks = await documentQueries.openTasks(scope);
+        return json(tasks.map((task) => ({ ...task, url: documentUrl(task.documentId) })));
+      } catch (error) {
+        if (error instanceof NotFoundError) return notFound("document");
+        throw error;
+      }
+    },
   );
 }

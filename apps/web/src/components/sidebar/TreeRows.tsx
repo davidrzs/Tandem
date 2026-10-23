@@ -5,6 +5,7 @@ import { Icon } from "../Icon.js";
 import { RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
 import { displayTitle } from "../outline.js";
+import { NewPageMenu } from "../TemplateMenus.js";
 import type { SidebarNode } from "./sidebarIndex.js";
 import { toggle, treeRowProps, useSidebarTreeContext } from "./useSidebarTree.js";
 
@@ -76,6 +77,15 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
               <Icon name="plus" />
             </button>
           )}
+          {c.writable && (
+            <NewPageMenu
+              workspaceId={c.workspaceId}
+              collectionId={c.id}
+              className="row-action"
+              tabIndex={-1}
+              onPick={(templateId) => void actions.newDoc(c.id, undefined, templateId)}
+            />
+          )}
           <RowMenu
             open={menuFor === node.id}
             onOpenChange={(open) => setMenuFor(open ? node.id : null)}
@@ -87,12 +97,23 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
               ...(c.writable
                 ? [
                     { label: "New document", icon: "plus" as const, onClick: () => void actions.newDoc(c.id) },
+                    {
+                      label: "New from template…",
+                      icon: "page" as const,
+                      onClick: () => void actions.newFromTemplate({ collectionId: c.id, workspaceId: c.workspaceId }),
+                    },
                     { label: "Rename", icon: "pen" as const, onClick: () => actions.renameCollection(c) },
+                    {
+                      label: "Default template…",
+                      icon: "page" as const,
+                      onClick: () =>
+                        void actions.setDefaultTemplate({ collectionId: c.id, workspaceId: c.workspaceId, place: c.name }),
+                    },
                   ]
                 : []),
               { label: "Open collection page", icon: "page", onClick: () => navigate(`/c/${c.id}`) },
               { label: "Share & access", icon: "share", onClick: () => actions.shareCollection(c) },
-              { label: "Export", icon: "download", onClick: () => actions.exportCollection(c) },
+              { label: "Export", icon: "download", onClick: () => void actions.exportCollection(c) },
               { label: "Delete collection", icon: "trash", danger: true, onClick: () => actions.deleteCollection(c) },
             ]}
           />
@@ -118,13 +139,15 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
 }
 
 function DocRow({ item, node }: RowProps<"doc">) {
-  const { actions, activeDocId, menuFor, setMenuFor } = useSidebarTreeContext();
+  const { actions, activeDocId, menuFor, setMenuFor, templateIds, workspaceId } = useSidebarTreeContext();
   const active = node.id === activeDocId;
   const title = displayTitle(node);
+  const template = templateIds.has(node.id);
   return (
     <Link
       to={`/d/${node.id}`}
       {...treeRowProps(item, node.writable)}
+      aria-label={template ? `${title} Template` : item.getItemName()}
       className={cx("doc-row tree-row", active && "active", item.isUnorderedDragTarget() && "drop-into")}
       aria-current={active ? "page" : undefined}
     >
@@ -132,6 +155,7 @@ function DocRow({ item, node }: RowProps<"doc">) {
       <OverflowTooltip text={title}>
         <span className="doc-title">{title}</span>
       </OverflowTooltip>
+      {template && <span className="template-badge">Template</span>}
       {node.writable && (
         <span className="row-actions">
           <button type="button"
@@ -145,13 +169,55 @@ function DocRow({ item, node }: RowProps<"doc">) {
           >
             <Icon name="plus" />
           </button>
+          {workspaceId && (
+            <NewPageMenu
+              workspaceId={workspaceId}
+              collectionId={node.collectionId}
+              parentDocumentId={node.id}
+              className="row-action"
+              tabIndex={-1}
+              onPick={(templateId) => void actions.newDoc(node.collectionId, node.id, templateId)}
+            />
+          )}
           <RowMenu
             open={menuFor === node.id}
             onOpenChange={(open) => setMenuFor(open ? node.id : null)}
             returnFocus={() => item.getElement()?.focus()}
             items={[
               { label: "New sub-document", icon: "plus", onClick: () => void actions.newDoc(node.collectionId, node.id) },
+              ...(workspaceId
+                ? [
+                    {
+                      label: "New from template…",
+                      icon: "page" as const,
+                      onClick: () =>
+                        void actions.newFromTemplate({
+                          collectionId: node.collectionId,
+                          parentDocumentId: node.id,
+                          workspaceId,
+                        }),
+                    },
+                  ]
+                : []),
               { label: "Duplicate", icon: "page", onClick: () => void actions.duplicateDoc(node) },
+              template
+                ? { label: "Turn into page", icon: "page", onClick: () => void actions.turnIntoPage(node) }
+                : { label: "Save as template", icon: "page", onClick: () => actions.saveAsTemplate(node) },
+              ...(workspaceId
+                ? [
+                    {
+                      label: "Default template…",
+                      icon: "page" as const,
+                      onClick: () =>
+                        void actions.setDefaultTemplate({
+                          documentId: node.id,
+                          collectionId: node.collectionId,
+                          workspaceId,
+                          place: `“${title}”`,
+                        }),
+                    },
+                  ]
+                : []),
               { label: "Archive", icon: "archive", onClick: () => void actions.archiveDoc(node, active) },
               { label: "Delete", icon: "trash", danger: true, onClick: () => void actions.deleteDoc(node, active) },
             ]}

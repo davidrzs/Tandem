@@ -6,7 +6,9 @@ import {
   COLLAB_FIELD,
   getAuthors,
   jsonToMarkdown,
+  propertyBlame,
   schema,
+  stateProperties,
   stateToJSON,
   UNKNOWN_AUTHOR,
 } from "@tandem/editor";
@@ -14,7 +16,7 @@ import { json, notFound, type ToolContext } from "../shared.js";
 
 /** Version history and authorship. */
 export function registerVersionTools(server: McpServer, ctx: ToolContext): void {
-  const { documents, snapshots } = ctx;
+  const { services, documents, snapshots, publicProperties } = ctx;
 
   server.registerTool(
     "list_versions",
@@ -35,17 +37,24 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
     "read_version",
     {
       title: "Read version",
-      description: "A past version's full markdown, by version id (from list_versions).",
+      description:
+        "A past version's full markdown and its properties (read against today's " +
+        "fields), by version id (from list_versions).",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       const snap = await snapshots.get(id);
       if (!snap) return notFound("version");
+      const { properties, property_issues } = publicProperties(
+        await services.types.viewState(snap.workspaceId, stateProperties(snap.ydocState)),
+      );
       return json({
         id,
         documentId: snap.documentId,
         createdAt: snap.createdAt,
         kind: snap.kind,
+        properties,
+        property_issues,
         markdown: jsonToMarkdown(stateToJSON(snap.ydocState)),
       });
     },
@@ -57,8 +66,10 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
       title: "Get authorship (blame)",
       description:
         "Who wrote what: the document's text in order, split into spans " +
-        "attributed to the human or AI session that inserted them, plus a " +
-        "contributor summary. This is the blame view the editor renders.",
+        "attributed to the human or AI session that inserted them, who set each " +
+        "property value (one entry per list element; a cleared value shows who " +
+        "cleared it), plus a contributor summary. This is the blame view the " +
+        "editor renders.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
@@ -66,40 +77,68 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
       if (!doc) return notFound("document");
       if (!doc.ydocState) {
         // Legacy doc never opened since blame tracking: nothing to attribute.
-        return json({ id: doc.id, title: doc.title, contributors: [], spans: [] });
+        return json({ id: doc.id, title: doc.title, contributors: [], spans: [], properties: [] });
       }
       const ydoc = new Y.Doc();
       Y.applyUpdate(ydoc, doc.ydocState);
       const authors = getAuthors(ydoc);
       const pmDoc = schema.nodeFromJSON(stateToJSON(doc.ydocState) as never);
       const size = pmDoc.content.size;
-      const spans: Array<{ author: string; ai: boolean; at: string | null; text: string }> = [];
+      const spans: Array<{
+        author: string;
+        ai: boolean;
+        agent?: string;
+        at: string | null;
+        text: string;
+      }> = [];
       for (const s of blameSpans(ydoc.getXmlFragment(COLLAB_FIELD))) {
         const a = authors.get(s.clientId) ?? UNKNOWN_AUTHOR;
         const text = pmDoc.textBetween(Math.min(s.from, size), Math.min(s.to, size), "\n", "");
         if (!text.trim()) continue; // pure structure (open/close tags)
         const last = spans[spans.length - 1];
         // Merge consecutive spans by the same identity so prose reads as runs.
-        if (last && last.author === a.name && last.ai === a.ai) {
+        if (last && last.author === a.name && last.ai === a.ai && last.agent === a.agent) {
           last.text += text;
         } else {
           spans.push({
             author: a.name,
             ai: a.ai,
+            ...(a.agent ? { agent: a.agent } : {}),
             at: a.at ? new Date(a.at).toISOString() : null,
             text,
           });
         }
       }
+      const view = await services.types.view(id);
+      const fields = new Map(view.fields.map((f) => [f.id, f]));
+      const keys = new Map(view.issues.map((i) => [i.fieldId, i.key]));
+      const properties = propertyBlame(ydoc).map((b) => {
+        const a = authors.get(b.clientId) ?? UNKNOWN_AUTHOR;
+        const field = fields.get(b.field);
+        return {
+          field: field?.key ?? keys.get(b.field) ?? b.field,
+          value: field?.options.find((o) => o.id === b.value)?.label ?? b.value,
+          author: a.name,
+          ai: a.ai,
+          ...(a.agent ? { agent: a.agent } : {}),
+          at: a.at ? new Date(a.at).toISOString() : null,
+        };
+      });
       const contributors = new Map<
         string,
-        { userId: string; name: string; ai: boolean; lastEditAt: number }
+        { userId: string; name: string; ai: boolean; agent?: string; lastEditAt: number }
       >();
       for (const a of authors.values()) {
-        const key = `${a.userId}:${a.ai}`;
+        const key = `${a.userId}:${a.ai}:${a.agent ?? ""}`;
         const prev = contributors.get(key);
         if (!prev || a.at > prev.lastEditAt) {
-          contributors.set(key, { userId: a.userId, name: a.name, ai: a.ai, lastEditAt: a.at });
+          contributors.set(key, {
+            userId: a.userId,
+            name: a.name,
+            ai: a.ai,
+            ...(a.agent ? { agent: a.agent } : {}),
+            lastEditAt: a.at,
+          });
         }
       }
       return json({
@@ -110,6 +149,7 @@ export function registerVersionTools(server: McpServer, ctx: ToolContext): void 
           lastEditAt: c.lastEditAt ? new Date(c.lastEditAt).toISOString() : null,
         })),
         spans,
+        properties,
       });
     },
   );

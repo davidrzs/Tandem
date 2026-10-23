@@ -10,3 +10,9 @@ export function timeAgo(value: string | Date): string {
   if (days < 7) return `${days}d ago`;
   return new Date(value).toLocaleDateString();
 }
+
+/** The reader's calendar day as YYYY-MM-DD, in their own time zone. */
+export function localDay(at: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}

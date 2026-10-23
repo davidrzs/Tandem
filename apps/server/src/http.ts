@@ -11,7 +11,14 @@ import {
   fastifyTRPCPlugin,
 } from "@trpc/server/adapters/fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createDatabase, user as userTable, type Actor } from "@tandem/db";
+import {
+  createDatabase,
+  oauthApplication,
+  user as userTable,
+  type Actor,
+  type Database,
+} from "@tandem/db";
+import type { AuthorIdentity } from "@tandem/editor";
 import { eq, sql } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 import {
@@ -51,6 +58,28 @@ export async function mcpAccessError(
     return "MCP access is turned off for this account (Settings > AI access)";
   }
   return null;
+}
+
+/**
+ * Who an MCP token writes as: the token's user's AI, labelled with the OAuth
+ * application that holds the token. The name is copied into each stamp, so
+ * renaming or deleting the application later leaves past blame unchanged.
+ */
+export async function mcpAuthor(
+  db: Database,
+  token: { userId: string; clientId: string },
+): Promise<AuthorIdentity> {
+  const [row] = await db
+    .select({ name: userTable.name, agent: oauthApplication.name })
+    .from(userTable)
+    .leftJoin(oauthApplication, eq(oauthApplication.clientId, token.clientId))
+    .where(eq(userTable.id, token.userId));
+  return {
+    userId: token.userId,
+    name: row?.name ?? "",
+    ai: true,
+    ...(row?.agent ? { agent: row.agent } : {}),
+  };
 }
 
 /**
@@ -159,7 +188,7 @@ export async function buildHttpServer(
     secret,
     mcpGate: (userId) => mcpAccessError(db, userId),
   });
-  await registerTransferRoutes(app, db, auth);
+  await registerTransferRoutes(app, db, auth, hocuspocus);
   await registerSetupRoutes(app, db, auth, { emailEnabled: !!mailer });
 
   // Realtime collaboration. Hocuspocus v4 returns a ClientConnection we pump
@@ -342,15 +371,7 @@ export async function buildHttpServer(
     // to that user's workspaces (RLS + the live Y.Doc write path), and every
     // span it writes is attributed to that user's AI in the blame layer.
     const actor: Actor = { kind: "user", userId: token.userId };
-    const [tokenUser] = await db
-      .select({ name: userTable.name })
-      .from(userTable)
-      .where(eq(userTable.id, token.userId));
-    const author = {
-      userId: token.userId,
-      name: tokenUser?.name ?? "",
-      ai: true,
-    };
+    const author = await mcpAuthor(db, token);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

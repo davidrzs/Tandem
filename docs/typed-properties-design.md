@@ -1,6 +1,9 @@
 # Typed properties — design proposal (v2)
 
-Status: PROPOSED, not implemented. 2026-08-24. This supersedes the fixed
+Status: implemented, with changes: values are projected into
+`documents.properties`, `property_issues` and `properties_text` rather than a
+`document_properties` side table; see docs/plans/templates-and-properties.md.
+Original proposal dated 2026-08-24. This supersedes the fixed
 project/task/entity schemas sketched in Phases 4–6 of the "Tandem Improvement
 Ideas" document. Revised after a three-way adversarial review (storage/CRDT,
 product/agent-ergonomics, security) verified against the current codebase.

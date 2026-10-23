@@ -8,14 +8,21 @@ import {
   documentSearchShape,
   documentUpdateShape,
   DocumentWriteDeniedError,
+  fieldKeySchema,
   ForbiddenError,
   InvalidInputError,
+  isListKind,
   nameSchema,
   NotFoundError,
   positionSchema,
+  propertyPatchShape,
   tagsSchema,
+  templateDefaultSchema,
+  templateVariablesSchema,
+  titleSchema,
 } from "@tandem/core";
-import { stateToJSON } from "@tandem/editor";
+import { FIELD_KINDS, type FieldOption } from "@tandem/db";
+import { LIVE_SECTION_QUERIES, stateToJSON, type PropertyOp } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
 
@@ -78,6 +85,18 @@ function mapError(err: unknown): TRPCError {
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: err });
 }
 
+async function writeProperties(ctx: Context, id: string, ops: PropertyOp[]): Promise<void> {
+  try {
+    if (ctx.collabWriter) await ctx.collabWriter.setProperties(id, ops);
+    else await ctx.services.documents.editProperties(id, ops);
+  } catch (err) {
+    if (err instanceof DocumentWriteDeniedError) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+    }
+    throw err;
+  }
+}
+
 /** Requires a signed-in user; narrows ctx.user to non-null and maps DB errors. */
 const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
@@ -103,6 +122,19 @@ const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 
 const uuid = z.string().uuid();
+
+/** What an option-list edit did, by label: a relabel rewrites what every page
+ * holding the option says, so the audit names old and new. */
+function optionChanges(before: readonly FieldOption[], after: readonly FieldOption[]): string {
+  const changes: string[] = [];
+  for (const option of after) {
+    const old = before.find((o) => o.id === option.id);
+    if (!old) changes.push(`added "${option.label}"`);
+    else if (option.retired && !old.retired) changes.push(`retired "${old.label}"`);
+    else if (option.label !== old.label) changes.push(`"${old.label}" -> "${option.label}"`);
+  }
+  return changes.join(", ");
+}
 
 export const appRouter = t.router({
   workspaces: t.router({
@@ -418,6 +450,16 @@ export const appRouter = t.router({
 
     myTodos: protectedProcedure.query(({ ctx }) => ctx.services.documentQueries.listMyTodos()),
 
+    // A live section, resolved against the page that holds it on every render.
+    liveSection: protectedProcedure
+      .input(z.object({ id: uuid, query: z.enum(LIVE_SECTION_QUERIES) }))
+      .query(({ ctx, input }) => ctx.services.documentQueries.liveSection(input.id, input.query)),
+
+    // `today` is the reader's calendar day, so "overdue" matches their clock.
+    dueSoon: protectedProcedure
+      .input(z.object({ today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .query(({ ctx, input }) => ctx.services.documentQueries.dueSoon(input.today)),
+
     hasAny: protectedProcedure
       .input(z.object({ workspaceId: uuid }))
       .query(({ ctx, input }) => ctx.services.documents.hasAnyInWorkspace(input.workspaceId)),
@@ -459,6 +501,38 @@ export const appRouter = t.router({
         }
       }),
 
+    properties: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .query(({ ctx, input }) => ctx.services.types.view(input.id)),
+
+    // Attach a type, or detach with null; detaching keeps every value. The
+    // type's list fields start here as empty arrays, in one serialized write,
+    // so two people adding a page's first values can't each create the array
+    // and lose one add.
+    setType: protectedProcedure
+      .input(z.object({ id: uuid, typeId: uuid.nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!(await ctx.services.types.setDocumentType(input.id, input.typeId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+        }
+        const view = await ctx.services.types.view(input.id);
+        const lists: PropertyOp[] = view.fields
+          .filter((f) => input.typeId !== null && f.typeId === input.typeId && isListKind(f.kind))
+          .map((f) => ({ op: "add", field: f.id, values: [] }));
+        if (lists.length > 0) await writeProperties(ctx, input.id, lists);
+        ctx.notifyDocument?.(input.id, "meta");
+        return view;
+      }),
+
+    // A per-field patch through the live doc as the human, like restore.
+    setProperties: protectedProcedure
+      .input(z.object({ id: uuid, ...propertyPatchShape }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        await writeProperties(ctx, id, await ctx.services.types.planPatch(id, patch));
+        return ctx.services.types.view(id);
+      }),
+
     backlinks: protectedProcedure
       .input(z.object({ id: uuid }))
       .query(({ ctx, input }) => ctx.services.documentQueries.backlinks(input.id)),
@@ -470,6 +544,255 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => {
         const { query, ...opts } = input;
         return ctx.services.documentQueries.search(query, opts);
+      }),
+  }),
+
+  templates: t.router({
+    list: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.templates.list(input.workspaceId)),
+
+    defaultFor: protectedProcedure
+      .input(z.object({ collectionId: uuid, parentDocumentId: uuid.nullable() }))
+      .query(({ ctx, input }) =>
+        ctx.services.templates.defaultFor(input.collectionId, input.parentDocumentId),
+      ),
+
+    // Any writer may mark a page a template, which hides its subtree from
+    // search, tasks, Home and notifications for everyone, so it is audited.
+    templatize: protectedProcedure
+      .input(z.object({ documentId: uuid, name: titleSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.templatize(input.documentId, input.name);
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "templatize",
+          detail: `template "${template.name}"`,
+          documentId: input.documentId,
+        });
+        return template;
+      }),
+
+    untemplatize: protectedProcedure
+      .input(z.object({ documentId: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.untemplatize(input.documentId);
+        if (!template) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You cannot change this template." });
+        }
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "untemplatize",
+          detail: `template "${template.name}"`,
+          documentId: input.documentId,
+        });
+      }),
+
+    setDefault: protectedProcedure
+      .input(
+        z.object({
+          target: z.union([z.object({ collectionId: uuid }), z.object({ documentId: uuid })]),
+          templateId: uuid.nullable(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (!(await ctx.services.templates.setDefault(input.target, input.templateId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You cannot change this default." });
+        }
+      }),
+
+    instantiate: protectedProcedure
+      .input(
+        z.object({
+          templateId: uuid.nullable().optional(),
+          collectionId: uuid,
+          parentDocumentId: uuid.nullable().optional(),
+          variables: templateVariablesSchema.optional(),
+          dryRun: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { document, ...plan } = await ctx.services.templates.instantiate(input);
+        return { ...plan, documentId: document?.id ?? null };
+      }),
+
+    // A template's type and default values: owner or admin (service-checked),
+    // audited like the type definitions they depend on.
+    setDefaultType: protectedProcedure
+      .input(z.object({ templateId: uuid, typeId: uuid.nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.setDefaultType(input.templateId, input.typeId);
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "set_template_type",
+          detail: `template "${template.name}": type ${template.typeId ?? "none"}`,
+          documentId: input.templateId,
+        });
+        return template;
+      }),
+
+    setFieldDefault: protectedProcedure
+      .input(z.object({ templateId: uuid, fieldId: fieldKeySchema, default: templateDefaultSchema.nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        const template = await ctx.services.templates.setFieldDefault(input.templateId, input.fieldId, input.default);
+        await ctx.services.settings.recordAudit({
+          workspaceId: template.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "set_template_default",
+          detail: `template "${template.name}": ${input.fieldId} = ${JSON.stringify(template.defaults[input.fieldId] ?? null)}`,
+          documentId: input.templateId,
+        });
+        return template;
+      }),
+
+    // The Type menu's "Add starter types": Meeting, Project and Person with
+    // their templates; a second run adds nothing.
+    addStarterKit: protectedProcedure
+      .input(z.object({ workspaceId: uuid, collectionId: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const added = await ctx.services.templates.addStarterKit(input.workspaceId, input.collectionId);
+        if (added.types.length + added.templates.length > 0) {
+          await ctx.services.settings.recordAudit({
+            workspaceId: input.workspaceId,
+            userId: ctx.user.id,
+            ai: false,
+            action: "add_starter_kit",
+            detail: `types: ${added.types.join(", ") || "none"}; templates: ${added.templates.join(", ") || "none"}`,
+          });
+        }
+        return added;
+      }),
+  }),
+
+  // Types and fields: any member reads them; defining them is owner/admin
+  // only (service + RLS) and audited, since an option rename silently
+  // changes what every page holding it says.
+  types: t.router({
+    list: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.types.listTypes(input.workspaceId)),
+
+    fields: protectedProcedure
+      .input(z.object({ workspaceId: uuid }))
+      .query(({ ctx, input }) => ctx.services.types.listFields(input.workspaceId)),
+
+    create: protectedProcedure
+      .input(z.object({ workspaceId: uuid, name: nameSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const type = await ctx.services.types.createType(input.workspaceId, input.name);
+        await ctx.services.settings.recordAudit({
+          workspaceId: type.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "define_type",
+          detail: `type "${type.name}"`,
+        });
+        return type;
+      }),
+
+    rename: protectedProcedure
+      .input(z.object({ id: uuid, name: nameSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const type = await ctx.services.types.renameType(input.id, input.name);
+        await ctx.services.settings.recordAudit({
+          workspaceId: type.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "rename_type",
+          detail: `type ${type.id} is now "${type.name}"`,
+        });
+        return type;
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: uuid }))
+      .mutation(async ({ ctx, input }) => {
+        const type = await ctx.services.types.deleteType(input.id);
+        await ctx.services.settings.recordAudit({
+          workspaceId: type.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "delete_type",
+          detail: `type "${type.name}"`,
+        });
+      }),
+
+    createField: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: uuid,
+          typeId: uuid.nullable(),
+          key: fieldKeySchema,
+          label: nameSchema.optional(),
+          kind: z.enum(FIELD_KINDS),
+          options: z.array(nameSchema).max(100).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (input.kind === "json") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "json fields only come from importing pages; choose another kind",
+          });
+        }
+        const field = await ctx.services.types.createField(input);
+        await ctx.services.settings.recordAudit({
+          workspaceId: field.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "define_field",
+          detail: `field "${field.key}" (${field.kind})`,
+        });
+        return field;
+      }),
+
+    updateField: protectedProcedure
+      .input(
+        z.object({
+          id: fieldKeySchema,
+          key: fieldKeySchema.optional(),
+          label: nameSchema.optional(),
+          kind: z.enum(FIELD_KINDS).optional(),
+          position: positionSchema.optional(),
+          options: z
+            .array(z.object({ id: fieldKeySchema.optional(), label: nameSchema }))
+            .max(100)
+            .optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        const before = patch.options ? await ctx.services.types.getField(id) : null;
+        const field = await ctx.services.types.updateField(id, patch);
+        const options = before ? optionChanges(before.options, field.options) : "";
+        await ctx.services.settings.recordAudit({
+          workspaceId: field.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "update_field",
+          detail: `field "${field.key}": ${Object.keys(patch).join(", ")}${options ? `; options ${options}` : ""}`,
+        });
+        return field;
+      }),
+
+    retireField: protectedProcedure
+      .input(z.object({ id: fieldKeySchema }))
+      .mutation(async ({ ctx, input }) => {
+        const field = await ctx.services.types.retireField(input.id);
+        await ctx.services.settings.recordAudit({
+          workspaceId: field.workspaceId,
+          userId: ctx.user.id,
+          ai: false,
+          action: "retire_field",
+          detail: `field "${field.key}"`,
+        });
       }),
   }),
 

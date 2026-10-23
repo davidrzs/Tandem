@@ -103,18 +103,20 @@ export interface TaskScan {
   mentions: string[];
 }
 
-/** All task items outside code fences. Mentions are `@email` or `@local-part`
- * tokens (how TODOs get assigned to users). */
+/** The users a task addresses: every `@email` or `@local-part` token in its
+ * text, lower-cased (how TODOs get assigned to users). */
+export function taskMentions(text: string): string[] {
+  return [...text.matchAll(/@([\w.+-]+(?:@[\w.-]+)?)/g)].map((m) => m[1]!.toLowerCase());
+}
+
+/** All task items outside code fences. */
 export function scanTaskItems(markdown: string): TaskScan[] {
   const tasks: TaskScan[] = [];
   eachUnfencedLine(markdown.split("\n"), (line, i) => {
     const task = /^\s*[-*+] \[([ xX])\] (.*)$/.exec(line);
     if (!task) return;
     const text = task[2]!.trim();
-    const mentions = [...text.matchAll(/@([\w.+-]+(?:@[\w.-]+)?)/g)].map((m) =>
-      m[1]!.toLowerCase(),
-    );
-    tasks.push({ line: i, done: task[1] !== " ", text, mentions });
+    tasks.push({ line: i, done: task[1] !== " ", text, mentions: taskMentions(text) });
   });
   return tasks;
 }

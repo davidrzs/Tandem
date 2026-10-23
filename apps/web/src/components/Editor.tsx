@@ -18,6 +18,7 @@ import { mentionHighlightKey } from "./mention-highlight.js";
 import { timeAgo } from "./time.js";
 import { TagBar } from "./TagBar.js";
 import { SubPages } from "./DocOutline.js";
+import { PropertiesPanel, TemplateDefaultsPanel, TypeMenu } from "./PropertiesPanel.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { buildExtensions } from "./editor/extensions.js";
@@ -164,6 +165,7 @@ export function Editor({
     {
       editable: canEdit,
       extensions: buildExtensions({
+        docId,
         ydoc,
         provider,
         me,
@@ -302,6 +304,11 @@ export function Editor({
   const titleLoaded = useRef(false);
   const titleDirty = useRef(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const myRole = members.data?.find((m) => m.userId === uid)?.role;
+  const canDefine = myRole === "owner" || myRole === "admin";
+  const templates = trpc.templates.list.useQuery({ workspaceId });
+  const template = templates.data?.find((t) => t.id === docId) ?? null;
   useEffect(() => {
     if (!doc.data) return;
     if (!titleLoaded.current) {
@@ -341,12 +348,28 @@ export function Editor({
     <div className="doc-page">
       <div className="doc-bar">
         <Breadcrumbs docId={docId} collectionId={doc.data.collectionId} currentTitle={title} />
+        {doc.data.origin?.templateName && (
+          <span className="doc-origin" title={`Created from the template "${doc.data.origin.templateName}"`}>
+            From template {doc.data.origin.templateName}
+          </span>
+        )}
         <div className="doc-bar-actions">
           {!canEdit && <span className="save-state">Read only</span>}
           <span className={`save-state status-${status.tone}`}>
             <span className="status-dot" /> {status.label}
           </span>
           <span className="tool-divider" />
+          {canEdit && (
+            <TypeMenu
+              docId={docId}
+              workspaceId={workspaceId}
+              collectionId={doc.data.collectionId}
+              typeId={template ? template.typeId : doc.data.typeId}
+              templateId={template?.id ?? null}
+              canDefine={canDefine}
+              onAttached={() => setPropertiesOpen(true)}
+            />
+          )}
           <button type="button"
             className={"tool-btn" + (rail === "comments" ? " active" : "")}
             title="Show comments"
@@ -598,6 +621,28 @@ export function Editor({
         onChange={(tags) => update.mutate({ id: docId, tags })}
         onTagClick={(tag) => openSearch(`#${tag} `)}
       />
+      {template ? (
+        <TemplateDefaultsPanel
+          template={template}
+          workspaceId={workspaceId}
+          canDefine={canDefine}
+          searchDocs={searchDocs}
+        />
+      ) : (
+        <PropertiesPanel
+          docId={docId}
+          workspaceId={workspaceId}
+          ydoc={ydoc}
+          typeId={doc.data.typeId}
+          canEdit={canEdit}
+          canDefine={canDefine}
+          open={propertiesOpen}
+          onOpenChange={setPropertiesOpen}
+          searchDocs={searchDocs}
+          synced={synced}
+          disconnected={connection === "offline"}
+        />
+      )}
       <SubPages docId={docId} collectionId={doc.data.collectionId} canEdit={canEdit} />
       {previewId !== null && (
         <div className="preview-banner">

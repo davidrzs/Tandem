@@ -2,14 +2,22 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createDatabase, migrateDatabase, SYSTEM, workspaceMembers } from "@tandem/db";
-import { COLLAB_FIELD, blameSpans, getAuthors, jsonToMarkdown, schema } from "@tandem/editor";
-import { CollectionService, WorkspaceService } from "@tandem/core";
+import {
+  createDatabase,
+  migrateDatabase,
+  oauthApplication,
+  SYSTEM,
+  user as userTable,
+  workspaceMembers,
+} from "@tandem/db";
+import { COLLAB_FIELD, blameSpans, getAuthors, jsonToMarkdown, propertiesToJSON, schema } from "@tandem/editor";
+import { CollectionService, TypeService, WorkspaceService } from "@tandem/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type * as Y from "yjs";
 import { createAuth } from "./auth.js";
 import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
+import { mcpAuthor } from "./http.js";
 import { createMcpServer } from "./mcp.js";
 import { createServices } from "./services.js";
 
@@ -175,6 +183,142 @@ test("agent writes leave a workspace-scoped audit trail; denied writes leave non
     auditEntries.every((e) => e.documentId === docId && e.sessionId !== null),
     "each edit is deep-linked to its document and exact authorship session",
   );
+});
+
+test("an edit through an OAuth client stamps the application name as the agent", async () => {
+  await db.insert(userTable).values({ id: "u1", name: "User One", email: "u1@example.test" });
+  await db.insert(oauthApplication).values({ id: "app-claude", name: "Claude", clientId: "claude" });
+  const author = await mcpAuthor(db, { userId: "u1", clientId: "claude" });
+  assert.deepEqual(author, { userId: "u1", name: "User One", ai: true, agent: "Claude" });
+  assert.deepEqual(
+    await mcpAuthor(db, { userId: "u1", clientId: "deleted-app" }),
+    { userId: "u1", name: "User One", ai: true },
+    "an unknown application falls back to the plain AI identity",
+  );
+
+  const agentServices = createServices(db, u1, author);
+  const agentClient = new Client({ name: "test-claude", version: "0.0.0" });
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  await createMcpServer(agentServices, {
+    publicUrl: "http://app.test",
+    writer: createCollabWriter(hocuspocus, agentServices.documents, author),
+  }).connect(serverT);
+  await agentClient.connect(clientT);
+  try {
+    payload(
+      await agentClient.callTool({
+        name: "append_section",
+        arguments: { id: docId, markdown: "Written by Claude." },
+      }),
+    );
+  } finally {
+    await agentClient.close();
+  }
+
+  const conn = await hocuspocus.openDirectConnection(docId, { userId: "u1" });
+  let stamped: unknown;
+  await conn.transact((doc) => {
+    const authors = getAuthors(doc as unknown as Y.Doc);
+    const fragment = doc.getXmlFragment(COLLAB_FIELD);
+    const pm = schema.nodeFromJSON(yXmlFragmentToProsemirrorJSON(fragment) as never);
+    const span = blameSpans(fragment).find(
+      (s) => pm.textBetween(s.from, s.to, "\n") === "Written by Claude.",
+    );
+    stamped = span && { ...authors.get(span.clientId), at: 0 };
+  });
+  await conn.disconnect();
+  assert.deepEqual(stamped, { userId: "u1", name: "User One", ai: true, agent: "Claude", at: 0 });
+});
+
+test("set_properties writes through the live doc; get_document, search, get_authors and read_version show it", async () => {
+  const workspaceId = (await services.documents.getMeta(docId))!.workspaceId;
+  const types = new TypeService(db, u1);
+  const meeting = await types.createType(workspaceId, "Meeting");
+  const status = await types.createField({
+    workspaceId,
+    typeId: meeting.id,
+    key: "status",
+    kind: "select",
+    options: ["Open", "Done"],
+  });
+  const attendees = await types.createField({
+    workspaceId,
+    typeId: meeting.id,
+    key: "attendees",
+    kind: "multi_select",
+    options: ["Ann", "Bob", "Cy"],
+  });
+  const opt = (field: typeof status, label: string) => field.options.find((o) => o.label === label)!.id;
+  await services.types.setDocumentType(docId, meeting.id);
+  const markdownBefore = payload(await client.callTool({ name: "get_document", arguments: { id: docId } })).markdown;
+
+  const set = payload(
+    await client.callTool({
+      name: "set_properties",
+      arguments: { id: docId, set: { status: "done" }, add: { attendees: ["ann"] } },
+    }),
+  );
+  assert.deepEqual(set.properties, { status: "Done", attendees: ["Ann"] });
+
+  const conn = await hocuspocus.openDirectConnection(docId, { userId: "u1" });
+  let live: unknown;
+  await conn.transact((doc) => {
+    live = propertiesToJSON(doc as unknown as Y.Doc);
+  });
+  await conn.disconnect();
+  assert.deepEqual(live, { [status.id]: opt(status, "Done"), [attendees.id]: [opt(attendees, "Ann")] });
+
+  const got = payload(await client.callTool({ name: "get_document", arguments: { id: docId } }));
+  assert.equal(got.markdown, markdownBefore);
+  assert.deepEqual(
+    { type: got.type, properties: got.properties, property_issues: got.property_issues },
+    { type: { id: meeting.id, name: "Meeting" }, properties: { status: "Done", attendees: ["Ann"] }, property_issues: [] },
+  );
+  assert.ok(
+    (await services.documentQueries.search("done")).some((h) => h.id === docId),
+    "a search for the value finds the page",
+  );
+  const audited = auditEntries.at(-1)!;
+  assert.deepEqual(
+    { ...audited, sessionId: typeof audited.sessionId },
+    {
+      action: "set_properties",
+      detail: '"Doc": status, attendees',
+      workspaceId,
+      documentId: docId,
+      sessionId: "number",
+    },
+  );
+
+  const authors = payload(await client.callTool({ name: "get_authors", arguments: { id: docId } }));
+  assert.deepEqual(
+    authors.properties.map(({ at, ...rest }: { at: string }) => rest),
+    [
+      { field: "status", value: "Done", author: "User One", ai: true },
+      { field: "attendees", value: "Ann", author: "User One", ai: true },
+    ],
+  );
+
+  await services.snapshots.captureBoundary({
+    documentId: docId,
+    workspaceId,
+    ydocState: (await services.documents.get(docId))!.ydocState!,
+    sessions: [],
+  });
+  const [version] = await services.snapshots.list(docId);
+  const read = payload(await client.callTool({ name: "read_version", arguments: { id: version!.id } }));
+  assert.deepEqual(
+    { properties: read.properties, property_issues: read.property_issues, markdown: read.markdown },
+    { properties: { status: "Done", attendees: ["Ann"] }, property_issues: [], markdown: markdownBefore },
+  );
+
+  await Promise.all(
+    ["Bob", "Cy"].map((name) =>
+      client.callTool({ name: "set_properties", arguments: { id: docId, add: { attendees: name } } }),
+    ),
+  );
+  const after = payload(await client.callTool({ name: "get_document", arguments: { id: docId } }));
+  assert.deepEqual(after.properties.attendees, ["Ann", "Bob", "Cy"]);
 });
 
 test("a write to a read-only document is a permission error, not silent success", async () => {

@@ -53,7 +53,98 @@ The mention is the assignee's **email local part** (`@alice` for
 start of a line — or `- [ ] ` in a bullet list, or use `/to-do` — and `@`
 autocompletes workspace members.
 Open tasks assigned to you are listed on your start page, each linking back to
-its document; checking the box completes it everywhere.
+its document; checking the box completes it everywhere. Below them, **Due
+soon** lists pages whose due or review date (a date field keyed like `due` or
+`next_review`) has passed or falls in the next 30 days.
+
+Every save also records the page's tasks in a `tasks` table: text, done,
+assignees, order, who wrote the item (from blame), when it was added and when
+it was closed. Each task item carries a block id that stays with it through
+edits above it, rewording and markdown round trips; markdown itself never
+shows the id.
+
+### Live sections
+
+A live section is a read-only list the page works out each time it renders.
+Insert one from the `/` menu:
+
+- **Open from last time**: the open tasks of the previous page of the same
+  type under the same parent (the previous meeting).
+- **Since last meeting**: pages edited, tasks closed and tasks added since that
+  page's date, under the nearest typed page above this one (the project).
+- **Open tasks under this page**: open tasks in the pages below this one.
+
+In markdown (export, MCP, import) a live section is an HTML comment such as
+`<!-- live-section: open_from_last_time -->`. Search and the task list ignore
+it. The starter Meeting template opens with the first two and the Project
+template ends with the third.
+
+## Templates
+
+Any page can be a template: **Save as template** in its row menu names it,
+and the page stays an ordinary document (same editor, blame and versions).
+**Default template…** on a folder or collection makes **+** there start from
+that template; the deepest folder with a default wins, then the collection.
+The **▾** beside **+** (in the sidebar and on a Contents panel) offers every
+template and a **Blank page**.
+
+A new page copies the template's body and up to three levels of its sub-pages,
+as writing by whoever created it. `{{date}}`, `{{title}}`, `{{me}}` and
+`{{parent}}` are filled in; any other `{{name}}` is asked for when the page is
+created. The new page remembers which template and version it came from (its
+header shows "From template …"), and
+later edits to the template never change it. Templates and their sub-pages are
+left out of search, backlinks, recents, tags, tasks and Home.
+
+## Types and properties
+
+A page can have a type (Meeting, Project) and typed properties: text,
+number, checkbox, date, date and time, select, multi-select, URL, a page
+reference, a list of page references, and read-only imported JSON. A
+workspace owner or admin defines types and their fields; ad-hoc fields (any
+page can hold one) come from a markdown import or from **Add field** on a page
+that already shows properties. Every definition change is in the workspace
+audit log.
+Detaching a page's type keeps its values.
+
+Values live in the page's collaborative document, one entry per field, so
+they merge field by field when people and agents edit at once, carry blame
+like the body, and come back when a version is restored. Every write changes
+single fields; nothing rewrites the whole set. The server validates values
+when it saves the page: one that no longer fits its field (after a kind
+change, say) is kept and reported, never dropped. A select changed to another
+kind reads the options it held as their labels. Property text is searchable.
+Renaming a field keeps its old key working.
+
+In the app, the **Type** button in a page's header attaches, changes or
+detaches its type, and owners and admins can create a type there. The page's
+properties sit under its title as one summary line that opens into a row per
+field; owners and admins also get **Add field**. Values an agent wrote carry
+an AI badge naming the agent, and a value the server reported (it no longer
+fits its field, or holds a retired option) carries a marker saying why. A
+retired field's value stays in the panel, read-only, with **Remove**. Unlike
+the body, properties can't be edited offline: the panel says so and turns
+read-only until the page is back online.
+When every page in a Contents table shares a type, the table shows that
+type's first three text-like fields (not page references or JSON) as sortable
+columns.
+
+A template can give the pages made from it a type and default values. On a
+template's page, the **Type** button sets that type and the panel under the
+title edits each field's default (owners and admins): a value, or **Today**,
+**Now**, **The creator's name**, or **Same as the previous page**, which
+copies the field from the latest page of the type under the same parent (by
+its date field, else the newest). A new page gets its type and those values as
+the creator's writing; changing the template later leaves existing pages as
+they are.
+
+**Add starter types** in the **Type** menu (owners and admins) adds Meeting
+(date, attendees, status), Project (status, next review, next action) and
+Person (email, affiliation, aliases) with a template each. The Project
+template has a **Meetings** sub-page whose **+** makes a Meeting dated today
+with the previous meeting's attendees. Running it again adds only what is
+missing; types and templates that already exist by name are kept as they are
+(an older Meeting template does not gain the live sections).
 
 ## Authorship model (how blame works)
 
@@ -90,6 +181,22 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `create_document`, `update_document` (title and/or tags), `move_document`,
   `archive_document`, `restore_document`, `list_archived`, `list_tags`,
   `list_backlinks`.
+- **Templates**: `list_templates` (each with its `type` and `defaults` by
+  field key), `create_from_template` (`templateId` optional: the target
+  folder's default, as **+** in the app; `variables` answers the template's
+  prompts; the created page comes back with its committed `type` and
+  `properties`; `dryRun` returns the expanded pages without creating anything).
+  `get_document` returns `origin`: `{templateId, templateName, version}` for a
+  page made from a template (`templateName` is null once it is no longer a
+  template), else null.
+- **Properties**: `get_document` returns `type`, `properties` (display values
+  by field key; page references as `{id, title, url}`) and `property_issues`
+  beside `markdown`, never inside it. `set_properties` takes a patch (`set`,
+  `unset`, `add`, `remove`) by field key; keys and option labels match
+  case-insensitively, and an unknown key is an error listing the page's
+  fields (agents can't define fields). `create_document` takes `type` and
+  `properties`; `list_types` and `list_fields` describe the schema. Property
+  writes are audited.
 
 `list_documents` is intentionally bounded for agent context windows: it returns
 a flat, compact page (`id`, `title`, `path`, `tags`, `updatedAt`, `url`),
@@ -114,10 +221,13 @@ each tag with its document count.
 - **Collaboration**: `list_comments`, `add_comment` (reply via `parentId`),
   `resolve_comment` — comment threads sync live into open editors;
   `my_tasks` (to-dos assigned to the human the agent acts for);
+  `open_tasks` (unchecked items of one page, of a page and everything under
+  it, or of the previous page in a series, each with its stable `blockId`);
   `list_members` (names and `@handles` for assigning and mentioning).
 - **History & blame**: `list_versions`, `read_version` (a past version's
-  markdown), and `get_authors` — the blame view as data: every span of text
-  attributed to the human or AI session that wrote it.
+  markdown and properties), and `get_authors` — the blame view as data: every
+  span of text and every property value attributed to the human or AI
+  session that wrote it.
 
 Document, collection, and comment objects returned by MCP include an absolute
 `url` for handing a clickable link back to the user. These canonical links are
@@ -163,11 +273,34 @@ as **you** (blame), in one attributed edit per document. Non-image attachments
 and SVGs are skipped (SVG is a script vector), and unresolved links are left
 as-is and reported in the summary.
 
+Properties travel as YAML front matter. An export writes each page's values
+(option labels, page references as `"[[Title]]"`, ISO dates) in its type's
+field order and then alphabetically, with the page's `tandem-id` and
+`tandem-type`, and describes every type and field in `_tandem/fields.json` at
+the zip root. When the download is done, Tandem lists what the export left
+out: images it couldn't read, and values of fields whose key front matter
+keeps for itself (a field named `tags`, say). An import keeps front matter as properties: with that file the
+kinds and options come back exactly; without it (an Obsidian vault) each key
+gets one kind across the whole vault, values that disagree become text (a
+plain date in a key that also holds date-times becomes that day at 00:00
+UTC), and nested values become read-only JSON. `tags`/`tag`, `tandem-id` and
+`tandem-type`, in any case, are always the page's tags, id and type, never
+fields. Keys such as `__proto__` or `constructor` are skipped and named in
+the summary. Keys that match a field (or a field's
+old key) land on it; others become new fields, which needs an owner or
+admin. Re-importing an export into the same workspace updates the pages it
+came from, field by field, instead of copying them: a changed value is one
+change, a deleted key clears its field, and titles, tags and bodies stay as
+they are. YAML comments and formatting are not kept, and the summary names
+the files that had comments.
+
 ## Development
 
 ```bash
 pnpm install
-pnpm dev        # server :3001 (PGlite, zero setup) + web :5173
+cp .env.example .env
+openssl rand -base64 32   # paste this as BETTER_AUTH_SECRET in .env; the placeholder is refused
+pnpm dev        # server :3001 (PGlite, no database to install) + web :5173
 pnpm test       # unit + integration (in-memory Postgres via PGlite)
 pnpm typecheck
 pnpm --filter @tandem/web build && pnpm e2e   # Playwright, real server

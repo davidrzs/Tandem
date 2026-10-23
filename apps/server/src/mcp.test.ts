@@ -6,9 +6,10 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createDatabase, migrateDatabase, SYSTEM, user } from "@tandem/db";
-import { WorkspaceService } from "@tandem/core";
-import { getAuthors } from "@tandem/editor";
+import { TypeService, WorkspaceService } from "@tandem/core";
+import { getAuthors, propertyBlame } from "@tandem/editor";
 import * as Y from "yjs";
 import { readImageBytes, verifyImageUploadToken } from "./images.js";
 import { createServices } from "./services.js";
@@ -69,6 +70,7 @@ test("tools are advertised", async () => {
     "archive_document",
     "create_collection",
     "create_document",
+    "create_from_template",
     "edit_document",
     "get_authors",
     "get_document",
@@ -78,11 +80,15 @@ test("tools are advertised", async () => {
     "list_collections",
     "list_comments",
     "list_documents",
+    "list_fields",
     "list_members",
     "list_tags",
+    "list_templates",
+    "list_types",
     "list_versions",
     "move_document",
     "my_tasks",
+    "open_tasks",
     "read_version",
     "recent_documents",
     "replace_section",
@@ -90,6 +96,7 @@ test("tools are advertised", async () => {
     "resolve_comment",
     "restore_document",
     "search_documents",
+    "set_properties",
     "update_document",
     "upload_image",
   ]);
@@ -104,6 +111,67 @@ test("oversized inputs are rejected by the shared limits", async () => {
     .catch((e: Error) => ({ isError: true, content: [{ text: e.message }] }));
   assert.ok(res.isError, "title over the limit is refused");
   assert.match(JSON.stringify(res.content), /500|too_big|at most/i);
+});
+
+test("templates over MCP: list_templates, then create_from_template with and without dryRun", async () => {
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { name: "Rituals", slug: "rituals" } }),
+  );
+  const tpl = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: { collectionId: col.id, title: "Standup {{date}}", markdown: "Hi {{me}}, client {{client}}" },
+    }),
+  );
+  await client.callTool({
+    name: "create_document",
+    arguments: { collectionId: col.id, parentDocumentId: tpl.id, title: "Agenda", markdown: "For {{parent}}" },
+  });
+  await services.templates.templatize(tpl.id, "Standup");
+
+  const listed = payload(await client.callTool({ name: "list_templates", arguments: {} }));
+  assert.deepEqual(
+    listed.map((t: any) => [t.name, t.url]),
+    [["Standup", `http://app.test/d/${tpl.id}`]],
+  );
+
+  const dry = payload(
+    await client.callTool({
+      name: "create_from_template",
+      arguments: { templateId: tpl.id, collectionId: col.id, variables: { date: "2026-03-04" }, dryRun: true },
+    }),
+  );
+  assert.equal(dry.document, null);
+  assert.deepEqual(dry.missing, ["client"]);
+  assert.deepEqual(dry.page, {
+    title: "Standup 2026-03-04",
+    markdown: "Hi User One, client ",
+    children: [{ title: "Agenda", markdown: "For Standup 2026-03-04", children: [] }],
+  });
+  assert.equal((await services.documentTree.tree(col.id)).length, 1, "the dry run created nothing");
+
+  await services.templates.setDefault({ collectionId: col.id }, tpl.id);
+  const made = payload(
+    await client.callTool({
+      name: "create_from_template",
+      arguments: { collectionId: col.id, variables: { date: "2026-03-04", client: "Acme" } },
+    }),
+  );
+  assert.equal(made.template.id, tpl.id, "no templateId: the collection default");
+  assert.deepEqual(made.missing, []);
+  assert.equal(made.document.title, "Standup 2026-03-04");
+  assert.equal(made.document.url, `http://app.test/d/${made.document.id}`);
+  assert.equal((await services.documents.get(made.document.id))!.contentMd, "Hi User One, client Acme");
+  const copied = await services.documentTree.subtree(made.document.id, 5);
+  assert.deepEqual(copied.nodes.map((n) => n.title), ["Agenda"]);
+
+  const fetched = payload(await client.callTool({ name: "get_document", arguments: { id: made.document.id } }));
+  assert.deepEqual(fetched.origin, { templateId: tpl.id, templateName: "Standup", version: made.template.version });
+  const plain = payload(await client.callTool({ name: "get_document", arguments: { id: tpl.id } }));
+  assert.equal(plain.origin, null);
+  await services.templates.untemplatize(tpl.id);
+  const orphan = payload(await client.callTool({ name: "get_document", arguments: { id: made.document.id } }));
+  assert.deepEqual(orphan.origin, { templateId: tpl.id, templateName: null, version: made.template.version });
 });
 
 test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async () => {
@@ -442,6 +510,50 @@ test("targeted edit failures are clean errors, not fake success", async () => {
   assert.equal(fetched.markdown, "## A\n\nsame same");
 });
 
+/** The message of a tool result that must be an error. */
+function errorText(res: unknown): string {
+  const parsed = CallToolResultSchema.parse(res);
+  assert.equal(parsed.isError, true, `expected an error: ${JSON.stringify(parsed.content)}`);
+  const first = parsed.content[0];
+  return first?.type === "text" ? first.text : "";
+}
+
+test("markdown that opens with YAML front matter is refused, not stored as a rule and heading", async () => {
+  const message =
+    "markdown starts with a YAML front matter block (---). Properties are not part of the " +
+    "markdown body: send the body without the front matter block, and set the values with " +
+    "set_properties (or create_document's properties).";
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { name: "Props", slug: "props" } }),
+  );
+
+  const created = await client.callTool({
+    name: "create_document",
+    arguments: { collectionId: col.id, markdown: "---\nstatus: draft\n---\n\nBody" },
+  });
+  assert.equal(errorText(created), message);
+  const listed = payload(
+    await client.callTool({ name: "list_documents", arguments: { collectionId: col.id } }),
+  );
+  assert.deepEqual(listed.documents, []);
+
+  const doc = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: { collectionId: col.id, markdown: "Intro\n\n---\n\nAfter the rule" },
+    }),
+  );
+  for (const [name, args] of [
+    ["append_section", { markdown: "---\nstatus: draft\n---" }],
+    ["edit_document", { old_string: "Intro", new_string: "---\ntags: [a]\n---\nIntro" }],
+  ] as const) {
+    const res = await client.callTool({ name, arguments: { id: doc.id, ...args } });
+    assert.equal(errorText(res), message, name);
+  }
+  const fetched = payload(await client.callTool({ name: "get_document", arguments: { id: doc.id } }));
+  assert.equal(fetched.markdown, "Intro\n\n---\n\nAfter the rule");
+});
+
 test("get_document on missing id returns an error result", async () => {
   const res: any = await client.callTool({
     name: "get_document",
@@ -727,4 +839,243 @@ test("create_collection without workspaceId is ambiguous once the actor has two 
   });
   assert.equal(upload.isError, true);
   assert.match(upload.content[0].text, /more than one workspace/);
+});
+
+test("properties over MCP: create_document with type and values, set_properties, and get_document agree", async () => {
+  const ws = (await services.workspaces.listMine()).find((w) => w.slug === "u1")!;
+  const col = payload(
+    await client.callTool({
+      name: "create_collection",
+      arguments: { workspaceId: ws.id, name: "Projects", slug: "projects" },
+    }),
+  );
+  const types = new TypeService(db, { kind: "user", userId: "u1" });
+  const project = await types.createType(ws.id, "Project");
+  const stage = await types.createField({
+    workspaceId: ws.id,
+    typeId: project.id,
+    key: "stage",
+    kind: "select",
+    options: ["Idea", "Active", "Done"],
+  });
+  const owners = await types.createField({
+    workspaceId: ws.id,
+    typeId: project.id,
+    key: "owners",
+    kind: "multi_select",
+    options: ["Ann", "Bob"],
+  });
+  const budget = await types.createField({ workspaceId: ws.id, typeId: null, key: "budget", kind: "number" });
+  const brief = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Brief" } }),
+  );
+
+  const created = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: {
+        collectionId: col.id,
+        title: "Apollo",
+        markdown: "Plan.",
+        type: "project",
+        properties: { Stage: "idea", owners: ["ann"] },
+      },
+    }),
+  );
+  assert.deepEqual(
+    { type: created.type, properties: created.properties, property_issues: created.property_issues },
+    {
+      type: { id: project.id, name: "Project" },
+      properties: { stage: "Idea", owners: ["Ann"] },
+      property_issues: [],
+    },
+  );
+
+  const set = payload(
+    await client.callTool({
+      name: "set_properties",
+      arguments: { id: created.id, set: { stage: "Active", budget: "1200" }, add: { owners: "Bob" } },
+    }),
+  );
+  assert.deepEqual(set, {
+    id: created.id,
+    url: `http://app.test/d/${created.id}`,
+    type: { id: project.id, name: "Project" },
+    properties: { stage: "Active", owners: ["Ann", "Bob"], budget: 1200 },
+    property_issues: [],
+  });
+
+  const doc = payload(await client.callTool({ name: "get_document", arguments: { id: created.id } }));
+  assert.equal(doc.markdown, "Plan.");
+  assert.deepEqual(doc.properties, set.properties);
+
+  const fields = payload(
+    await client.callTool({ name: "list_fields", arguments: { workspaceId: ws.id } }),
+  );
+  assert.deepEqual(
+    fields.map((f: any) => [f.key, f.kind, f.type, f.options ?? null]),
+    [
+      ["stage", "select", "Project", ["Idea", "Active", "Done"]],
+      ["owners", "multi_select", "Project", ["Ann", "Bob"]],
+      ["budget", "number", null, null],
+    ],
+  );
+  assert.deepEqual(
+    [stage.id, owners.id, budget.id].map((id) => fields.find((f: any) => f.id === id)?.key),
+    ["stage", "owners", "budget"],
+  );
+
+  const unknown = await client.callTool({
+    name: "set_properties",
+    arguments: { id: created.id, set: { priority: "high" } },
+  });
+  assert.equal(
+    errorText(unknown),
+    'unknown field "priority". Fields this page can take: stage (select: Idea, Active, Done); ' +
+      "owners (multi_select: Ann, Bob); budget (number). Only a workspace owner or admin can define new fields.",
+  );
+  assert.deepEqual(
+    (await types.listFields(ws.id)).map((f) => f.key),
+    ["stage", "owners", "budget"],
+    "no field was created",
+  );
+
+  const untyped = payload(
+    await client.callTool({
+      name: "set_properties",
+      arguments: { id: brief.id, set: { budget: 50 } },
+    }),
+  );
+  assert.deepEqual(untyped.properties, { budget: 50 });
+});
+
+interface TypedPage {
+  id: string;
+  name?: string;
+  title?: string;
+  type: { id: string; name: string } | null;
+  defaults?: Record<string, unknown>;
+  properties?: Record<string, unknown>;
+}
+
+// Its own workspace: list_fields assertions elsewhere read the whole of u1's.
+test("typed templates over MCP: list_templates shows type and defaults; create_from_template returns the committed values", async () => {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "Series", slug: "u1-series" });
+  const col = payload(
+    await client.callTool({
+      name: "create_collection",
+      arguments: { workspaceId: ws.id, name: "Series", slug: "series" },
+    }),
+  );
+  const sync = await services.types.createType(ws.id, "Sync");
+  const define = (key: string, kind: "date" | "doc_list" | "select", options?: string[]) =>
+    services.types.createField({ workspaceId: ws.id, typeId: sync.id, key, kind, options });
+  const date = await define("date", "date");
+  const attendees = await define("attendees", "doc_list");
+  const status = await define("status", "select", ["Planned", "Done"]);
+  const tpl = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Sync {{date}}" } }),
+  );
+  await services.templates.templatize(tpl.id, "Sync");
+  await services.templates.setDefaultType(tpl.id, sync.id);
+  await services.templates.setFieldDefault(tpl.id, date.id, { kind: "today" });
+  await services.templates.setFieldDefault(tpl.id, attendees.id, { kind: "from_previous_sibling" });
+  await services.templates.setFieldDefault(tpl.id, status.id, { kind: "value", value: "Planned" });
+
+  const listed: TypedPage[] = payload(
+    await client.callTool({ name: "list_templates", arguments: { workspaceId: ws.id } }),
+  );
+  const meeting = listed.find((t) => t.name === "Sync")!;
+  assert.deepEqual([meeting.type, meeting.defaults], [
+    { id: sync.id, name: "Sync" },
+    { date: "today", attendees: "from_previous_sibling", status: { value: "Planned" } },
+  ]);
+
+  const create = async (args: Record<string, unknown>): Promise<TypedPage> =>
+    payload(await client.callTool({ name: "create_from_template", arguments: { collectionId: col.id, ...args } }))
+      .document;
+  const ann = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Ann" } }),
+  );
+  const series = payload(
+    await client.callTool({ name: "create_document", arguments: { collectionId: col.id, title: "Weekly sync" } }),
+  );
+
+  const first = await create({ templateId: meeting.id, parentId: series.id, variables: { date: "2026-03-02" } });
+  assert.deepEqual(first.properties, { date: "2026-03-02", status: "Planned" });
+  await client.callTool({ name: "set_properties", arguments: { id: first.id, set: { attendees: [ann.id] } } });
+
+  const second = await create({ templateId: meeting.id, parentId: series.id, variables: { date: "2026-03-09" } });
+  assert.deepEqual(second.type, { id: sync.id, name: "Sync" });
+  assert.deepEqual(second.properties, {
+    date: "2026-03-09",
+    attendees: [{ id: ann.id, title: "Ann", url: `http://app.test/d/${ann.id}` }],
+    status: "Planned",
+  });
+  assert.deepEqual(
+    payload(await client.callTool({ name: "get_document", arguments: { id: second.id } })).properties,
+    second.properties,
+    "what create returns is what a read of the page returns",
+  );
+
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, (await services.documents.get(second.id))!.ydocState!);
+  const authors = getAuthors(doc);
+  assert.deepEqual(
+    [...new Set(propertyBlame(doc).map((b) => `${authors.get(b.clientId)?.userId} ai=${authors.get(b.clientId)?.ai}`))],
+    ["u1 ai=true"],
+    "the values are the creating agent's writing",
+  );
+});
+
+test("open_tasks over MCP: by page, subtree and previous meeting, with the agent as author", async () => {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "Tasks", slug: "u1-tasks" });
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { workspaceId: ws.id, name: "Tasks", slug: "tasks-p7" } }),
+  );
+  const standup = await services.types.createType(ws.id, "Standup");
+  await services.types.createField({ workspaceId: ws.id, typeId: standup.id, key: "day", kind: "date" });
+  const create = async (args: Record<string, unknown>) =>
+    payload(await client.callTool({ name: "create_document", arguments: { collectionId: col.id, ...args } }));
+  const series = await create({ title: "Standups", markdown: "- [ ] pick a room" });
+  const monday = await create({
+    title: "Monday",
+    parentDocumentId: series.id,
+    markdown: "- [ ] @alice fix the build\n- [x] ship it",
+    type: "Standup",
+    properties: { day: "2026-10-19" },
+  });
+  const tuesday = await create({
+    title: "Tuesday",
+    parentDocumentId: series.id,
+    markdown: "- [ ] demo",
+    type: "Standup",
+    properties: { day: "2026-10-20" },
+  });
+  const open = async (args: Record<string, unknown>) =>
+    payload(await client.callTool({ name: "open_tasks", arguments: args })).map(
+      (t: { documentTitle: string; text: string; createdBy: string; ai: boolean; url: string }) => [
+        t.documentTitle,
+        t.text,
+        t.createdBy,
+        t.ai,
+        t.url,
+      ],
+    );
+  const fixTheBuild = ["Monday", "@alice fix the build", "u1", true, `http://app.test/d/${monday.id}`];
+
+  assert.deepEqual(await open({ previousSiblingOf: tuesday.id }), [fixTheBuild]);
+  assert.deepEqual(await open({ documentId: monday.id }), [fixTheBuild]);
+  assert.deepEqual(
+    (await open({ subtreeOf: series.id })).map((t: string[]) => t[1]).sort(),
+    ["@alice fix the build", "demo", "pick a room"],
+  );
+  assert.equal(
+    errorText(await client.callTool({ name: "open_tasks", arguments: { documentId: monday.id, subtreeOf: series.id } })),
+    "give exactly one of documentId, subtreeOf or previousSiblingOf",
+  );
+  assert.equal(
+    errorText(await client.callTool({ name: "open_tasks", arguments: { previousSiblingOf: randomUUID() } })),
+    "document not found",
+  );
 });

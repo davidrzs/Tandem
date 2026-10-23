@@ -5,7 +5,7 @@ import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
-import TaskItem from "@tiptap/extension-task-item";
+import TaskItemBase from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 import type { Extensions } from "@tiptap/core";
@@ -78,6 +78,77 @@ export const PageRef = Node.create({
       },
       String(node.attrs.title || "Untitled"),
     ];
+  },
+});
+
+/**
+ * A task item with a stable `blockId`, the key of its row in the `tasks`
+ * projection. The id lives only in the document model, never in markdown;
+ * edits that rebuild the body from markdown carry it over by matching tasks
+ * (see withTaskBlockIds). A split leaves the new half without one, and the
+ * server assigns ids to items that lack one when it stores the doc. The HTML
+ * attribute keeps the id when a task is cut and pasted to another page.
+ */
+export const TaskItem = TaskItemBase.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      blockId: {
+        default: null,
+        keepOnSplit: false,
+        parseHTML: (el) => {
+          // Structural type: see PageRef.
+          const node = el as unknown as { getAttribute(name: string): string | null };
+          return node.getAttribute("data-block-id");
+        },
+        renderHTML: (attrs) => (attrs.blockId ? { "data-block-id": attrs.blockId } : {}),
+      },
+    };
+  },
+}).configure({ nested: true });
+
+/** The fixed menu of live section queries, resolved against the page that
+ * holds the section whenever it renders. */
+export const LIVE_SECTION_QUERIES = [
+  "open_from_last_time",
+  "since_last_meeting",
+  "open_tasks_here",
+] as const;
+export type LiveSectionQuery = (typeof LIVE_SECTION_QUERIES)[number];
+
+export function isLiveSectionQuery(value: unknown): value is LiveSectionQuery {
+  return (LIVE_SECTION_QUERIES as readonly unknown[]).includes(value);
+}
+
+/**
+ * A read-only list computed from the workspace (open tasks of the previous
+ * meeting, what changed since it, open tasks under this page). Only the
+ * query is stored; in markdown it is the comment `<!-- live-section: q -->`,
+ * which search and the task scan both ignore.
+ */
+export const LiveSection = Node.create({
+  name: "liveSection",
+  group: "block",
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addAttributes() {
+    return { query: { default: "open_tasks_here" } };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "div[data-live-section]",
+        getAttrs: (el) => {
+          const node = el as unknown as { getAttribute(name: string): string | null };
+          const query = node.getAttribute("data-live-section");
+          return isLiveSectionQuery(query) ? { query } : false;
+        },
+      },
+    ];
+  },
+  renderHTML({ node }) {
+    return ["div", { "data-live-section": String(node.attrs.query), class: "live-section" }];
   },
 });
 
@@ -189,8 +260,9 @@ export const baseExtensions: Extensions = [
   Link,
   Image.configure({ inline: true }),
   TaskList,
-  TaskItem.configure({ nested: true }),
+  TaskItem,
   PageRef,
+  LiveSection,
   Callout,
   Toggle,
   ToggleSummary,

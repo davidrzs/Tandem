@@ -12,5 +12,7 @@ export * from "./services/instance.js";
 export * from "./services/notifications.js";
 export * from "./services/settings.js";
 export * from "./services/snapshots.js";
+export * from "./services/templates.js";
+export * from "./services/types.js";
 export * from "./services/workspaces.js";
 export * from "./inputs.js";

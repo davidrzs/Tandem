@@ -1,6 +1,8 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import Suggestion from "@tiptap/suggestion";
+import { LIVE_SECTION_QUERIES } from "@tandem/editor";
+import { LIVE_SECTION_LABELS } from "./live-section-node.js";
 import { suggestionRender } from "./suggestion-menu.js";
 
 interface SlashItem {
@@ -49,6 +51,13 @@ const ITEMS: SlashItem[] = [
     },
   },
   { title: "Divider", hint: "---", run: (e, r) => e.chain().focus().deleteRange(r).setHorizontalRule().run() },
+  ...LIVE_SECTION_QUERIES.map(
+    (query): SlashItem => ({
+      title: LIVE_SECTION_LABELS[query],
+      hint: "live",
+      run: (e, r) => e.chain().focus().deleteRange(r).insertContent({ type: "liveSection", attrs: { query } }).run(),
+    }),
+  ),
 ];
 
 export const SlashCommand = Extension.create({

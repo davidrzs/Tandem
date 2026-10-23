@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { friendlyError } from "../../errors.js";
 import { trpc } from "../../trpc.js";
-import { ConfirmDialog, PromptDialog } from "../Modal.js";
+import { downloadExport } from "../export-download.js";
+import { ConfirmDialog, Modal, PromptDialog } from "../Modal.js";
+import { ReviewList } from "../ReviewList.js";
+import { TemplateChoiceDialog } from "../TemplateMenus.js";
 import { displayTitle } from "../outline.js";
 import { useToast } from "../toast.js";
 import type { MovePlan } from "./drop.js";
@@ -17,14 +20,23 @@ export interface DocRef {
   title: string;
 }
 
+/** Where a default template applies: a collection, or a document's subtree. */
+export type DefaultTemplateTarget =
+  | { collectionId: string; workspaceId: string; place: string }
+  | { documentId: string; workspaceId: string; collectionId: string; place: string };
+
 export interface SidebarActions {
-  newDoc(collectionId: string, parentDocumentId?: string): Promise<void>;
+  /** templateId: a template, null for blank, omitted for the location's default. */
+  newDoc(collectionId: string, parentDocumentId?: string, templateId?: string | null): Promise<void>;
+  /** Asks which template (or a blank page) to start from, then creates it. */
+  newFromTemplate(target: { collectionId: string; parentDocumentId?: string; workspaceId: string }): Promise<void>;
   /** Doc moves toast with Undo; collection moves apply silently. */
   move(plan: MovePlan): Promise<void>;
   retryTree(collectionId: string): void;
   renameCollection(c: Collection): void;
   shareCollection(c: Collection): void;
-  exportCollection(c: Collection): void;
+  /** Downloads the zip; a dialog lists what the export left out, if anything. */
+  exportCollection(c: Collection): Promise<void>;
   deleteCollection(c: Collection): void;
   duplicateDoc(d: DocRef): Promise<void>;
   archiveDoc(d: DocRef, wasActive: boolean): Promise<void>;
@@ -33,6 +45,9 @@ export interface SidebarActions {
   trashArchived(d: DocRef): Promise<void>;
   restoreTrashed(d: DocRef): Promise<void>;
   purgeTrashed(d: DocRef): void;
+  saveAsTemplate(d: DocRef): void;
+  turnIntoPage(d: DocRef): Promise<void>;
+  setDefaultTemplate(target: DefaultTemplateTarget): Promise<void>;
 }
 
 /** Every sidebar mutation with its refresh, toast and undo. Rows call verbs
@@ -51,7 +66,7 @@ export function useSidebarActions({
   const utils = trpc.useUtils();
   const navigate = useNavigate();
   const toast = useToast();
-  const createDocument = useCreateDocument();
+  const createDocument = useCreateDocument(setDialog);
   const moveDoc = trpc.documents.move.useMutation();
   const duplicate = trpc.documents.duplicate.useMutation();
   const archive = trpc.documents.archive.useMutation();
@@ -62,6 +77,9 @@ export function useSidebarActions({
   const renameCollection = trpc.collections.update.useMutation();
   const deleteCollection = trpc.collections.delete.useMutation();
   const moveCollection = trpc.collections.move.useMutation();
+  const templatize = trpc.templates.templatize.useMutation();
+  const untemplatize = trpc.templates.untemplatize.useMutation();
+  const setDefault = trpc.templates.setDefault.useMutation();
 
   const closeDialog = () => setDialog(null);
 
@@ -93,14 +111,38 @@ export function useSidebarActions({
     }
   };
 
+  const newDoc = async (collectionId: string, parentDocumentId?: string, templateId?: string | null) => {
+    folds.apply([
+      { kind: "collection", id: collectionId, expanded: true },
+      ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
+    ]);
+    try {
+      await createDocument(collectionId, parentDocumentId, templateId);
+    } catch (e) {
+      onError(friendlyError(e));
+    }
+  };
+
   return {
-    newDoc: async (collectionId: string, parentDocumentId?: string) => {
-      folds.apply([
-        { kind: "collection", id: collectionId, expanded: true },
-        ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
-      ]);
+    newDoc,
+
+    newFromTemplate: async ({ collectionId, parentDocumentId, workspaceId }) => {
       try {
-        await createDocument(collectionId, parentDocumentId);
+        const [templates, initial] = await Promise.all([
+          utils.templates.list.fetch({ workspaceId }),
+          utils.templates.defaultFor.fetch({ collectionId, parentDocumentId: parentDocumentId ?? null }),
+        ]);
+        setDialog(
+          <TemplateChoiceDialog
+            title="New from template"
+            label="Start from"
+            submitLabel="Create"
+            templates={templates}
+            initial={initial}
+            onClose={closeDialog}
+            onSubmit={(templateId) => void newDoc(collectionId, parentDocumentId, templateId)}
+          />,
+        );
       } catch (e) {
         onError(friendlyError(e));
       }
@@ -137,8 +179,21 @@ export function useSidebarActions({
 
     shareCollection: (c: Collection) => onShareCollection(c.id),
 
-    exportCollection: (c: Collection) => {
-      window.location.href = `/api/export?collection=${c.id}`;
+    exportCollection: async (c: Collection) => {
+      try {
+        const { filename, warnings } = await downloadExport(`collection=${c.id}`);
+        if (warnings.length === 0) return;
+        setDialog(
+          <Modal title="Export" onClose={closeDialog}>
+            <div className="export-summary">
+              Downloaded {filename}.
+              <ReviewList warnings={warnings} />
+            </div>
+          </Modal>,
+        );
+      } catch (e) {
+        onError(friendlyError(e, "The export couldn't be completed."));
+      }
     },
 
     deleteCollection: (c: Collection) =>
@@ -224,5 +279,67 @@ export function useSidebarActions({
           onConfirm={() => void run(d.collectionId, () => purge.mutateAsync({ id: d.id }))}
         />,
       ),
+
+    saveAsTemplate: (d: DocRef) =>
+      setDialog(
+        <PromptDialog
+          title="Save as template"
+          label="Template name"
+          submitLabel="Save as template"
+          initialValue={displayTitle(d)}
+          onClose={closeDialog}
+          onSubmit={(name) =>
+            void run(d.collectionId, async () => {
+              await templatize.mutateAsync({ documentId: d.id, name });
+              await utils.templates.list.invalidate();
+              toast(`Saved "${name}" as a template`);
+            })
+          }
+        />,
+      ),
+
+    turnIntoPage: (d: DocRef) =>
+      run(d.collectionId, async () => {
+        await untemplatize.mutateAsync({ documentId: d.id });
+        await Promise.all([utils.templates.list.invalidate(), utils.templates.defaultFor.invalidate()]);
+        toast(`"${displayTitle(d)}" is a page again`);
+      }),
+
+    setDefaultTemplate: async (target: DefaultTemplateTarget) => {
+      try {
+        const [templates, initial] = await Promise.all([
+          utils.templates.list.fetch({ workspaceId: target.workspaceId }),
+          "documentId" in target
+            ? utils.documents.getMeta.fetch({ id: target.documentId }).then((m) => m?.defaultTemplateId ?? null)
+            : utils.collections.list
+                .fetch()
+                .then((cs) => cs.find((c) => c.id === target.collectionId)?.defaultTemplateId ?? null),
+        ]);
+        setDialog(
+          <TemplateChoiceDialog
+            title="Default template"
+            label={`New pages in ${target.place} start from`}
+            submitLabel="Save"
+            templates={templates}
+            initial={initial}
+            onClose={closeDialog}
+            onSubmit={(templateId) =>
+              void run(target.collectionId, async () => {
+                await setDefault.mutateAsync({
+                  target:
+                    "documentId" in target
+                      ? { documentId: target.documentId }
+                      : { collectionId: target.collectionId },
+                  templateId,
+                });
+                await Promise.all([utils.templates.defaultFor.invalidate(), utils.collections.list.invalidate()]);
+              })
+            }
+          />,
+        );
+      } catch (e) {
+        onError(friendlyError(e));
+      }
+    },
   };
 }

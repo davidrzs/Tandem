@@ -2,7 +2,9 @@ import * as random from "lib0/random";
 import * as Y from "yjs";
 import { updateYFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import { jsonToMarkdown, markdownToJSON } from "./markdown.js";
+import { applyPropertyPatch, propertiesToJSON, type PropertiesJSON, type PropertyOp } from "./properties.js";
 import { COLLAB_FIELD, schema } from "./schema.js";
+import { fillTaskBlockIds, projectTasks, withTaskBlockIds, type ProjectedTask } from "./tasks.js";
 
 /**
  * Authorship (blame) model. Every Yjs client session that inserts content gets
@@ -30,6 +32,12 @@ export interface AuthorInfo {
   ai: boolean;
   /** Epoch ms of this session's first write. */
   at: number;
+  /** OAuth application name of the agent that wrote, at stamp time. Absent
+   * for humans, the local system MCP, and stamps written before agents were
+   * recorded. */
+  agent?: string;
+  /** Id of the document this content was copied from, when it has one. */
+  source?: string;
 }
 
 /** Who is editing (an AuthorInfo minus the stamp time) — what callers carry. */
@@ -62,33 +70,61 @@ export function getAuthors(doc: Y.Doc): Map<number, AuthorInfo> {
 }
 
 /**
+ * Run `write` under a fresh clientID stamped as `author`, so everything it
+ * inserts is traceable to exactly this session. `write` returns whether it
+ * changed anything; when it didn't, no author is stamped (no phantom
+ * session) and the result is null.
+ */
+function runAttributed(doc: Y.Doc, author: AuthorInfo, write: () => boolean): number | null {
+  const previousClientId = doc.clientID;
+  doc.clientID = freshClientId(doc);
+  const editClientId = doc.clientID;
+  let changed = false;
+  try {
+    doc.transact(() => {
+      changed = write();
+      if (changed) stampAuthor(doc, editClientId, author);
+    });
+  } finally {
+    doc.clientID = previousClientId;
+  }
+  return changed ? editClientId : null;
+}
+
+/**
  * Apply a structural edit to the doc's collab fragment, attributed to
- * `author`. Runs under a fresh clientID so the inserted spans are traceable to
- * exactly this edit session; unchanged nodes keep their CRDT identity (and
- * their original authorship) via updateYFragment's structural diff.
+ * `author`, plus an optional property patch in the same session. Unchanged
+ * nodes keep their CRDT identity (and their original authorship) via
+ * updateYFragment's structural diff.
  */
 export function applyAttributedEdit(
   doc: Y.Doc,
   nextJson: unknown,
   author: AuthorInfo,
+  properties: readonly PropertyOp[] = [],
 ): number {
-  const previousClientId = doc.clientID;
-  doc.clientID = freshClientId(doc);
-  const editClientId = doc.clientID;
-  try {
-    doc.transact(() => {
-      stampAuthor(doc, doc.clientID, author);
-      updateYFragment(
-        doc,
-        doc.getXmlFragment(COLLAB_FIELD),
-        schema.nodeFromJSON(nextJson as never),
-        { mapping: new Map(), isOMark: new Map() },
-      );
-    });
-  } finally {
-    doc.clientID = previousClientId;
-  }
-  return editClientId;
+  return runAttributed(doc, author, () => {
+    const fragment = doc.getXmlFragment(COLLAB_FIELD);
+    const current = fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : null;
+    updateYFragment(
+      doc,
+      fragment,
+      schema.nodeFromJSON(withTaskBlockIds(current, nextJson) as never),
+      { mapping: new Map(), isOMark: new Map() },
+    );
+    applyPropertyPatch(doc, properties);
+    return true;
+  })!;
+}
+
+/** Apply a property patch attributed to `author`. Returns the session's
+ * clientID, or null when the patch changed nothing. */
+export function applyAttributedProperties(
+  doc: Y.Doc,
+  ops: readonly PropertyOp[],
+  author: AuthorInfo,
+): number | null {
+  return runAttributed(doc, author, () => applyPropertyPatch(doc, ops) > 0);
 }
 
 /** Build a new Y.Doc seeded with `json`, attributed to `author` (creation). */
@@ -116,17 +152,26 @@ export interface EditedState {
   ydocState: Uint8Array;
   contentMd: string;
   contentJson: unknown;
+  properties: PropertiesJSON;
+  tasks: ProjectedTask[];
+}
+
+/** A body transform (markdown in, markdown out), a property patch, or both. */
+export interface StateEdit {
+  body?: (currentMd: string) => string;
+  properties?: readonly PropertyOp[];
 }
 
 /**
  * The non-live edit path: hydrate the persisted Yjs state (or start fresh),
- * apply a markdown transform as an attributed edit, and return the new state
- * plus the derived read model. Keeps ydoc_state and content_md in lockstep for
- * writers that don't go through a live collaboration session.
+ * apply the edit as one attributed session, and return the new state plus
+ * the derived read model. Keeps ydoc_state, content_md and the properties
+ * in lockstep for writers that don't go through a live collaboration
+ * session.
  */
 export function applyEditToState(
   state: Uint8Array | null,
-  transform: (currentMd: string) => string,
+  edit: StateEdit,
   author: AuthorInfo,
   legacyMd = "",
 ): EditedState {
@@ -134,18 +179,28 @@ export function applyEditToState(
   if (state && state.length > 0) Y.applyUpdate(doc, state);
   const fragment = doc.getXmlFragment(COLLAB_FIELD);
   // A doc from before Yjs persistence: seed its markdown as pre-blame content
-  // so the transform edits the real body and existing text isn't re-attributed.
+  // so the edit lands on the real body and existing text isn't re-attributed.
   if (fragment.length === 0 && legacyMd) {
     applyAttributedEdit(doc, markdownToJSON(legacyMd), UNKNOWN_AUTHOR);
   }
-  const currentMd =
-    fragment.length > 0 ? jsonToMarkdown(yXmlFragmentToProsemirrorJSON(fragment)) : "";
-  applyAttributedEdit(doc, markdownToJSON(transform(currentMd)), author);
-  const contentJson = yXmlFragmentToProsemirrorJSON(fragment);
+  if (edit.body) {
+    const currentMd =
+      fragment.length > 0 ? jsonToMarkdown(yXmlFragmentToProsemirrorJSON(fragment)) : "";
+    applyAttributedEdit(doc, markdownToJSON(edit.body(currentMd)), author, edit.properties);
+  } else if (edit.properties) {
+    applyAttributedProperties(doc, edit.properties, author);
+  }
+  // A state from before block ids gets them here, so its tasks project. Ids
+  // are bookkeeping, not writing: no session is stamped for them.
+  doc.transact(() => fillTaskBlockIds(doc));
+  const contentJson =
+    fragment.length > 0 ? yXmlFragmentToProsemirrorJSON(fragment) : markdownToJSON("");
   return {
     ydocState: Y.encodeStateAsUpdate(doc),
     contentMd: jsonToMarkdown(contentJson),
     contentJson,
+    properties: propertiesToJSON(doc),
+    tasks: projectTasks(doc, getAuthors(doc)),
   };
 }
 

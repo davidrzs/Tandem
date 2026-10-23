@@ -183,6 +183,48 @@
       "when": 1791710429526,
       "tag": "0025_abnormal_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792698474744,
+      "tag": "0026_hot_darwin",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792700558401,
+      "tag": "0027_happy_jackal",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1792704398200,
+      "tag": "0028_black_tinkerer",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792768854804,
+      "tag": "0029_blue_hiroim",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792782584161,
+      "tag": "0030_flowery_wraith",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792783153727,
+      "tag": "0031_demonic_celestials",
+      "breakpoints": true
     }
   ]
 }

@@ -1,15 +1,18 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   customType,
   doublePrecision,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -151,6 +154,10 @@ export const collections = pgTable(
     description: text("description"),
     icon: text("icon"),
     color: text("color"),
+    // New pages here start from this template unless a deeper folder sets one.
+    defaultTemplateId: uuid("default_template_id").references((): AnyPgColumn => templates.documentId, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -191,15 +198,28 @@ export const documents = pgTable(
     contentJson: jsonb("content_json"),
     // Live WRITE model: persisted Yjs CRDT state. Null until first edit session.
     ydocState: bytea("ydoc_state"),
-    // Lower-cased @handles of task items (`- [ ] @alice ...`) in content_md,
-    // extracted on every content write so "my todos" is an index lookup, not
-    // a scan of every readable body. NULL = written before this column existed
-    // (readers fall back to scanning those rows until their next save).
-    taskAssignees: text("task_assignees").array(),
+    // New pages under this one start from this template (deepest ancestor wins).
+    defaultTemplateId: uuid("default_template_id").references((): AnyPgColumn => templates.documentId, {
+      onDelete: "set null",
+    }),
+    // Provenance of a page created from a template; never updated afterwards.
+    origin: jsonb("origin").$type<DocumentOrigin>(),
+    // What the page is: at most one type. Detaching clears this and keeps
+    // the values, which reference field ids, not the type.
+    typeId: uuid("type_id").references((): AnyPgColumn => documentTypes.id, {
+      onDelete: "set null",
+    }),
+    // Derived READ model of the ydoc's `properties` map, validated against
+    // the field registry: valid values by field id, the values that failed
+    // as issues, and their searchable text. Written only together with the
+    // ydoc_state it was projected from.
+    properties: jsonb("properties").$type<Record<string, unknown>>().notNull().default({}),
+    propertyIssues: jsonb("property_issues").$type<PropertyIssue[]>().notNull().default([]),
+    propertiesText: text("properties_text").notNull().default(""),
 
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): any =>
-        sql`setweight(to_tsvector('simple', coalesce(title, '')), 'A') || setweight(to_tsvector('simple', coalesce(content_md, '')), 'B')`,
+        sql`setweight(to_tsvector('simple', coalesce(title, '')), 'A') || setweight(to_tsvector('simple', coalesce(content_md, '')), 'B') || setweight(to_tsvector('simple', coalesce(properties_text, '')), 'C')`,
     ),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -220,7 +240,6 @@ export const documents = pgTable(
       .using("gin", sql`lower(${t.title}) gin_trgm_ops`)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
     index("documents_tags_idx").using("gin", t.tags),
-    index("documents_task_assignees_idx").using("gin", t.taskAssignees),
     index("documents_recent_idx")
       .on(t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
@@ -228,6 +247,150 @@ export const documents = pgTable(
       .on(t.collectionId, t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
   ],
+);
+
+/** Which template a page started from: the template document and its
+ * `updated_at` at instantiation. */
+export interface DocumentOrigin {
+  templateId: string;
+  version: string;
+}
+
+/** Field kinds. List kinds (multi_select, doc_list) hold several values;
+ * `json` holds imported structures the app can't edit. */
+export const FIELD_KINDS = [
+  "text",
+  "number",
+  "checkbox",
+  "date",
+  "datetime",
+  "select",
+  "multi_select",
+  "url",
+  "doc",
+  "doc_list",
+  "json",
+] as const;
+export type FieldKind = (typeof FIELD_KINDS)[number];
+
+/** A select option. Ids are stable; a removed option is retired, never
+ * deleted, so values that hold it stay readable. */
+export interface FieldOption {
+  id: string;
+  label: string;
+  retired?: boolean;
+}
+
+/** A stored value the projection could not accept as valid. */
+export interface PropertyIssue {
+  fieldId: string;
+  code: "unknown_field" | "retired_field" | "retired_option" | "invalid_value";
+  message: string;
+  value: unknown;
+}
+
+/** What a page is (Meeting, Project). Defined by workspace owners and admins. */
+export const documentTypes = pgTable(
+  "document_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("document_types_name_unique").on(t.workspaceId, sql`lower(${t.name})`)],
+);
+
+/** A property definition. `type_id` null is an ad-hoc workspace field.
+ * Values in documents are keyed by `id`, so renames, kind changes and
+ * retirement never rewrite a document. */
+export const typeFields = pgTable(
+  "type_fields",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    typeId: uuid("type_id").references(() => documentTypes.id, { onDelete: "set null" }),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    kind: text("kind").$type<FieldKind>().notNull(),
+    position: doublePrecision("position").notNull().default(0),
+    options: jsonb("options").$type<FieldOption[]>().notNull().default([]),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("type_fields_workspace_idx").on(t.workspaceId),
+    // One live field per key within a type (or among the ad-hoc fields).
+    uniqueIndex("type_fields_live_key_unique")
+      .on(
+        t.workspaceId,
+        sql`coalesce(${t.typeId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+        sql`lower(${t.key})`,
+      )
+      .where(sql`${t.retiredAt} IS NULL`),
+  ],
+);
+
+/** Keys a field had before a rename. Append-only, so old keys keep working
+ * for agents and imports. */
+export const fieldKeyAliases = pgTable(
+  "field_key_aliases",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    fieldId: text("field_id")
+      .notNull()
+      .references(() => typeFields.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.fieldId, t.key] }),
+    index("field_key_aliases_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/** Expressions a template default can use besides a literal value. `today`
+ * and `now` are the moment of instantiation, `me` the creator's name, and
+ * `from_previous_sibling` the same field on the latest earlier page of the
+ * type under the same parent. */
+export const DEFAULT_EXPRESSIONS = ["today", "now", "me", "from_previous_sibling"] as const;
+export type DefaultExpression = (typeof DEFAULT_EXPRESSIONS)[number];
+
+/** How a template fills one field of a new page. A literal is stored like a
+ * property value: option ids, document ids, ISO dates; a list for list kinds. */
+export type TemplateDefault = { kind: "value"; value: unknown } | { kind: DefaultExpression };
+
+/** A template is an ordinary document (same editor, blame, versions) plus
+ * this row. Template documents and their subtrees stay out of search,
+ * backlinks, recents and tasks. New pages get `default_type_id` as their
+ * type and `defaults` (by field id) as their first values. */
+export const templates = pgTable(
+  "templates",
+  {
+    documentId: uuid("document_id")
+      .primaryKey()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    defaultTypeId: uuid("default_type_id").references(() => documentTypes.id, { onDelete: "set null" }),
+    defaults: jsonb("defaults").$type<Record<string, TemplateDefault>>().notNull().default({}),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("templates_workspace_idx").on(t.workspaceId)],
 );
 
 /** Inline discussion on a document. A top-level comment may be anchored to a
@@ -270,6 +433,8 @@ export const instanceSettings = pgTable("instance_settings", {
   instanceName: text("instance_name").notNull().default("Tandem"),
   // Whether non-admin members may create additional (team) workspaces.
   allowWorkspaceCreation: boolean("allow_workspace_creation").notNull().default(true),
+  // When the boot backfill of task rows finished; set once, so later boots skip it.
+  tasksBackfilledAt: timestamp("tasks_backfilled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -308,6 +473,36 @@ export const userSettings = pgTable("user_settings", {
   sidebarCollapsedDocs: text("sidebar_collapsed_docs").array().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Derived READ model of a page's task items, one row per item keyed by its
+ * block id, rewritten with every save of the page. Templates keep rows like
+ * any page; readers exclude them. */
+export const tasks = pgTable(
+  "tasks",
+  {
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+    text: text("text").notNull(),
+    done: boolean("done").notNull().default(false),
+    // Lower-cased @handles the task assigns (`- [ ] @alice …`).
+    handles: text("handles").array().notNull().default([]),
+    position: integer("position").notNull(),
+    // From blame: who wrote the item, and whether as an agent. Null when the
+    // item predates blame.
+    createdBy: text("created_by"),
+    ai: boolean("ai").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // When the save that first saw it done ran; null while open.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.documentId, t.blockId] }),
+    index("tasks_handles_idx").using("gin", t.handles),
+  ],
+);
 
 /** A user's starred documents. System-managed like user_settings (no
  * app_user grant): the service checks document readability actor-scoped,
@@ -428,3 +623,7 @@ export type DocumentSnapshot = typeof documentSnapshots.$inferSelect;
 export type InstanceSettings = typeof instanceSettings.$inferSelect;
 export type InstanceInvite = typeof instanceInvites.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
+export type Template = typeof templates.$inferSelect;
+export type DocumentType = typeof documentTypes.$inferSelect;
+export type TypeField = typeof typeFields.$inferSelect;
+export type Task = typeof tasks.$inferSelect;

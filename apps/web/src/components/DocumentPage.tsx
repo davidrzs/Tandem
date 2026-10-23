@@ -43,6 +43,12 @@ export function DocumentPage() {
       ]);
     },
   });
+  const workspaceId = meta.data?.workspaceId;
+  const templates = trpc.templates.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+  const template = templates.data?.find((t) => t.id === docId);
 
   if (!docId) return null;
   if (meta.isLoading) return <div className="empty">Loading…</div>;
@@ -105,6 +111,12 @@ export function DocumentPage() {
               {restore.isPending ? "Restoring…" : "Restore"}
             </button>
           )}
+        </div>
+      )}
+      {template && (
+        <div className="template-banner">
+          Template “{template.name}”. New pages copy this page and its sub-pages; it stays out
+          of search, tasks and Home.
         </div>
       )}
       <Editor

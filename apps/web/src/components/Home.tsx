@@ -8,13 +8,14 @@ import { useCreateDocument } from "./create-document.js";
 import { Icon } from "./Icon.js";
 import { notificationHref, notificationVerb } from "./notification-link.js";
 import { useRecentDocs } from "./recents.js";
-import { timeAgo } from "./time.js";
+import { formatValue } from "./properties.js";
+import { localDay, timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
 
 interface TodoGroup {
   documentId: string;
   documentTitle: string;
-  items: Array<{ line: number; text: string; done: boolean }>;
+  items: Array<{ blockId: string; text: string; done: boolean }>;
 }
 
 type OnboardingFlag = "dismissed" | "reviewed";
@@ -56,6 +57,7 @@ export function Home() {
   const toast = useToast();
   const utils = trpc.useUtils();
   const todos = trpc.documents.myTodos.useQuery();
+  const dueSoon = trpc.documents.dueSoon.useQuery({ today: localDay() });
   const notifications = trpc.notifications.list.useQuery({
     workspaceId: workspaceId ?? undefined,
   });
@@ -103,7 +105,7 @@ export function Home() {
         g = { documentId: t.documentId, documentTitle: t.documentTitle, items: [] };
         target.set(t.documentId, g);
       }
-      g.items.push({ line: t.line, text: t.text, done: t.done });
+      g.items.push({ blockId: t.blockId, text: t.text, done: t.done });
     }
     return { open: [...groups.values()], done: [...doneGroups.values()] };
   }, [todos.data]);
@@ -323,6 +325,24 @@ export function Home() {
         {showDone && done.map((g) => <TodoCard key={g.documentId} group={g} />)}
       </section>
 
+      {(dueSoon.data ?? []).length > 0 && (
+        <section className="home-section" aria-labelledby="due-soon-title">
+          <h2 id="due-soon-title">Due soon</h2>
+          <ul className="due-list">
+            {dueSoon.data!.map((item) => (
+              <li key={`${item.documentId}:${item.fieldKey}`} className={item.overdue ? "overdue" : ""}>
+                <Link to={`/d/${item.documentId}`}>{item.title || "Untitled"}</Link>
+                <span className="due-field">{item.fieldLabel}</span>
+                <span className="due-date">
+                  {item.overdue ? "Overdue · " : ""}
+                  {formatValue({ kind: "date", options: [] }, item.date)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {(workspaceFavorites.length > 0 || recents.length > 0) && (
         <section className="home-section">
           <h2>Continue working</h2>
@@ -403,7 +423,7 @@ function TodoCard({ group }: { group: TodoGroup }) {
       </Link>
       <ul className="todo-list">
         {group.items.map((item) => (
-          <li key={item.line} className={item.done ? "done" : ""}>
+          <li key={item.blockId} className={item.done ? "done" : ""}>
             <span className="todo-box" aria-hidden="true" />
             <Link to={`/d/${group.documentId}?task=${encodeURIComponent(item.text)}`}>
               {item.text}

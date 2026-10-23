@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { rowsOf, templateDocumentIds } from "./document-tree-internals.js";
 import {
   comments,
   notifications,
@@ -266,7 +267,8 @@ export class NotificationService {
   /**
    * Diff two markdown bodies and notify members newly assigned an open task
    * (`- [ ] @handle …`). Tasks are matched by their full text, so editing an
-   * existing task's wording re-notifies — acceptable for a v1.
+   * existing task's wording re-notifies — acceptable for a v1. Tasks in a
+   * template are boilerplate, not assignments, and notify nobody.
    */
   async onDocumentStored(input: {
     documentId: string;
@@ -286,6 +288,10 @@ export class NotificationService {
       .scan(input.newMarkdown)
       .filter((t) => !t.done && t.mentions.length > 0 && !oldTasks.has(t.text));
     if (fresh.length === 0) return;
+    const inTemplate = await this.system((db) =>
+      db.execute(sql`SELECT 1 WHERE ${input.documentId}::uuid IN ${templateDocumentIds}`),
+    );
+    if (rowsOf(inTemplate).length > 0) return;
 
     const handles = new Set(fresh.flatMap((t) => t.mentions.map((m) => m.toLowerCase())));
     const byHandle = await this.membersByHandle(input.workspaceId, handles);
