@@ -267,7 +267,9 @@ Properties travel as YAML front matter. An export writes each page's values
 (option labels, page references as `"[[Title]]"`, ISO dates) in its type's
 field order and then alphabetically, with the page's `tandem-id` and
 `tandem-type`, and describes every type and field in `_tandem/fields.json` at
-the zip root. An import keeps front matter as properties: with that file the
+the zip root. When the download is done, Tandem lists what the export left
+out: images it couldn't read, and values of fields whose key front matter
+keeps for itself (a field named `tags`, say). An import keeps front matter as properties: with that file the
 kinds and options come back exactly; without it (an Obsidian vault) each key
 gets one kind across the whole vault, values that disagree become text (a
 plain date in a key that also holds date-times becomes that day at 00:00

@@ -3829,7 +3829,8 @@ p.live-section-source a:hover {
   pointer-events: none;
 }
 
-.import-summary {
+.import-summary,
+.export-summary {
   margin-top: 10px;
   padding: 10px 12px;
   background: var(--sunken);
@@ -3838,16 +3839,19 @@ p.live-section-source a:hover {
   line-height: 1.5;
 }
 
-.import-summary details {
+.import-summary details,
+.export-summary details {
   margin-top: 6px;
 }
 
-.import-summary summary {
+.import-summary summary,
+.export-summary summary {
   cursor: pointer;
   color: var(--accent-ink);
 }
 
-.import-summary ul {
+.import-summary ul,
+.export-summary ul {
   margin: 6px 0 0;
   padding-left: 18px;
   color: var(--ink-2);

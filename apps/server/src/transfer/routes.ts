@@ -10,6 +10,18 @@ import { importZip, ImportError } from "./import.js";
 
 const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 
+/** The export's warnings, as URI-encoded JSON: a string array. */
+export const EXPORT_WARNINGS_HEADER = "x-tandem-export-warnings";
+// Browsers refuse responses whose headers pass a few hundred KiB, and a
+// workspace with many missing images warns once per image.
+const MAX_HEADER_WARNINGS = 50;
+
+function warningsHeader(warnings: string[]): string {
+  const shown = warnings.slice(0, MAX_HEADER_WARNINGS);
+  if (warnings.length > shown.length) shown.push(`…and ${warnings.length - shown.length} more.`);
+  return encodeURIComponent(JSON.stringify(shown));
+}
+
 /**
  * Markdown zip import/export. Both routes are session-gated and RLS-scoped:
  * a user exports only what they can read and imports into a workspace they
@@ -79,6 +91,7 @@ export async function registerTransferRoutes(
     const safe = name.replace(/[^\w.-]+/g, "_");
     reply.header("content-type", "application/zip");
     reply.header("content-disposition", `attachment; filename="${safe}-export.zip"`);
+    if (result.warnings.length > 0) reply.header(EXPORT_WARNINGS_HEADER, warningsHeader(result.warnings));
     return reply.send(Buffer.from(result.buffer));
   });
 

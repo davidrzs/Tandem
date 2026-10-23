@@ -2,8 +2,10 @@ import { useState } from "react";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { AccountSection } from "./AccountSection.js";
+import { downloadExport } from "./export-download.js";
 import { Icon } from "./Icon.js";
 import { Modal } from "./Modal.js";
+import { ReviewList } from "./ReviewList.js";
 import { timeAgo } from "./time.js";
 import { useToast } from "./toast.js";
 import { TwoFactorSection } from "./TwoFactorSection.js";
@@ -73,6 +75,23 @@ export function SettingsModal({
       setError(friendlyError(e, "The import couldn't be completed."));
     } finally {
       setImporting(false);
+    }
+  };
+
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<{ filename: string; warnings: string[] } | null>(null);
+
+  const onExport = async () => {
+    if (!workspaceId) return;
+    setExporting(true);
+    setExportResult(null);
+    setError(null);
+    try {
+      setExportResult(await downloadExport(`workspace=${workspaceId}`));
+    } catch (e) {
+      setError(friendlyError(e, "The export couldn't be completed."));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -170,9 +189,9 @@ export function SettingsModal({
       ) : (
         <>
           <div className="data-actions">
-            <a className="btn" href={`/api/export?workspace=${workspaceId}`}>
-              Export workspace
-            </a>
+            <button type="button" className="btn" disabled={exporting} onClick={() => void onExport()}>
+              {exporting ? "Exporting…" : "Export workspace"}
+            </button>
             <label className={"btn" + (importing ? " disabled" : "")}>
               {importing ? "Importing…" : "Import a zip"}
               <input
@@ -192,25 +211,19 @@ export function SettingsModal({
             Export downloads every document you can read as markdown. Import
             accepts markdown-zip wiki exports and Obsidian-style vaults.
           </p>
+          {exportResult && (
+            <div className="export-summary">
+              Downloaded {exportResult.filename}.
+              <ReviewList warnings={exportResult.warnings} />
+            </div>
+          )}
           {importResult && (
             <div className="import-summary">
               Imported {importResult.collections} collection
               {importResult.collections === 1 ? "" : "s"}, {importResult.documents} document
               {importResult.documents === 1 ? "" : "s"}, {importResult.images} image
               {importResult.images === 1 ? "" : "s"}.
-              {importResult.warnings.length > 0 && (
-                <details>
-                  <summary>
-                    {importResult.warnings.length} thing
-                    {importResult.warnings.length === 1 ? "" : "s"} to review
-                  </summary>
-                  <ul>
-                    {[...new Set(importResult.warnings)].map((warning) => (
-                      <li key={warning}>{warning}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
+              <ReviewList warnings={importResult.warnings} />
             </div>
           )}
         </>

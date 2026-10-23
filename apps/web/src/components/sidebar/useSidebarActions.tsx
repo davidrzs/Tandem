@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { friendlyError } from "../../errors.js";
 import { trpc } from "../../trpc.js";
-import { ConfirmDialog, PromptDialog } from "../Modal.js";
+import { downloadExport } from "../export-download.js";
+import { ConfirmDialog, Modal, PromptDialog } from "../Modal.js";
+import { ReviewList } from "../ReviewList.js";
 import { TemplateChoiceDialog } from "../TemplateMenus.js";
 import { displayTitle } from "../outline.js";
 import { useToast } from "../toast.js";
@@ -33,7 +35,8 @@ export interface SidebarActions {
   retryTree(collectionId: string): void;
   renameCollection(c: Collection): void;
   shareCollection(c: Collection): void;
-  exportCollection(c: Collection): void;
+  /** Downloads the zip; a dialog lists what the export left out, if anything. */
+  exportCollection(c: Collection): Promise<void>;
   deleteCollection(c: Collection): void;
   duplicateDoc(d: DocRef): Promise<void>;
   archiveDoc(d: DocRef, wasActive: boolean): Promise<void>;
@@ -176,8 +179,21 @@ export function useSidebarActions({
 
     shareCollection: (c: Collection) => onShareCollection(c.id),
 
-    exportCollection: (c: Collection) => {
-      window.location.href = `/api/export?collection=${c.id}`;
+    exportCollection: async (c: Collection) => {
+      try {
+        const { filename, warnings } = await downloadExport(`collection=${c.id}`);
+        if (warnings.length === 0) return;
+        setDialog(
+          <Modal title="Export" onClose={closeDialog}>
+            <div className="export-summary">
+              Downloaded {filename}.
+              <ReviewList warnings={warnings} />
+            </div>
+          </Modal>,
+        );
+      } catch (e) {
+        onError(friendlyError(e, "The export couldn't be completed."));
+      }
     },
 
     deleteCollection: (c: Collection) =>

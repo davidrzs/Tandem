@@ -113,7 +113,7 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
                 : []),
               { label: "Open collection page", icon: "page", onClick: () => navigate(`/c/${c.id}`) },
               { label: "Share & access", icon: "share", onClick: () => actions.shareCollection(c) },
-              { label: "Export", icon: "download", onClick: () => actions.exportCollection(c) },
+              { label: "Export", icon: "download", onClick: () => void actions.exportCollection(c) },
               { label: "Delete collection", icon: "trash", danger: true, onClick: () => actions.deleteCollection(c) },
             ]}
           />
