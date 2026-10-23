@@ -1,5 +1,5 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
-import { documents, runAsActor, SYSTEM, type Actor, type Database } from "@tandem/db";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { documents, runAsActor, SYSTEM, typeFields, type Actor, type Database } from "@tandem/db";
 import type { AuthorIdentity, AuthorInfo } from "@tandem/editor";
 
 /** Internal helpers shared by DocumentService, DocumentTreeService, and
@@ -101,6 +101,80 @@ export async function nextPosition(
       ),
     );
   return (row?.max ?? 0) + 1;
+}
+
+/** The page of a series before another: same collection, parent and type. */
+export interface PreviousSibling {
+  id: string;
+  title: string;
+  properties: Record<string, unknown>;
+  createdAt: Date;
+  /** Its value of the type's first date field, if it has one. */
+  date: string | null;
+}
+
+/**
+ * A series orders its pages by the type's first date field (newest first,
+ * undated last), then by creation time, newest first. The previous sibling
+ * of the page `self` is the one after it in that order; without `self` it is
+ * the first, the page a new sibling at `placement` follows. Null when there
+ * is none.
+ */
+export async function previousSibling(
+  db: Database,
+  placement: { typeId: string; collectionId: string; parentDocumentId: string | null },
+  self?: string,
+): Promise<PreviousSibling | null> {
+  const [dated] = await db
+    .select({ id: typeFields.id })
+    .from(typeFields)
+    .where(
+      and(
+        eq(typeFields.typeId, placement.typeId),
+        isNull(typeFields.retiredAt),
+        inArray(typeFields.kind, ["date", "datetime"]),
+      ),
+    )
+    .orderBy(asc(typeFields.position), asc(typeFields.key))
+    .limit(1);
+  const date = dated ? sql<string | null>`${documents.properties} ->> ${dated.id}::text` : sql<null>`NULL`;
+  const ranked = db.$with("ranked").as(
+    db
+      .select({
+        id: documents.id,
+        title: documents.title,
+        properties: documents.properties,
+        createdAt: documents.createdAt,
+        date: date.as("date"),
+        rank: sql<number>`row_number() OVER (ORDER BY ${date} DESC NULLS LAST, ${documents.createdAt} DESC, ${documents.id} DESC)`.as("rank"),
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.collectionId, placement.collectionId),
+          placement.parentDocumentId
+            ? eq(documents.parentDocumentId, placement.parentDocumentId)
+            : isNull(documents.parentDocumentId),
+          eq(documents.typeId, placement.typeId),
+          isNull(documents.deletedAt),
+          isNull(documents.archivedAt),
+          notTemplate,
+        ),
+      ),
+  );
+  const wanted = self ? sql`(SELECT r.rank FROM ranked r WHERE r.id = ${self}) + 1` : sql`1`;
+  const [row] = await db
+    .with(ranked)
+    .select({
+      id: ranked.id,
+      title: ranked.title,
+      properties: ranked.properties,
+      createdAt: ranked.createdAt,
+      date: ranked.date,
+    })
+    .from(ranked)
+    .where(sql`${ranked.rank} = ${wanted}`);
+  return row ?? null;
 }
 
 /** Resolve readable ancestor paths for a bounded set of search hits in one

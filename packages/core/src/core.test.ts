@@ -5,6 +5,7 @@ import {
   createDatabase,
   documents,
   documents as documentsTable,
+  tasks as tasksTable,
   documentTypes,
   documentSnapshots,
   migrateDatabase,
@@ -25,7 +26,7 @@ import { CommentService } from "./services/comments.js";
 import { NotificationService } from "./services/notifications.js";
 import { DocumentQueryService } from "./services/document-queries.js";
 import { DocumentTreeService } from "./services/document-tree.js";
-import { DocumentService, normalizeTags } from "./services/documents.js";
+import { backfillTaskRows, DocumentService, normalizeTags } from "./services/documents.js";
 import { FavoriteService } from "./services/favorites.js";
 import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
@@ -673,27 +674,29 @@ test("listMyTodos: assigned tasks across visible docs, tenant-scoped", async () 
   assert.ok(!after.some((t) => t.documentId === doc.id));
 });
 
-test("listMyTodos reads assignees extracted at save time; pre-migration rows still scan", async () => {
+test("backfillTaskRows projects pages saved before the tasks table, once", async () => {
   const c1 = new CollectionService(db, user("u1"));
   const d1 = new DocumentService(db, user("u1"));
-  const d1Queries = new DocumentQueryService(db, user("u1"));
-  const col = await c1.create({ name: "Todo index", slug: "todo-index" });
-  const md = "- [ ] @alice indexed task\n- [ ] @Bob@Other.org other";
-  const indexed = await d1.create({ collectionId: col.id, title: "Indexed", markdown: md });
-  assert.deepEqual(indexed.taskAssignees?.sort(), ["alice", "bob@other.org"]);
-
+  const col = await c1.create({ name: "Backfill", slug: "backfill" });
+  const md = "- [ ] @alice old task\n\n```\n- [ ] not a task\n```";
   const legacy = await d1.create({ collectionId: col.id, title: "Legacy", markdown: md });
-  // Written before task_assignees existed, and one whose index says "nobody".
-  const stale = await d1.create({ collectionId: col.id, title: "Stale", markdown: md });
+  const fenced = await d1.create({ collectionId: col.id, title: "Fenced", markdown: "```\n- [ ] code\n```" });
   await runAsActor(db, SYSTEM, async (d) => {
-    await d.update(documents).set({ taskAssignees: null }).where(eq(documents.id, legacy.id));
-    await d.update(documents).set({ taskAssignees: [] }).where(eq(documents.id, stale.id));
+    await d.update(documents).set({ ydocState: null }).where(eq(documents.id, legacy.id));
+    await d.execute(sql`DELETE FROM tasks WHERE document_id = ${legacy.id}`);
   });
+  const mine = async () =>
+    (await new DocumentQueryService(db, user("u1")).listMyTodos())
+      .filter((t) => t.documentId === legacy.id || t.documentId === fenced.id)
+      .map((t) => [t.documentTitle, t.text, t.createdBy]);
+  assert.deepEqual(await mine(), []);
 
-  const ids = new Set((await d1Queries.listMyTodos()).map((t) => t.documentId));
-  assert.ok(ids.has(indexed.id), "found via the stored assignees");
-  assert.ok(ids.has(legacy.id), "NULL rows fall back to scanning");
-  assert.ok(!ids.has(stale.id), "stored assignees are authoritative (no body scan)");
+  assert.equal(await backfillTaskRows(db), 1);
+  assert.deepEqual(await mine(), [["Legacy", "@alice old task", null]]);
+  const [projected] = await taskTable(legacy.id);
+  assert.equal(await backfillTaskRows(db), 0, "a second boot finds nothing to do");
+  await d1.editBody(legacy.id, (cur) => `Intro\n\n${cur}`);
+  assert.equal((await taskTable(legacy.id))[0]!.blockId, projected!.blockId, "the id written at backfill sticks");
 });
 
 test("concurrent fallback body edits don't drop each other", async () => {
@@ -1655,6 +1658,7 @@ test("properties: a stored map is projected on save, trusting nothing in it", as
     contentMd: "",
     contentJson: null,
     properties: { [status.id]: opt(status, "Open"), f_ghost: "boo", [`${status.id}x`]: null },
+    tasks: [],
   });
   const [row] = await db
     .select({ properties: documentsTable.properties, issues: documentsTable.propertyIssues })
@@ -1900,4 +1904,157 @@ test("starter kit: a workspace's own Meeting type is kept and only gains the mis
     ["attendees", "status"],
     "a text Date can't default to today, so it gets no default",
   );
+});
+
+async function taskTable(documentId: string) {
+  return runAsActor(db, SYSTEM, (d) =>
+    d
+      .select({
+        blockId: tasksTable.blockId,
+        text: tasksTable.text,
+        done: tasksTable.done,
+        handles: tasksTable.handles,
+        position: tasksTable.position,
+        createdBy: tasksTable.createdBy,
+        ai: tasksTable.ai,
+        closed: sql<boolean>`${tasksTable.closedAt} IS NOT NULL`,
+      })
+      .from(tasksTable)
+      .where(eq(tasksTable.documentId, documentId))
+      .orderBy(tasksTable.position),
+  );
+}
+
+test("tasks: rows follow every save, keep their ids, and survive a move; deletion hides them", async () => {
+  const { col, docs, tree, queries } = await templateWorkspace("tk", "Tom");
+  const doc = await docs.create({
+    collectionId: col.id,
+    title: "Plan",
+    markdown: "# Plan\n\n- [ ] @tk write the brief\n- [x] book the room",
+  });
+  const rows = await taskTable(doc.id);
+  assert.deepEqual(
+    rows.map(({ blockId: _, ...row }) => row),
+    [
+      { text: "@tk write the brief", done: false, handles: ["tk"], position: 0, createdBy: "tk", ai: false, closed: false },
+      { text: "book the room", done: true, handles: [], position: 1, createdBy: "tk", ai: false, closed: true },
+    ],
+  );
+
+  await docs.editBody(doc.id, (md) => md.replace("# Plan", "# Plan\n\nIntro").replace("- [ ] @tk", "- [x] @tk"));
+  assert.deepEqual(
+    (await taskTable(doc.id)).map((r) => [r.blockId, r.done, r.closed]),
+    [
+      [rows[0]!.blockId, true, true],
+      [rows[1]!.blockId, true, true],
+    ],
+  );
+
+  const parent = await docs.create({ collectionId: col.id, title: "Parent" });
+  await docs.editBody(doc.id, (md) => `${md}\n- [ ] follow up`);
+  await tree.move(doc.id, { parentDocumentId: parent.id });
+  assert.deepEqual(
+    (await queries.openTasks({ subtreeOf: parent.id })).map((t) => [t.documentTitle, t.text, t.position]),
+    [["Plan", "follow up", 2]],
+  );
+
+  await tree.softDelete(doc.id);
+  assert.deepEqual(await queries.openTasks({ documentId: doc.id }), []);
+  assert.deepEqual(await queries.openTasks({ subtreeOf: parent.id }), []);
+});
+
+test("tasks: open tasks by page, subtree and previous meeting; changes since; live sections; due soon", async () => {
+  const { col, docs, queries, templates } = await templateWorkspace("lv", "Liv");
+  const types = new TypeService(db, user("lv"));
+  const meeting = await types.createType(col.workspaceId, "Meeting");
+  await types.createField({ workspaceId: col.workspaceId, typeId: meeting.id, key: "date", kind: "date" });
+  const project = await types.createType(col.workspaceId, "Project");
+  await types.createField({ workspaceId: col.workspaceId, typeId: project.id, key: "next_review", kind: "date" });
+  await types.createField({ workspaceId: col.workspaceId, typeId: project.id, key: "kickoff", kind: "date" });
+
+  const page = async (title: string, parentDocumentId: string | null, markdown = "", typeId?: string, set?: Record<string, string>) => {
+    const created = await docs.create({ collectionId: col.id, parentDocumentId, title, markdown });
+    if (typeId) await types.setDocumentType(created.id, typeId);
+    if (set) await docs.editProperties(created.id, await types.planPatch(created.id, { set }));
+    return created;
+  };
+  const apollo = await page("Apollo", null, "- [ ] apollo own task", project.id, { next_review: "2026-10-20", kickoff: "2026-10-01" });
+  await page("Gemini", null, "", project.id, { next_review: "2026-11-15" });
+  await page("Mercury", null, "", project.id, { next_review: "2027-01-01" });
+  const meetings = await page("Meetings", apollo.id);
+  const m1 = await page("Sync 1", meetings.id, "- [ ] @lv book room\n- [x] send agenda\n- [ ] chase vendor", meeting.id, { date: "2026-10-01" });
+  const m2 = await page("Sync 2", meetings.id, "<!-- live-section: open_from_last_time -->\n\n- [ ] new item", meeting.id, { date: "2026-10-08" });
+  const spec = await page("Spec", apollo.id, "- [ ] write spec");
+  const texts = (rows: Array<{ text: string }>) => rows.map((r) => r.text).sort();
+
+  assert.deepEqual(texts(await queries.openTasks({ documentId: m1.id })), ["@lv book room", "chase vendor"]);
+  assert.deepEqual(texts(await queries.openTasks({ previousSiblingOf: m2.id })), ["@lv book room", "chase vendor"]);
+  assert.deepEqual(await queries.openTasks({ previousSiblingOf: m1.id }), []);
+  assert.deepEqual(await queries.openTasks({ previousSiblingOf: spec.id }), [], "an untyped page has no series");
+  assert.deepEqual(texts(await queries.openTasks({ subtreeOf: apollo.id })), [
+    "@lv book room",
+    "apollo own task",
+    "chase vendor",
+    "new item",
+    "write spec",
+  ]);
+
+  const fromLast = await queries.liveSection(m2.id, "open_from_last_time");
+  assert.deepEqual(
+    fromLast.query === "open_from_last_time" && [fromLast.source, texts(fromLast.tasks)],
+    [{ id: m1.id, title: "Sync 1" }, ["@lv book room", "chase vendor"]],
+  );
+  const here = await queries.liveSection(apollo.id, "open_tasks_here");
+  assert.deepEqual(here.query === "open_tasks_here" && texts(here.tasks), [
+    "@lv book room",
+    "chase vendor",
+    "new item",
+    "write spec",
+  ]);
+
+  const mark = new Date();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await docs.editBody(m1.id, (md) => md.replace("- [ ] @lv book room", "- [x] @lv book room"));
+  await docs.editBody(spec.id, (md) => `${md}\n- [ ] review spec`);
+  const changes = await queries.changesSince({ subtreeOf: apollo.id }, mark, m2.id);
+  assert.deepEqual(
+    {
+      pages: changes.pagesUpdated.map((p) => p.title).sort(),
+      closed: texts(changes.tasksClosed),
+      added: texts(changes.tasksAdded),
+    },
+    { pages: ["Spec", "Sync 1"], closed: ["@lv book room"], added: ["review spec"] },
+  );
+  assert.deepEqual(texts(await queries.openTasks({ previousSiblingOf: m2.id })), ["chase vendor"]);
+
+  const since = await queries.liveSection(m2.id, "since_last_meeting");
+  assert.ok(since.query === "since_last_meeting");
+  assert.deepEqual(
+    [since.source, since.since, since.scope, since.changes.pagesUpdated.map((p) => p.title).sort()],
+    [
+      { id: m1.id, title: "Sync 1" },
+      "2026-10-01T00:00:00.000Z",
+      { id: apollo.id, title: "Apollo" },
+      ["Apollo", "Meetings", "Spec", "Sync 1"],
+    ],
+  );
+  assert.deepEqual(texts(since.changes.tasksAdded), [
+    "@lv book room",
+    "apollo own task",
+    "chase vendor",
+    "review spec",
+    "send agenda",
+    "write spec",
+  ]);
+
+  const tpl = await page("Project template", null, "- [ ] template task", project.id, { next_review: "2026-10-21" });
+  await templates.templatize(tpl.id, "Project");
+  assert.deepEqual(
+    (await queries.dueSoon("2026-10-22")).map((d) => [d.title, d.fieldKey, d.date, d.overdue]),
+    [
+      ["Apollo", "next_review", "2026-10-20", true],
+      ["Gemini", "next_review", "2026-11-15", false],
+    ],
+  );
+  assert.ok(!(await queries.listMyTodos()).some((t) => t.text === "template task"));
 });

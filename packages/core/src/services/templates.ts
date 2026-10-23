@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import {
   collections,
@@ -12,11 +12,10 @@ import {
   type Database,
   type Document,
   type TemplateDefault,
-  type TypeField,
 } from "@tandem/db";
 import type { AuthorInfo, PropertyOp } from "@tandem/editor";
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { DocumentServiceBase, notTemplate, rowsOf } from "./document-tree-internals.js";
+import { DocumentServiceBase, previousSibling, rowsOf } from "./document-tree-internals.js";
 import { insertDocument, type InsertDocumentInput } from "./documents.js";
 import { seedStarterKit, type StarterKitResult } from "./seed-types.js";
 import { evaluateDefaults, normalizeDefault, type DefaultContext } from "./template-defaults.js";
@@ -178,40 +177,6 @@ const summaryColumns = {
 
 function toSummary({ updatedAt, ...row }: { updatedAt: Date } & Omit<TemplateSummary, "version">): TemplateSummary {
   return { ...row, version: updatedAt.toISOString() };
-}
-
-/** Stored values of the latest page of `typeId` beside a new one at
- * `placement`: by the type's first date field (newest first, undated last),
- * then by creation time. Null when there is none. */
-async function previousSibling(
-  db: Database,
-  typeId: string,
-  fields: readonly TypeField[],
-  placement: { collectionId: string; parentDocumentId: string | null },
-): Promise<Record<string, unknown> | null> {
-  const dated = fields.find((f) => f.kind === "date" || f.kind === "datetime");
-  const [row] = await db
-    .select({ properties: documents.properties })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.collectionId, placement.collectionId),
-        placement.parentDocumentId
-          ? eq(documents.parentDocumentId, placement.parentDocumentId)
-          : isNull(documents.parentDocumentId),
-        eq(documents.typeId, typeId),
-        isNull(documents.deletedAt),
-        isNull(documents.archivedAt),
-        notTemplate,
-      ),
-    )
-    .orderBy(
-      ...(dated ? [sql`${documents.properties} ->> ${dated.id}::text DESC NULLS LAST`] : []),
-      desc(documents.createdAt),
-      desc(documents.id),
-    )
-    .limit(1);
-  return row?.properties ?? null;
 }
 
 /** Templates are documents plus a `templates` row; this service lists,
@@ -512,7 +477,7 @@ export class TemplateService extends DocumentServiceBase {
       .where(and(eq(typeFields.typeId, typeId), isNull(typeFields.retiredAt)))
       .orderBy(asc(typeFields.position), asc(typeFields.key));
     const previous = Object.values(defaults).some((d) => d.kind === "from_previous_sibling")
-      ? await previousSibling(db, typeId, fields, placement)
+      ? ((await previousSibling(db, { typeId, ...placement }))?.properties ?? null)
       : null;
     return evaluateDefaults(fields, defaults, { ...ctx, previous });
   }

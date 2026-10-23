@@ -66,7 +66,8 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = [
     name: "Meeting",
     type: "Meeting",
     title: "Meeting {{date}}",
-    markdown: "## Agenda\n\n## Notes\n\n## Decisions\n\n## Actions\n",
+    markdown:
+      "<!-- live-section: open_from_last_time -->\n\n<!-- live-section: since_last_meeting -->\n\n## Agenda\n\n## Notes\n\n## Decisions\n\n## Actions\n",
     defaults: {
       date: { kind: "today" },
       attendees: { kind: "from_previous_sibling" },
@@ -78,7 +79,7 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = [
     name: "Project",
     type: "Project",
     title: "New project",
-    markdown: "## Overview\n\n## Next steps\n",
+    markdown: "## Overview\n\n## Next steps\n\n<!-- live-section: open_tasks_here -->\n",
     defaults: { status: { kind: "value", value: "Idea" } },
     children: [{ title: "Meetings", defaultTemplate: "Meeting" }],
   },

@@ -1,12 +1,13 @@
-import { ForbiddenError } from "../errors.js";
-import { and, asc, desc, eq, gt, isNull, like, lt, ne, notInArray, or, sql } from "drizzle-orm";
-import { collections, documents, runAsActor, SYSTEM, user, type Database } from "@tandem/db";
-import { scanTaskItems } from "@tandem/editor";
+import { ForbiddenError, NotFoundError } from "../errors.js";
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { collections, documents, runAsActor, SYSTEM, tasks, typeFields, user, type Database } from "@tandem/db";
+import type { LiveSectionQuery } from "@tandem/editor";
 import type { DocumentMeta } from "./documents.js";
 import {
   DocumentServiceBase,
   documentMetaColumns,
   notTemplate,
+  previousSibling,
   rowsOf,
   searchPaths,
   templateDocumentIds,
@@ -61,16 +62,117 @@ export interface RecentDocumentsOptions {
   limit?: number;
 }
 
-/** An in-document task (`- [ ] @user …`) assigned to a user, for the start page. */
-export interface TodoItem {
+/** A task item of a readable page, from the `tasks` projection. */
+export interface TaskRow {
   documentId: string;
   documentTitle: string;
   collectionId: string;
   workspaceId: string;
-  /** 0-based line in the document's markdown (a stable-enough anchor). */
-  line: number;
+  blockId: string;
   text: string;
   done: boolean;
+  handles: string[];
+  position: number;
+  createdBy: string | null;
+  ai: boolean;
+  createdAt: Date;
+  closedAt: Date | null;
+}
+
+/** Which tasks: one page's, a page's and everything under it, or those of
+ * the page before a page in its series (same parent and type). */
+export type TaskScope = { documentId: string } | { subtreeOf: string } | { previousSiblingOf: string };
+
+/** Where to look for changes: a page and everything under it, or a whole
+ * collection. */
+export type ChangeScope = { subtreeOf: string } | { collectionId: string };
+
+export interface PageChange {
+  id: string;
+  title: string;
+  updatedAt: Date;
+}
+
+export interface ChangesSince {
+  pagesUpdated: PageChange[];
+  tasksClosed: TaskRow[];
+  tasksAdded: TaskRow[];
+}
+
+export interface PageLink {
+  id: string;
+  title: string;
+}
+
+/** A live section resolved against the page that holds it. `source` is the
+ * previous page in the series; `scope` the page whose subtree "since last
+ * meeting" covers (null: the whole collection). */
+export type LiveSectionResult =
+  | { query: "open_from_last_time"; source: PageLink | null; tasks: TaskRow[] }
+  | {
+      query: "since_last_meeting";
+      source: PageLink | null;
+      since: string | null;
+      scope: PageLink | null;
+      changes: ChangesSince;
+    }
+  | { query: "open_tasks_here"; tasks: TaskRow[] };
+
+/** A page whose due or review date is past or within the horizon. */
+export interface DueItem {
+  documentId: string;
+  title: string;
+  fieldKey: string;
+  fieldLabel: string;
+  /** YYYY-MM-DD */
+  date: string;
+  overdue: boolean;
+}
+
+/** How far ahead Home looks for due and review dates. */
+export const DUE_SOON_DAYS = 30;
+
+const LIST_LIMIT = 50;
+
+const taskColumns = {
+  documentId: tasks.documentId,
+  documentTitle: documents.title,
+  collectionId: documents.collectionId,
+  workspaceId: documents.workspaceId,
+  blockId: tasks.blockId,
+  text: tasks.text,
+  done: tasks.done,
+  handles: tasks.handles,
+  position: tasks.position,
+  createdBy: tasks.createdBy,
+  ai: tasks.ai,
+  createdAt: tasks.createdAt,
+  closedAt: tasks.closedAt,
+};
+
+/** Ids of `rootId` and every page under it (RLS-scoped like the caller). */
+const subtreeIds = (rootId: string) => sql`(
+  WITH RECURSIVE sub(id) AS (
+    SELECT ${rootId}::uuid
+    UNION
+    SELECT d.id FROM documents d JOIN sub ON d.parent_document_id = sub.id
+  )
+  SELECT id FROM sub
+)`;
+
+/** Task rows of live, non-template pages matching `where`. */
+function taskRows(db: Database, where: SQL | undefined): Promise<TaskRow[]> {
+  return db
+    .select(taskColumns)
+    .from(tasks)
+    .innerJoin(documents, eq(documents.id, tasks.documentId))
+    .where(and(isNull(documents.deletedAt), isNull(documents.archivedAt), notTemplate, where))
+    .orderBy(desc(documents.updatedAt), asc(tasks.documentId), asc(tasks.position));
+}
+
+/** A date or date-time property value as the instant its day (or moment) starts. */
+function startOf(value: string): Date {
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00.000Z` : value);
 }
 
 /** Read-side document queries: recency, search, tags, backlinks, tasks. */
@@ -313,10 +415,10 @@ export class DocumentQueryService extends DocumentServiceBase {
 
   /**
    * Tasks assigned to the current user across every document they can read
-   * (RLS scopes the scan). A task is assigned via an `@mention` of the user's
+   * (RLS scopes the rows). A task is assigned via an `@mention` of the user's
    * email or its local part: `- [ ] @alice ship the thing`.
    */
-  async listMyTodos(): Promise<TodoItem[]> {
+  async listMyTodos(): Promise<TaskRow[]> {
     if (this.actor.kind !== "user") throw new ForbiddenError("requires a user actor");
     const userId = this.actor.userId;
     // Email lookup runs system-scoped: the auth user table isn't RLS-granted.
@@ -325,55 +427,188 @@ export class DocumentQueryService extends DocumentServiceBase {
     );
     if (!me) return [];
     const email = me.email.toLowerCase();
-    const handles = new Set([email, email.split("@")[0]!]);
+    const handles = [email, email.split("@")[0]!];
+    return this.exec((db) =>
+      taskRows(
+        db,
+        sql`${tasks.handles} && ARRAY[${sql.join(
+          handles.map((h) => sql`${h}`),
+          sql`, `,
+        )}]::text[]`,
+      ),
+    );
+  }
 
+  /** Open tasks in `scope`, newest-edited page first, in page order. */
+  async openTasks(scope: TaskScope): Promise<TaskRow[]> {
+    return this.exec(async (db) => {
+      if ("documentId" in scope) {
+        return taskRows(db, and(eq(tasks.done, false), eq(tasks.documentId, scope.documentId)));
+      }
+      if ("subtreeOf" in scope) {
+        return taskRows(db, and(eq(tasks.done, false), sql`${tasks.documentId} IN ${subtreeIds(scope.subtreeOf)}`));
+      }
+      const previous = await this.previousOf(db, scope.previousSiblingOf);
+      return previous ? taskRows(db, and(eq(tasks.done, false), eq(tasks.documentId, previous.id))) : [];
+    });
+  }
+
+  /** What happened in `scope` after `since`: pages edited, tasks closed and
+   * tasks added, newest first, each capped. `excludeId` leaves out the page
+   * asking (a meeting's own notes are not news to it). */
+  async changesSince(scope: ChangeScope, since: Date, excludeId?: string): Promise<ChangesSince> {
+    return this.exec((db) => this.changesIn(db, scope, since, excludeId));
+  }
+
+  private async changesIn(
+    db: Database,
+    scope: ChangeScope,
+    since: Date,
+    excludeId?: string,
+  ): Promise<ChangesSince> {
+    const inScope =
+      "subtreeOf" in scope
+        ? sql`${documents.id} IN ${subtreeIds(scope.subtreeOf)}`
+        : eq(documents.collectionId, scope.collectionId);
+    const others = excludeId ? ne(documents.id, excludeId) : undefined;
+    const pagesUpdated = await db
+      .select({ id: documents.id, title: documents.title, updatedAt: documents.updatedAt })
+      .from(documents)
+      .where(
+        and(
+          inScope,
+          others,
+          gt(documents.updatedAt, since),
+          isNull(documents.deletedAt),
+          isNull(documents.archivedAt),
+          notTemplate,
+        ),
+      )
+      .orderBy(desc(documents.updatedAt), asc(documents.id))
+      .limit(LIST_LIMIT);
+    const tasksClosed = await taskRows(db, and(inScope, others, eq(tasks.done, true), gt(tasks.closedAt, since)));
+    const tasksAdded = await taskRows(db, and(inScope, others, gt(tasks.createdAt, since)));
+    return {
+      pagesUpdated,
+      tasksClosed: tasksClosed.slice(0, LIST_LIMIT),
+      tasksAdded: tasksAdded.slice(0, LIST_LIMIT),
+    };
+  }
+
+  /** The page before `id` in its series, when `id` has a type. */
+  private async previousOf(db: Database, id: string) {
+    const [page] = await db
+      .select({
+        typeId: documents.typeId,
+        collectionId: documents.collectionId,
+        parentDocumentId: documents.parentDocumentId,
+      })
+      .from(documents)
+      .where(and(eq(documents.id, id), isNull(documents.deletedAt)));
+    if (!page) throw new NotFoundError("document not found");
+    if (!page.typeId) return null;
+    return previousSibling(db, { ...page, typeId: page.typeId }, id);
+  }
+
+  /** Resolve a live section against the page `documentId` that holds it. */
+  async liveSection(documentId: string, query: LiveSectionQuery): Promise<LiveSectionResult> {
+    return this.exec(async (db) => {
+      if (query === "open_tasks_here") {
+        const under = sql`${tasks.documentId} IN ${subtreeIds(documentId)}`;
+        return {
+          query,
+          tasks: await taskRows(db, and(eq(tasks.done, false), under, ne(tasks.documentId, documentId))),
+        };
+      }
+      const previous = await this.previousOf(db, documentId);
+      const source = previous ? { id: previous.id, title: previous.title } : null;
+      if (query === "open_from_last_time") {
+        return {
+          query,
+          source,
+          tasks: previous ? await taskRows(db, and(eq(tasks.done, false), eq(tasks.documentId, previous.id))) : [],
+        };
+      }
+      if (!previous) {
+        return { query, source, since: null, scope: null, changes: { pagesUpdated: [], tasksClosed: [], tasksAdded: [] } };
+      }
+      const since = previous.date ? startOf(previous.date) : previous.createdAt;
+      const scope = await this.seriesScope(db, documentId);
+      return {
+        query,
+        source,
+        since: since.toISOString(),
+        scope: "subtreeOf" in scope ? scope.page : null,
+        changes: await this.changesIn(
+          db,
+          "subtreeOf" in scope ? { subtreeOf: scope.page.id } : scope,
+          since,
+          documentId,
+        ),
+      };
+    });
+  }
+
+  /** What a series page reports on: its nearest ancestor with a type (the
+   * project above "Meetings"), else its parent, else its collection. */
+  private async seriesScope(
+    db: Database,
+    documentId: string,
+  ): Promise<{ subtreeOf: string; page: PageLink } | { collectionId: string }> {
+    const ancestors = rowsOf<{ id: string; title: string; type_id: string | null; collection_id: string }>(
+      await db.execute(sql`
+        WITH RECURSIVE up(id, parent_id, title, type_id, collection_id, depth) AS (
+          SELECT id, parent_document_id, title, type_id, collection_id, 0 FROM documents WHERE id = ${documentId}
+          UNION ALL
+          SELECT d.id, d.parent_document_id, d.title, d.type_id, d.collection_id, up.depth + 1
+          FROM documents d JOIN up ON d.id = up.parent_id
+        )
+        SELECT id, title, type_id, collection_id FROM up WHERE depth > 0 ORDER BY depth
+      `),
+    );
+    const page = ancestors.find((a) => a.type_id) ?? ancestors[0];
+    if (page) return { subtreeOf: page.id, page: { id: page.id, title: page.title } };
+    const [self] = await db
+      .select({ collectionId: documents.collectionId })
+      .from(documents)
+      .where(eq(documents.id, documentId));
+    return { collectionId: self!.collectionId };
+  }
+
+  /** Pages whose due or review date (a date field keyed like `due` or
+   * `next_review`) is before `today` (overdue) or within DUE_SOON_DAYS of it,
+   * soonest first. `today` is the reader's calendar day, YYYY-MM-DD. */
+  async dueSoon(today: string): Promise<DueItem[]> {
+    const horizon = new Date(Date.parse(`${today}T00:00:00.000Z`) + DUE_SOON_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const date = sql<string>`left(${documents.properties} ->> ${typeFields.id}, 10)`;
     const rows = await this.exec((db) =>
       db
         .select({
-          id: documents.id,
+          documentId: documents.id,
           title: documents.title,
-          collectionId: documents.collectionId,
-          workspaceId: documents.workspaceId,
-          contentMd: documents.contentMd,
+          fieldKey: typeFields.key,
+          fieldLabel: typeFields.label,
+          date,
         })
         .from(documents)
+        .innerJoin(typeFields, eq(typeFields.workspaceId, documents.workspaceId))
         .where(
           and(
             isNull(documents.deletedAt),
             isNull(documents.archivedAt),
             notTemplate,
-            or(
-              // Indexed: handles extracted at save time.
-              sql`${documents.taskAssignees} && ARRAY[${sql.join(
-                [...handles].map((h) => sql`${h}`),
-                sql`, `,
-              )}]::text[]`,
-              // Rows not re-saved since task_assignees was added: cheap
-              // prefilter, exact matching in the parser below.
-              and(
-                isNull(documents.taskAssignees),
-                sql`${documents.contentMd} LIKE '%- [%'`,
-              ),
-            ),
+            inArray(typeFields.kind, ["date", "datetime"]),
+            isNull(typeFields.retiredAt),
+            sql`${typeFields.key} ~* '(^|_)(due|review)'`,
+            sql`${documents.properties} ? ${typeFields.id}`,
+            sql`${date} <= ${horizon}`,
           ),
-        ),
+        )
+        .orderBy(asc(date), asc(documents.title), asc(documents.id))
+        .limit(LIST_LIMIT),
     );
-
-    const todos: TodoItem[] = [];
-    for (const row of rows) {
-      for (const task of scanTaskItems(row.contentMd)) {
-        if (!task.mentions.some((m) => handles.has(m))) continue;
-        todos.push({
-          documentId: row.id,
-          documentTitle: row.title,
-          collectionId: row.collectionId,
-          workspaceId: row.workspaceId,
-          line: task.line,
-          text: task.text,
-          done: task.done,
-        });
-      }
-    }
-    return todos;
+    return rows.map((row) => ({ ...row, overdue: row.date < today }));
   }
 }

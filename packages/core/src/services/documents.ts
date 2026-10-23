@@ -1,12 +1,21 @@
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { collections, documents, type Database, type Document, type DocumentOrigin } from "@tandem/db";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import {
+  collections,
+  documents,
+  runAsActor,
+  SYSTEM,
+  tasks,
+  type Database,
+  type Document,
+  type DocumentOrigin,
+} from "@tandem/db";
 import {
   applyEditToState,
   diffProperties,
-  scanTaskItems,
   stateProperties,
   type AuthorInfo,
+  type ProjectedTask,
   type PropertiesJSON,
   type PropertyOp,
   type StateEdit,
@@ -82,10 +91,92 @@ export type DocumentMeta = Pick<
   | "deletedAt"
 >;
 
-/** Distinct lower-cased @handles assigned by task items in `markdown` — the
- * indexed `task_assignees` column (see listMyTodos). */
-export function taskAssigneesOf(markdown: string): string[] {
-  return [...new Set(scanTaskItems(markdown).flatMap((t) => t.mentions))];
+/** Make the page's `tasks` rows match `rows`: insert new items, update the
+ * changed ones (stamping `closed_at` when one is first seen done), delete the
+ * rest. Runs inside the transaction that writes the page. */
+export async function writeTaskRows(
+  db: Database,
+  documentId: string,
+  rows: readonly ProjectedTask[],
+): Promise<void> {
+  if (rows.length > 0) {
+    const now = new Date();
+    await db
+      .insert(tasks)
+      .values(
+        rows.map((row) => ({
+          documentId,
+          blockId: row.blockId,
+          text: row.text,
+          done: row.done,
+          handles: row.handles,
+          position: row.position,
+          createdBy: row.createdBy,
+          ai: row.ai,
+          createdAt: now,
+          updatedAt: now,
+          closedAt: row.done ? now : null,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [tasks.documentId, tasks.blockId],
+        set: {
+          text: sql`excluded.text`,
+          done: sql`excluded.done`,
+          handles: sql`excluded.handles`,
+          position: sql`excluded.position`,
+          createdBy: sql`excluded.created_by`,
+          ai: sql`excluded.ai`,
+          updatedAt: now,
+          closedAt: sql`CASE WHEN NOT excluded.done THEN NULL WHEN ${tasks.done} THEN ${tasks.closedAt} ELSE excluded.closed_at END`,
+        },
+        setWhere: sql`(${tasks.text}, ${tasks.done}, ${tasks.handles}, ${tasks.position}, ${tasks.createdBy}, ${tasks.ai}) IS DISTINCT FROM (excluded.text, excluded.done, excluded.handles, excluded.position, excluded.created_by, excluded.ai)`,
+      });
+  }
+  await db.delete(tasks).where(
+    and(
+      eq(tasks.documentId, documentId),
+      rows.length > 0 ? notInArray(tasks.blockId, rows.map((row) => row.blockId)) : undefined,
+    ),
+  );
+}
+
+/**
+ * Project the tasks of pages last saved before the `tasks` table existed:
+ * pages with a task-like line and no rows. Their items get block ids, written
+ * back into ydoc_state, so later saves keep the same rows. Run at boot, before
+ * any live session can hold one of these pages. Returns the pages projected.
+ */
+export async function backfillTaskRows(db: Database): Promise<number> {
+  return runAsActor(db, SYSTEM, async (sys) => {
+    const pending = await sys
+      .select({ id: documents.id })
+      .from(documents)
+      .where(
+        and(
+          sql`${documents.contentMd} ~ '\\[[ xX]\\] '`,
+          sql`NOT EXISTS (SELECT 1 FROM tasks t WHERE t.document_id = ${documents.id})`,
+        ),
+      );
+    let projected = 0;
+    for (const { id } of pending) {
+      const [doc] = await sys
+        .select({ ydocState: documents.ydocState, contentMd: documents.contentMd })
+        .from(documents)
+        .where(eq(documents.id, id));
+      if (!doc) continue;
+      const author = { userId: "system", name: "System", ai: true, at: Date.now() };
+      const edited = applyEditToState(doc.ydocState, {}, author, doc.contentMd);
+      if (edited.tasks.length === 0) continue;
+      await sys.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        await db.update(documents).set({ ydocState: edited.ydocState }).where(eq(documents.id, id));
+        await writeTaskRows(db, id, edited.tasks);
+      });
+      projected++;
+    }
+    return projected;
+  });
 }
 
 /** Derive the persisted read-model fields (content_md + content_json) from markdown. */
@@ -153,7 +244,6 @@ export async function insertDocument(
       position,
       contentMd,
       contentJson,
-      taskAssignees: taskAssigneesOf(contentMd),
       ydocState: seeded?.ydocState ?? null,
       defaultTemplateId: input.defaultTemplateId ?? null,
       origin: input.origin ?? null,
@@ -161,6 +251,7 @@ export async function insertDocument(
       ...projected,
     })
     .returning();
+  await writeTaskRows(db, row!.id, seeded?.tasks ?? []);
   return row!;
 }
 
@@ -338,13 +429,13 @@ export class DocumentService extends DocumentServiceBase {
           ydocState: edited.ydocState,
           contentMd: edited.contentMd,
           contentJson: edited.contentJson,
-          taskAssignees: taskAssigneesOf(edited.contentMd),
           ...(await projectionColumns(db, doc.workspaceId, edited.properties)),
           updatedAt: new Date(),
         })
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .returning();
       if (!row) throw new DocumentWriteDeniedError();
+      await writeTaskRows(db, id, edited.tasks);
       return row;
     });
   }
@@ -381,6 +472,7 @@ export class DocumentService extends DocumentServiceBase {
       contentMd: string;
       contentJson: unknown;
       properties: PropertiesJSON;
+      tasks: readonly ProjectedTask[];
     },
   ): Promise<{ workspaceId: string; previousMd: string; title: string } | null> {
     return this.execTx(async (db) => {
@@ -411,13 +503,13 @@ export class DocumentService extends DocumentServiceBase {
           ydocState: snapshot.ydocState,
           contentMd: snapshot.contentMd,
           contentJson: snapshot.contentJson,
-          taskAssignees: taskAssigneesOf(snapshot.contentMd),
           ...(await projectionColumns(db, prev.workspaceId, snapshot.properties)),
           updatedAt: new Date(),
         })
         .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
         .returning({ id: documents.id });
       if (rows.length === 0) throw new DocumentWriteDeniedError();
+      await writeTaskRows(db, id, snapshot.tasks);
       return { workspaceId: prev.workspaceId, previousMd: prev.contentMd, title: prev.title };
     });
   }
