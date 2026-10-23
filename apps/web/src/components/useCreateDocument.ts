@@ -16,17 +16,21 @@ export function useCreateDocument(setDialog: (node: ReactNode) => void) {
     // {{date}} is the user's calendar day, not the server's.
     const date = localDay();
     const request = { collectionId, parentDocumentId: parentDocumentId ?? null };
-    const plan = await instantiate.mutateAsync({ ...request, templateId, variables: { date }, dryRun: true });
+    // A blank page has no template, so no prompts to ask for first.
+    const plan =
+      templateId === null
+        ? null
+        : await instantiate.mutateAsync({ ...request, templateId, variables: { date }, dryRun: true });
     const create = async (answers: Record<string, string>) => {
       const { documentId } = await instantiate.mutateAsync({
         ...request,
-        templateId: plan.template?.id ?? null,
+        templateId: plan?.template?.id ?? null,
         variables: { date, ...answers },
       });
       await utils.documents.tree.invalidate({ collectionId });
       navigate(`/d/${documentId}`);
     };
-    if (!plan.template || plan.missing.length === 0) return create({});
+    if (!plan?.template || plan.missing.length === 0) return create({});
     const template = plan.template;
     await new Promise<void>((resolve, reject) => {
       setDialog(

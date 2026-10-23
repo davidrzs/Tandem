@@ -119,12 +119,21 @@ try {
   const copiedBody = (await trpcQuery("documents.getMarkdown", { id: subtree.children[0].id })).markdown;
   if (copiedBody !== `For Sync ${today} quokkaplan`) throw new Error(`copied child body was ${JSON.stringify(copiedBody)}`);
 
-  // The ▾ menu keeps Blank even where a default applies.
+  // The ▾ menu keeps Blank even where a default applies, in one request.
+  const instantiateCalls = [];
+  const recordInstantiate = (r) => {
+    if (r.url().includes("templates.instantiate")) instantiateCalls.push(r.postData()?.includes('"dryRun":true') ? "dry run" : "create");
+  };
+  page.on("request", recordInstantiate);
   await meetingsRow.hover();
   await meetingsRow.locator('.row-action[title="New from template"]').click();
   await createdPage(() => page.getByRole("menuitem", { name: "Blank page" }).click());
+  page.off("request", recordInstantiate);
   if ((await page.inputValue(".title-input")) !== "") throw new Error("blank page got a title");
   if ((await page.textContent(".ProseMirror"))?.trim()) throw new Error("blank page got a body");
+  if (JSON.stringify(instantiateCalls) !== '["create"]') {
+    throw new Error(`a blank page made these requests: ${JSON.stringify(instantiateCalls)}`);
+  }
 
   // The Contents panel offers the template too, and its ▾ is reachable by keyboard.
   const collectionId = (await trpcQuery("documents.getMeta", { id: templateId })).collectionId;
