@@ -224,7 +224,8 @@ export function TemplateDefaultsPanel({
   const fields = trpc.types.fields.useQuery({ workspaceId });
   const types = trpc.types.list.useQuery({ workspaceId });
   const setDefault = trpc.templates.setFieldDefault.useMutation({
-    onSuccess: () => void utils.templates.list.invalidate(),
+    // Returned so a save resolves only once the reloaded list holds the new default.
+    onSuccess: () => utils.templates.list.invalidate(),
     onError: (e) => toast(friendlyError(e, "Couldn't save that default."), "danger"),
   });
   // Fields switched to "A value" whose value isn't chosen yet.
@@ -242,9 +243,13 @@ export function TemplateDefaultsPanel({
   if (!fields.data || !types.data || (!type && !canDefine)) return null;
 
   const save = (field: Field, next: DefaultInput | null) => {
-    setChoosing((prev) => prev.filter((id) => id !== field.id));
+    // An expression or "No default" leaves "A value" at once; a literal leaves it once it's there to show.
+    if (next?.kind !== "value") setChoosing((prev) => prev.filter((id) => id !== field.id));
     return setDefault.mutateAsync({ templateId: template.id, fieldId: field.id, default: next }).then(
-      () => true,
+      () => {
+        setChoosing((prev) => prev.filter((id) => id !== field.id));
+        return true;
+      },
       () => false,
     );
   };
@@ -269,10 +274,7 @@ export function TemplateDefaultsPanel({
             canDefine={canDefine}
             titleOf={titleOf}
             searchDocs={searchDocs}
-            onChoose={() => {
-              if (template.defaults[field.id]) save(field, null);
-              setChoosing((prev) => [...prev, field.id]);
-            }}
+            onChoose={() => setChoosing((prev) => [...prev, field.id])}
             onSave={(next) => save(field, next)}
           />
         ))}
@@ -301,7 +303,11 @@ function TemplateDefaultRow({
   onSave: (next: DefaultInput | null) => Promise<boolean>;
 }) {
   const inputId = useId();
-  const mode = value?.kind ?? (choosing ? "value" : "");
+  const [picked, pickMode] = usePicked<string>(value?.kind ?? "", (next) => {
+    const choice = EXPRESSION_CHOICES.find((c) => c.kind === next);
+    return onSave(choice ? { kind: choice.kind } : null);
+  });
+  const mode = choosing ? "value" : picked;
   return (
     <div className="props-row" data-field={field.key}>
       <label className="props-label" htmlFor={canDefine ? `${inputId}-mode` : undefined}>
@@ -315,15 +321,7 @@ function TemplateDefaultRow({
               className="prop-input"
               aria-label={`Default for ${field.label}`}
               value={mode}
-              onChange={(e) => {
-                const next = e.target.value;
-                if (next === "value") onChoose();
-                else if (next === "") onSave(null);
-                else {
-                  const choice = EXPRESSION_CHOICES.find((c) => c.kind === next);
-                  if (choice) onSave({ kind: choice.kind });
-                }
-              }}
+              onChange={(e) => (e.target.value === "value" ? onChoose() : pickMode(e.target.value))}
             >
               <option value="">No default</option>
               {field.kind !== "json" && <option value="value">A value</option>}

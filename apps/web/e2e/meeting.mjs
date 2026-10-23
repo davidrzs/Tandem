@@ -139,6 +139,31 @@ try {
   const updated = (await trpcQuery("templates.list", { workspaceId })).find((t) => t.name === "Meeting");
   assertEqual(updated.defaults[status.id], { kind: "value", value: done }, "the changed status default");
 
+  // Switching Date to "A value" keeps "Today" until a date is entered.
+  const dateField = (await trpcQuery("types.fields", { workspaceId })).find(
+    (f) => f.key === "date" && f.typeName === "Meeting",
+  );
+  const meetingDefault = async (fieldId) =>
+    (await trpcQuery("templates.list", { workspaceId })).find((t) => t.name === "Meeting").defaults[fieldId];
+  const defaultWrites = [];
+  page.on("request", (r) => {
+    if (r.url().includes("templates.setFieldDefault")) defaultWrites.push(r.postData());
+  });
+  await panel.getByLabel("Default for Date").selectOption({ label: "A value" });
+  const dateDefault = panel.getByLabel("Date default value");
+  await dateDefault.waitFor();
+  await page.waitForTimeout(500);
+  assertEqual(defaultWrites, [], "default writes after choosing A value");
+  assertEqual(await meetingDefault(dateField.id), { kind: "today" }, "the date default while choosing a value");
+  await dateDefault.focus();
+  await page.keyboard.type("10222026");
+  const dateSaved = page.waitForResponse((r) => r.url().includes("templates.setFieldDefault") && r.ok());
+  await page.keyboard.press("Enter");
+  await dateSaved;
+  assertEqual(await meetingDefault(dateField.id), { kind: "value", value: "2026-10-22" }, "the literal date default");
+  assertEqual(await panel.getByLabel("Default for Date").inputValue(), "value", "the date default's mode");
+  assertEqual(await dateDefault.inputValue(), "2026-10-22", "the date default's input");
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
     "MEETING PASS — starter types from the Type menu, Project with Meetings, + under Meetings dated today with the previous attendees, template defaults edited",
