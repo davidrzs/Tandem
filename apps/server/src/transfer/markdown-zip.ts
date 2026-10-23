@@ -72,6 +72,7 @@ const FRONT_MATTER = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)??---[ \t]*(?:\r?
 // An opening fence followed by content but never closed; a lone leading `---`
 // followed by a blank line is just a horizontal rule.
 const UNCLOSED_FENCE = /^\uFEFF?---[ \t]*\r?\n[ \t]*\S/;
+const FRONT_MATTER_MAX_BYTES = 64 * 1024;
 
 type FrontMatterBlock =
   | { kind: "none" }
@@ -88,9 +89,15 @@ function readFrontMatter(md: string): FrontMatterBlock {
   const block = m[1] ?? "";
   const body = md.slice(m[0].length);
   if (!block.trim()) return { kind: "map", data: {}, hasComments: false, body };
+  if (Buffer.byteLength(block) > FRONT_MATTER_MAX_BYTES) return { kind: "broken", reason: "it is larger than 64 KiB" };
   const doc = parseDocument(block);
   if (doc.errors.length > 0) return { kind: "broken", reason: "it isn't valid YAML" };
-  const data: unknown = doc.toJS();
+  let data: unknown;
+  try {
+    data = doc.toJS();
+  } catch {
+    return { kind: "broken", reason: "it isn't valid YAML" };
+  }
   if (data === null || typeof data !== "object" || Array.isArray(data)) return { kind: "none" };
   let hasComments = !!(doc.commentBefore || doc.comment);
   visit(doc, (_key, node) => {

@@ -131,6 +131,21 @@ test("parseFrontMatter: broken fences keep the original text", () => {
   assert.equal(parseFrontMatter(duplicate).error, "it isn't valid YAML");
 });
 
+test("parseFrontMatter: an alias bomb or an oversized block is broken, not a crash", () => {
+  const levels = ["a: &a [x, x, x, x, x, x, x, x, x]"];
+  for (let i = 1; i < 10; i++) {
+    const prev = String.fromCharCode(96 + i);
+    const next = String.fromCharCode(97 + i);
+    levels.push(`${next}: &${next} [*${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}, *${prev}]`);
+  }
+  const bomb = `---\n${levels.join("\n")}\n---\nBody`;
+  assert.deepEqual(parseFrontMatter(bomb), { ...plain, tags: [], body: bomb, error: "it isn't valid YAML" });
+  assert.equal(startsWithFrontMatter(bomb), false);
+  const huge = `---\nnote: ${"x".repeat(64 * 1024)}\n---\nBody`;
+  assert.equal(parseFrontMatter(huge).error, "it is larger than 64 KiB");
+  assert.equal(parseFrontMatter(`---\nnote: ${"x".repeat(60 * 1024)}\n---\nBody`).error, null);
+});
+
 test("parseFrontMatter: rules around plain markdown are not front matter", () => {
   for (const md of ["---\n\nText after a rule", "---\nJust a heading\n---\nBody", "---\n# H1\n---\nBody"]) {
     assert.deepEqual(parseFrontMatter(md), { ...plain, tags: [], body: md, error: null });
