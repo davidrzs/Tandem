@@ -1,8 +1,9 @@
 // Templates: save a page (with a sub-page) as a template, make it a folder's
 // default, then "+" on that folder asks for the template's prompt and creates
 // the expanded page and its sub-page; the ▾ menu still offers a blank page,
-// the Contents panel offers the template, and search skips the template.
-// Needs web+api (run.sh).
+// the Contents panel's ▾ (reached by keyboard) and the sidebar's "New from
+// template…" offer the template, search skips the template, and changing a
+// typed template's type asks first. Needs web+api (run.sh).
 import { chromium } from "playwright";
 import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
 
@@ -125,15 +126,33 @@ try {
   if ((await page.inputValue(".title-input")) !== "") throw new Error("blank page got a title");
   if ((await page.textContent(".ProseMirror"))?.trim()) throw new Error("blank page got a body");
 
-  // The Contents panel offers the template too.
+  // The Contents panel offers the template too, and its ▾ is reachable by keyboard.
   const collectionId = (await trpcQuery("documents.getMeta", { id: templateId })).collectionId;
   await page.goto(`${BASE}/c/${collectionId}`);
   await page.locator(".outline-panel").waitFor();
-  await page.locator('.outline-bar [title="New from template"]').click();
-  await page.getByRole("menuitem", { name: "Weekly sync" }).click();
+  await page.locator(".outline-bar .outline-new").focus();
+  await page.keyboard.press("Tab");
+  const focusedTitle = await page.evaluate(() => document.activeElement?.getAttribute("title"));
+  if (focusedTitle !== "New from template") throw new Error(`Tab from New document reached ${focusedTitle}`);
+  await page.keyboard.press("Enter");
+  await page.getByRole("menuitem", { name: "Weekly sync" }).focus();
+  await page.keyboard.press("Enter");
   await page.getByLabel("client").fill("Globex");
   await createdPage(() => page.getByRole("button", { name: "Create page" }).click());
   await page.waitForFunction(() => document.querySelector(".ProseMirror")?.textContent?.includes("with Globex"));
+
+  // The sidebar row menu asks which template to start from.
+  const collectionRow = page.locator(".collection-row", { hasText: c });
+  await collectionRow.hover();
+  await collectionRow.locator('.row-action[title="More actions"]').click();
+  await page.getByRole("menuitem", { name: "New from template…" }).click();
+  const startFrom = page.getByLabel("Start from");
+  if ((await startFrom.inputValue()) !== "") throw new Error(`Start from preselected ${await startFrom.inputValue()}`);
+  await startFrom.selectOption({ label: "Weekly sync" });
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await page.getByLabel("client").fill("Initech");
+  await createdPage(() => page.getByRole("button", { name: "Create page" }).click());
+  await page.waitForFunction(() => document.querySelector(".ProseMirror")?.textContent?.includes("with Initech"));
 
   // Search finds the pages made from the template, never the template itself.
   const hits = (await trpcQuery("documents.search", { query: "quokkaplan" })).map((h) => h.id);

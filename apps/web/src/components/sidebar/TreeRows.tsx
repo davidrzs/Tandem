@@ -82,6 +82,7 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
               workspaceId={c.workspaceId}
               collectionId={c.id}
               className="row-action"
+              tabIndex={-1}
               onPick={(templateId) => void actions.newDoc(c.id, undefined, templateId)}
             />
           )}
@@ -96,6 +97,11 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
               ...(c.writable
                 ? [
                     { label: "New document", icon: "plus" as const, onClick: () => void actions.newDoc(c.id) },
+                    {
+                      label: "New from template…",
+                      icon: "page" as const,
+                      onClick: () => void actions.newFromTemplate({ collectionId: c.id, workspaceId: c.workspaceId }),
+                    },
                     { label: "Rename", icon: "pen" as const, onClick: () => actions.renameCollection(c) },
                     {
                       label: "Default template…",
@@ -168,6 +174,7 @@ function DocRow({ item, node }: RowProps<"doc">) {
               collectionId={node.collectionId}
               parentDocumentId={node.id}
               className="row-action"
+              tabIndex={-1}
               onPick={(templateId) => void actions.newDoc(node.collectionId, node.id, templateId)}
             />
           )}
@@ -177,6 +184,20 @@ function DocRow({ item, node }: RowProps<"doc">) {
             returnFocus={() => item.getElement()?.focus()}
             items={[
               { label: "New sub-document", icon: "plus", onClick: () => void actions.newDoc(node.collectionId, node.id) },
+              ...(workspaceId
+                ? [
+                    {
+                      label: "New from template…",
+                      icon: "page" as const,
+                      onClick: () =>
+                        void actions.newFromTemplate({
+                          collectionId: node.collectionId,
+                          parentDocumentId: node.id,
+                          workspaceId,
+                        }),
+                    },
+                  ]
+                : []),
               { label: "Duplicate", icon: "page", onClick: () => void actions.duplicateDoc(node) },
               template
                 ? { label: "Turn into page", icon: "page", onClick: () => void actions.turnIntoPage(node) }

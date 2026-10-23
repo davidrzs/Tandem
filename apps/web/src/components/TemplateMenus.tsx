@@ -11,12 +11,15 @@ export function NewPageMenu({
   collectionId,
   parentDocumentId,
   className,
+  tabIndex,
   onPick,
 }: {
   workspaceId: string;
   collectionId: string;
   parentDocumentId?: string;
   className: string;
+  /** -1 inside a sidebar row, whose own keyboard model reaches the menu. */
+  tabIndex?: number;
   /** A template's document id, or null for a blank page. */
   onPick: (templateId: string | null) => void;
 }) {
@@ -35,7 +38,7 @@ export function NewPageMenu({
         <button
           type="button"
           className={className}
-          tabIndex={-1}
+          tabIndex={tabIndex}
           title="New from template"
           aria-label="New from template"
           onClick={(e) => {
@@ -114,15 +117,20 @@ export function TemplatePromptsDialog({
   );
 }
 
-/** Picks the template new pages under a folder or collection start from. */
-export function DefaultTemplateDialog({
-  place,
+/** Picks a template, or a blank page: where new pages under a folder or
+ * collection start from, or what one new page starts from. */
+export function TemplateChoiceDialog({
+  title,
+  label,
+  submitLabel,
   templates,
   initial,
   onSubmit,
   onClose,
 }: {
-  place: string;
+  title: string;
+  label: string;
+  submitLabel: string;
   templates: { id: string; name: string }[];
   initial: string | null;
   onSubmit: (templateId: string | null) => void;
@@ -135,10 +143,10 @@ export function DefaultTemplateDialog({
     onSubmit(value || null);
   };
   return (
-    <Modal title="Default template" onClose={onClose}>
+    <Modal title={title} onClose={onClose}>
       <form className="dialog-form" onSubmit={submit}>
         <label className="field">
-          <span>New pages in {place} start from</span>
+          <span>{label}</span>
           <select value={value} onChange={(e) => setValue(e.target.value)}>
             <option value="">A blank page</option>
             {templates.map((t) => (
@@ -156,7 +164,7 @@ export function DefaultTemplateDialog({
             Cancel
           </button>
           <button type="submit" className="btn primary">
-            Save
+            {submitLabel}
           </button>
         </div>
       </form>

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { friendlyError } from "../../errors.js";
 import { trpc } from "../../trpc.js";
 import { ConfirmDialog, PromptDialog } from "../Modal.js";
-import { DefaultTemplateDialog } from "../TemplateMenus.js";
+import { TemplateChoiceDialog } from "../TemplateMenus.js";
 import { displayTitle } from "../outline.js";
 import { useToast } from "../toast.js";
 import type { MovePlan } from "./drop.js";
@@ -26,6 +26,8 @@ export type DefaultTemplateTarget =
 export interface SidebarActions {
   /** templateId: a template, null for blank, omitted for the location's default. */
   newDoc(collectionId: string, parentDocumentId?: string, templateId?: string | null): Promise<void>;
+  /** Asks which template (or a blank page) to start from, then creates it. */
+  newFromTemplate(target: { collectionId: string; parentDocumentId?: string; workspaceId: string }): Promise<void>;
   /** Doc moves toast with Undo; collection moves apply silently. */
   move(plan: MovePlan): Promise<void>;
   retryTree(collectionId: string): void;
@@ -106,14 +108,38 @@ export function useSidebarActions({
     }
   };
 
+  const newDoc = async (collectionId: string, parentDocumentId?: string, templateId?: string | null) => {
+    folds.apply([
+      { kind: "collection", id: collectionId, expanded: true },
+      ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
+    ]);
+    try {
+      await createDocument(collectionId, parentDocumentId, templateId);
+    } catch (e) {
+      onError(friendlyError(e));
+    }
+  };
+
   return {
-    newDoc: async (collectionId: string, parentDocumentId?: string, templateId?: string | null) => {
-      folds.apply([
-        { kind: "collection", id: collectionId, expanded: true },
-        ...(parentDocumentId ? revealChanges([parentDocumentId]) : []),
-      ]);
+    newDoc,
+
+    newFromTemplate: async ({ collectionId, parentDocumentId, workspaceId }) => {
       try {
-        await createDocument(collectionId, parentDocumentId, templateId);
+        const [templates, initial] = await Promise.all([
+          utils.templates.list.fetch({ workspaceId }),
+          utils.templates.defaultFor.fetch({ collectionId, parentDocumentId: parentDocumentId ?? null }),
+        ]);
+        setDialog(
+          <TemplateChoiceDialog
+            title="New from template"
+            label="Start from"
+            submitLabel="Create"
+            templates={templates}
+            initial={initial}
+            onClose={closeDialog}
+            onSubmit={(templateId) => void newDoc(collectionId, parentDocumentId, templateId)}
+          />,
+        );
       } catch (e) {
         onError(friendlyError(e));
       }
@@ -274,8 +300,10 @@ export function useSidebarActions({
                 .then((cs) => cs.find((c) => c.id === target.collectionId)?.defaultTemplateId ?? null),
         ]);
         setDialog(
-          <DefaultTemplateDialog
-            place={target.place}
+          <TemplateChoiceDialog
+            title="Default template"
+            label={`New pages in ${target.place} start from`}
+            submitLabel="Save"
             templates={templates}
             initial={initial}
             onClose={closeDialog}
