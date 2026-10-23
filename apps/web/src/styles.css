@@ -2930,6 +2930,129 @@ button.outline-twist:not(:disabled):hover .twist {
   background: var(--accent);
 }
 
+.due-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.due-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.due-list li a {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.due-list li a:hover {
+  color: var(--accent-ink);
+}
+
+.due-field {
+  color: var(--ink-3);
+}
+
+.due-date {
+  margin-left: auto;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.due-list li.overdue .due-date {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* ---------- live sections ---------- */
+
+.live-section {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  user-select: none;
+}
+
+.live-section.selected {
+  outline: 2px solid var(--accent);
+}
+
+.live-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11.5px;
+}
+
+.live-section h4 {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.live-section-source,
+.live-section-empty {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+}
+
+.live-section-tasks,
+.live-section-pages {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.live-section-tasks li,
+.live-section-pages li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 3px 0;
+}
+
+.live-section-tasks li.done {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.live-section-tasks li.done .todo-box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.live-section li a,
+p.live-section-source a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.live-section li a:hover,
+p.live-section-source a:hover {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+
+.live-section-from {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
 /* ---------- errors & banners ---------- */
 
 .error-panel {

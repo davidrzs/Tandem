@@ -165,6 +165,7 @@ export function Editor({
     {
       editable: canEdit,
       extensions: buildExtensions({
+        docId,
         ydoc,
         provider,
         me,

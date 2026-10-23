@@ -7,11 +7,10 @@ import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
-import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 import { createLowlight, common } from "lowlight";
-import { ToggleSummary, ToggleContent } from "@tandem/editor";
+import { TaskItem, ToggleSummary, ToggleContent } from "@tandem/editor";
 import type { MutableRefObject } from "react";
 import type * as Y from "yjs";
 import { createBlameExtension } from "../blame.js";
@@ -20,6 +19,7 @@ import { createCodeBlock } from "../code-block-node.js";
 import { createCommentsExtension, type CommentAnchor } from "../comments.js";
 import { Find } from "../find.js";
 import { ClientImage } from "../image-node.js";
+import { ClientLiveSection } from "../live-section-node.js";
 import { MarkdownPaste } from "../markdown-paste.js";
 import { createMathExtension } from "../math.js";
 import { createMentionHighlight } from "../mention-highlight.js";
@@ -34,6 +34,7 @@ const lowlight = createLowlight(common);
 
 /** The TipTap extension list for the collaborative document editor. */
 export function buildExtensions({
+  docId,
   ydoc,
   provider,
   me,
@@ -42,6 +43,7 @@ export function buildExtensions({
   anchorsRef,
   activeCommentRef,
 }: {
+  docId: string;
   ydoc: Y.Doc;
   provider: HocuspocusProvider;
   me: { name: string; color: string };
@@ -64,9 +66,10 @@ export function buildExtensions({
     Find,
     ClientImage,
     TaskList,
-    TaskItem.configure({ nested: true }),
+    TaskItem,
     TaskListInputRule,
     ClientPageRef,
+    ClientLiveSection.configure({ documentId: docId }),
     ClientCallout,
     ClientToggle,
     ToggleSummary,
