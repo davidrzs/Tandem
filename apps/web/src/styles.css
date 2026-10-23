@@ -1221,7 +1221,6 @@ button.doc-twist:hover .twist {
 .prop-input:focus {
   border-color: var(--accent-line);
   background: var(--surface);
-  outline: none;
 }
 
 .prop-input::placeholder {

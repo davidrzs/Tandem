@@ -2,7 +2,7 @@
 // leaves the breadcrumbs on the doc bar, the Contents table keeps page names
 // readable and shows a cut-off value in full on hover, and the quiet text of
 // the panels, Contents, live sections and Home's due list reads at 4.5:1 in
-// both themes.
+// both themes, and keyboard focus on a panel field shows the accent ring.
 // Needs web+api (run.sh).
 import { chromium } from "playwright";
 import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
@@ -195,9 +195,27 @@ try {
   if (lowContrast.length) throw new Error(`text below 4.5:1: ${lowContrast.join(", ")}`);
   await page.emulateMedia({ colorScheme: "light" });
 
+  await page.goto(`${BASE}/d/${sibling.id}`);
+  await page.locator(".props-summary").click();
+  await page.getByLabel("Status", { exact: true }).focus();
+  await page.keyboard.press("Tab");
+  const focused = await page.evaluate(() => {
+    const el = document.activeElement;
+    const style = getComputedStyle(el);
+    return {
+      label: el.getAttribute("aria-label"),
+      className: el.className,
+      outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
+    };
+  });
+  const expectedFocus = { label: "Add Owners", className: "prop-input prop-add-option", outline: "solid 2px rgb(13, 115, 100)" };
+  if (JSON.stringify(focused) !== JSON.stringify(expectedFocus)) {
+    throw new Error(`a keyboard-focused panel field shows ${JSON.stringify(focused)}`);
+  }
+
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "A11Y-VISUAL PASS — a long type name keeps the breadcrumbs, Contents keeps names and titles cut values, quiet text reads at 4.5:1 in both themes",
+    "A11Y-VISUAL PASS — a long type name keeps the breadcrumbs, Contents keeps names and titles cut values, quiet text reads at 4.5:1 in both themes, panel fields show a focus ring",
   );
 } finally {
   await browser.close();
