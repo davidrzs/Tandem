@@ -90,11 +90,17 @@ template and a **Blank page**.
 
 A new page copies the template's body and up to three levels of its sub-pages,
 as writing by whoever created it. `{{date}}`, `{{title}}`, `{{me}}` and
-`{{parent}}` are filled in; any other `{{name}}` is asked for when the page is
-created. The new page remembers which template and version it came from (its
-header shows "From template …"), and
+`{{parent}}` are filled in; any other `{{name}}`, in a title or a body, is
+asked for when the page is created. The new page remembers which template and
+version it came from (its header shows "From template …"), and how many live
+sections the template had then;
 later edits to the template never change it. Templates and their sub-pages are
 left out of search, backlinks, recents, tags, tasks and Home.
+
+Editing a template's page so that a live section disappears shows "This
+template lost a live section" (with **Undo** for your own edit). Agents get
+the same check from the server: each template carries `warnings` when it now
+has fewer live sections than its last page had, or changed since that page.
 
 ## Types and properties
 
@@ -187,10 +193,13 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `list_backlinks` (each with `via`: a body link and/or the property fields
   holding the page).
 - **Templates**: `list_templates` (each with its `type` and `defaults` by
-  field key), `create_from_template` (`templateId` optional: the target
-  folder's default, as **+** in the app; `variables` answers the template's
-  prompts; the created page comes back with its committed `type` and
-  `properties`; `dryRun` returns the expanded pages without creating anything).
+  field key, and `lastUsedAt`, `changedSinceLastUse`, `liveSections` and
+  `warnings` against the last page made from it), `create_from_template`
+  (`templateId` optional: the target folder's default, as **+** in the app;
+  `title` names the new page instead of the template's title; `variables`
+  answers the template's prompts; the created page comes back with its
+  committed `type` and `properties`, the template with its `warnings`;
+  `dryRun` returns the expanded pages without creating anything).
   `get_document` returns `origin`: `{templateId, templateName, version}` for a
   page made from a template (`templateName` is null once it is no longer a
   template), else null.

@@ -1,0 +1,1 @@
+CREATE INDEX "documents_origin_template_idx" ON "documents" USING btree (("origin"->>'templateId'),"created_at") WHERE "documents"."origin" IS NOT NULL;

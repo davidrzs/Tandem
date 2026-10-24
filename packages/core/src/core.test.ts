@@ -1362,7 +1362,7 @@ test("templates: instantiate expands variables, copies 3 levels, records origin"
   const page = created.document!;
   assert.equal(page.title, "Meeting 2026-01-02");
   assert.equal(page.contentMd, "# Meeting 2026-01-02\n\nBy Tara in Team\n\nClient: Acme");
-  assert.deepEqual(page.origin, { templateId: tpl.id, version: summary.version });
+  assert.deepEqual(page.origin, { templateId: tpl.id, version: summary.version, liveSections: 0 });
   const copied = await tree.subtree(page.id, 10);
   const titles = (nodes: typeof copied.nodes): unknown[] =>
     nodes.map((n) => [n.title, titles(n.children)]);
@@ -1394,13 +1394,86 @@ test("templates: editing only a copied sub-page changes the template version", a
   assert.notEqual(after.version, before.version);
   assert.equal(after.version, (await docs.get(child.id))!.updatedAt.toISOString());
   const page = await templates.instantiate({ templateId: tpl.id, collectionId: col.id });
-  assert.deepEqual(page.document!.origin, { templateId: tpl.id, version: after.version });
+  assert.deepEqual(page.document!.origin, { templateId: tpl.id, version: after.version, liveSections: 0 });
   assert.deepEqual((await docs.getMeta(page.document!.id))!.origin, {
     templateId: tpl.id,
     templateName: "Versioned",
     version: after.version,
   });
   assert.equal((await docs.getMeta(tpl.id))!.origin, null);
+});
+
+test("templates: a title prompt is asked for, and a given title replaces the template's", async () => {
+  const { col, docs, templates } = await templateWorkspace("tn", "Tess");
+  const tpl = await docs.create({ collectionId: col.id, title: "{{name}}", markdown: "# {{title}}\n\nRole: {{role}}" });
+  await templates.templatize(tpl.id, "Person");
+
+  const asked = await templates.instantiate({
+    templateId: tpl.id,
+    collectionId: col.id,
+    variables: { name: "Ada" },
+    dryRun: true,
+  });
+  assert.deepEqual(asked.prompts, ["name", "role"]);
+  assert.deepEqual(asked.missing, ["role"]);
+  assert.deepEqual(asked.page, { title: "Ada", markdown: "# Ada\n\nRole: ", children: [] });
+
+  const named = await templates.instantiate({
+    templateId: tpl.id,
+    collectionId: col.id,
+    title: "Grace Hopper",
+    variables: { role: "admiral" },
+  });
+  assert.deepEqual(named.prompts, ["role"], "the replaced title's prompt is not asked for");
+  assert.deepEqual(named.missing, []);
+  assert.equal(named.document!.title, "Grace Hopper");
+  assert.equal(named.document!.contentMd, "# Grace Hopper\n\nRole: admiral");
+  assert.equal(named.document!.origin?.templateId, tpl.id);
+});
+
+test("templates: warn when a template lost a live section or changed since its last use", async () => {
+  const { col, docs, templates } = await templateWorkspace("tw", "Wren");
+  const tpl = await docs.create({
+    collectionId: col.id,
+    title: "Meeting",
+    markdown: "<!-- live-section: open_from_last_time -->\n\n<!-- live-section: since_last_meeting -->\n\n## Notes",
+  });
+  await templates.templatize(tpl.id, "Meeting");
+  const use = async () => {
+    const { liveSections, lastUsedAt, changedSinceLastUse, warnings } = (await templates.list()).find(
+      (t) => t.id === tpl.id,
+    )!;
+    return { liveSections, lastUsedAt, changedSinceLastUse, warnings };
+  };
+  assert.deepEqual(await use(), { liveSections: 2, lastUsedAt: null, changedSinceLastUse: false, warnings: [] });
+
+  const first = (await templates.instantiate({ templateId: tpl.id, collectionId: col.id })).document!;
+  assert.equal(first.origin?.liveSections, 2);
+  const usedAt = first.createdAt.toISOString();
+  assert.deepEqual(await use(), { liveSections: 2, lastUsedAt: usedAt, changedSinceLastUse: false, warnings: [] });
+
+  await docs.editBody(tpl.id, (md) => md.replace("<!-- live-section: open_from_last_time -->", "open_from_last_time"));
+  const expected = {
+    liveSections: 1,
+    lastUsedAt: usedAt,
+    changedSinceLastUse: true,
+    warnings: [
+      `It has 1 live section(s) where the page made from it at ${usedAt} had 2: ` +
+        "a live section may have been deleted or turned into plain text.",
+      `It changed after its last use at ${usedAt}.`,
+    ],
+  };
+  assert.deepEqual(await use(), expected);
+  const dry = await templates.instantiate({ templateId: tpl.id, collectionId: col.id, dryRun: true });
+  const { liveSections, lastUsedAt, changedSinceLastUse, warnings } = dry.template!;
+  assert.deepEqual({ liveSections, lastUsedAt, changedSinceLastUse, warnings }, expected);
+
+  const second = (await templates.instantiate({ templateId: tpl.id, collectionId: col.id })).document!;
+  assert.deepEqual(
+    await use(),
+    { liveSections: 1, lastUsedAt: second.createdAt.toISOString(), changedSinceLastUse: false, warnings: [] },
+    "the next use compares with the newest page",
+  );
 });
 
 test("templates: the deepest default wins, then the collection's, else blank", async () => {
@@ -2076,7 +2149,7 @@ test("templates: a typed template sets the type and first values; attendees come
   const first = await meetingOn("2026-10-01");
   assert.equal(first.title, "Meeting 2026-10-01");
   assert.equal(first.typeId, meeting.id);
-  assert.deepEqual(first.origin, { templateId: tpl.id, version: summary.version });
+  assert.deepEqual(first.origin, { templateId: tpl.id, version: summary.version, liveSections: 0 });
   assert.deepEqual(first.properties, { [date.id]: "2026-10-01", [status.id]: planned });
   assert.deepEqual(
     stateProperties(first.ydocState!),

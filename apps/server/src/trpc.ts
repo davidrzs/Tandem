@@ -612,6 +612,7 @@ export const appRouter = t.router({
           collectionId: uuid,
           parentDocumentId: uuid.nullable().optional(),
           variables: templateVariablesSchema.optional(),
+          title: titleSchema.optional(),
           dryRun: z.boolean().optional(),
         }),
       )

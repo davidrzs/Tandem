@@ -246,14 +246,20 @@ export const documents = pgTable(
     index("documents_collection_recent_idx")
       .on(t.collectionId, t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
+    // A template's last use: its newest page.
+    index("documents_origin_template_idx")
+      .on(sql`(${t.origin}->>'templateId')`, t.createdAt)
+      .where(sql`${t.origin} IS NOT NULL`),
   ],
 );
 
-/** Which template a page started from: the template document and its
- * `updated_at` at instantiation. */
+/** Which template a page started from: the template document, its
+ * `updated_at` at instantiation, and how many live sections its copied pages
+ * held then (absent on pages made before that was recorded). */
 export interface DocumentOrigin {
   templateId: string;
   version: string;
+  liveSections?: number;
 }
 
 /** Field kinds. List kinds (multi_select, doc_list) hold several values;
