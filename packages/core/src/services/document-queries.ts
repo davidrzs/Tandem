@@ -1,5 +1,5 @@
 import { ForbiddenError, NotFoundError } from "../errors.js";
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { collections, documents, runAsActor, SYSTEM, tasks, typeFields, user, type Database } from "@tandem/db";
 import type { LiveSectionQuery } from "@tandem/editor";
 import type { DocumentMeta } from "./documents.js";
@@ -30,6 +30,13 @@ export interface TagCount {
   tag: string;
   count: number;
 }
+
+/** How a page references another: a link in its body, or a `doc` /
+ * `doc_list` field (by key and label) holding it. */
+export type BacklinkVia = { kind: "body" } | { kind: "property"; field: string; label: string };
+
+/** A page referencing the one asked about, with every way it does. */
+export type Backlink = DocumentMeta & { via: BacklinkVia[] };
 
 export type SearchMatchKind =
   | "tag"
@@ -391,13 +398,26 @@ export class DocumentQueryService extends DocumentServiceBase {
     );
   }
 
-  /** Documents that reference this one (a `[title](/d/<id>)` link in their
-   * markdown — what pageRef nodes serialize to). RLS-scoped: you only see
-   * referencing documents you could open anyway. */
-  async backlinks(id: string): Promise<DocumentMeta[]> {
-    return this.exec((db) =>
-      db
-        .select(documentMetaColumns)
+  /** Documents that reference this one, each with how: a `[title](/d/<id>)`
+   * link in its markdown (what pageRef nodes serialize to), and every live
+   * `doc` or `doc_list` field holding it. A retired field no longer relates
+   * pages. RLS-scoped: you only see referencing documents you could open
+   * anyway. */
+  async backlinks(id: string): Promise<Backlink[]> {
+    const linksInBody = sql<boolean>`${documents.contentMd} LIKE ${`%](/d/${id})%`}`;
+    const rows = await this.exec((db) => {
+      const candidates = db
+        .select({
+          ...documentMetaColumns,
+          isBody: linksInBody.as("is_body"),
+          fields: sql<{ field: string; label: string }[]>`(
+            SELECT coalesce(jsonb_agg(jsonb_build_object('field', f.key, 'label', f.label) ORDER BY f.position, f.key), '[]'::jsonb)
+            FROM jsonb_each(${documents.properties}) e
+            JOIN ${typeFields} f ON f.id = e.key
+            WHERE e.value @> ${JSON.stringify(id)}::jsonb
+              AND f.kind IN ('doc', 'doc_list') AND f.retired_at IS NULL
+          )`.as("fields"),
+        })
         .from(documents)
         .where(
           and(
@@ -405,12 +425,26 @@ export class DocumentQueryService extends DocumentServiceBase {
             isNull(documents.archivedAt),
             notTemplate,
             ne(documents.id, id),
-            like(documents.contentMd, `%](/d/${id})%`),
+            // Any property holding the id, as a value or a list element; the
+            // select narrows it to live page-reference fields.
+            or(linksInBody, sql`${documents.properties} @? ${`$.* ? (@ == ${JSON.stringify(id)})`}::jsonpath`),
           ),
         )
-        .orderBy(desc(documents.updatedAt))
-        .limit(50),
-    );
+        .as("candidates");
+      return db
+        .select()
+        .from(candidates)
+        .where(or(candidates.isBody, sql`${candidates.fields} <> '[]'::jsonb`))
+        .orderBy(desc(candidates.updatedAt))
+        .limit(50);
+    });
+    return rows.map(({ isBody, fields, ...doc }) => ({
+      ...doc,
+      via: [
+        ...(isBody ? [{ kind: "body" as const }] : []),
+        ...fields.map((f) => ({ kind: "property" as const, ...f })),
+      ],
+    }));
   }
 
   /**

@@ -881,6 +881,74 @@ test("backlinks: pages referencing a doc, RLS-scoped, archived sources excluded"
   assert.equal((await d1Queries.backlinks(target.id)).length, 0);
 });
 
+test("backlinks: doc and doc_list properties count, labelled by field; retired fields and unreadable pages don't", async () => {
+  const { ws, col, types, meeting } = await typedWorkspace("blp-owner", "blp-member");
+  const people = await types.createField({
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "people",
+    label: "Attendees",
+    kind: "doc_list",
+  });
+  const host = await types.createField({ workspaceId: ws.id, typeId: meeting.id, key: "host", label: "Host", kind: "doc" });
+  const owner = new DocumentService(db, user("blp-owner"));
+  const andrea = await owner.create({ collectionId: col.id, title: "Andrea" });
+  const bob = await owner.create({ collectionId: col.id, title: "Bob" });
+  await owner.create({
+    collectionId: col.id,
+    title: "Listed",
+    properties: [{ op: "setList", field: people.id, values: [bob.id, andrea.id] }],
+  });
+  await owner.create({
+    collectionId: col.id,
+    title: "Both",
+    markdown: `With [Andrea](/d/${andrea.id}).`,
+    properties: [
+      { op: "set", field: host.id, value: andrea.id },
+      { op: "setList", field: people.id, values: [andrea.id] },
+    ],
+  });
+  await owner.create({
+    collectionId: col.id,
+    title: "Bob only",
+    properties: [{ op: "setList", field: people.id, values: [bob.id] }],
+  });
+  const collections = new CollectionService(db, user("blp-owner"));
+  const hidden = await collections.create({ name: "Private", slug: "blp-private" });
+  await collections.setDefaultRole(hidden.id, "none");
+  await owner.create({
+    collectionId: hidden.id,
+    title: "Private 1:1",
+    properties: [{ op: "set", field: host.id, value: andrea.id }],
+  });
+
+  const backlinksAs = async (userId: string) =>
+    (await new DocumentQueryService(db, user(userId)).backlinks(andrea.id))
+      .map((b) => [b.title, b.via])
+      .sort(([a], [b]) => String(a).localeCompare(String(b)));
+  const attendee = { kind: "property", field: "people", label: "Attendees" };
+  const hostedBy = { kind: "property", field: "host", label: "Host" };
+  assert.deepEqual(await backlinksAs("blp-owner"), [
+    ["Both", [{ kind: "body" }, attendee, hostedBy]],
+    ["Listed", [attendee]],
+    ["Private 1:1", [hostedBy]],
+  ]);
+  assert.deepEqual(
+    await backlinksAs("blp-member"),
+    [
+      ["Both", [{ kind: "body" }, attendee, hostedBy]],
+      ["Listed", [attendee]],
+    ],
+    "a page the member can't open stays hidden",
+  );
+
+  await types.retireField(host.id);
+  assert.deepEqual(await backlinksAs("blp-owner"), [
+    ["Both", [{ kind: "body" }, attendee]],
+    ["Listed", [attendee]],
+  ]);
+});
+
 test("settings: MCP kill switch and workspace audit trail", async () => {
   const { SettingsService } = await import("./services/settings.js");
   const s1 = new SettingsService(db, user("u1"));
