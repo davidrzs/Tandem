@@ -1079,3 +1079,39 @@ test("open_tasks over MCP: by page, subtree and previous meeting, with the agent
     "document not found",
   );
 });
+
+test("list_backlinks over MCP: says whether the page links in its body or holds the target in a property", async () => {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "People", slug: "u1-people" });
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { workspaceId: ws.id, name: "People", slug: "people-14" } }),
+  );
+  const meeting = await services.types.createType(ws.id, "Meeting");
+  await services.types.createField({
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "attendees",
+    label: "Attendees",
+    kind: "doc_list",
+  });
+  const create = async (args: Record<string, unknown>) =>
+    payload(await client.callTool({ name: "create_document", arguments: { collectionId: col.id, ...args } }));
+  const andrea = await create({ title: "Andrea" });
+  const sync = await create({ title: "Sync", type: "Meeting", properties: { attendees: [andrea.id] } });
+  const kickoff = await create({
+    title: "Kickoff",
+    markdown: `Ask [Andrea](/d/${andrea.id}).`,
+    type: "Meeting",
+    properties: { attendees: [andrea.id] },
+  });
+  const backlinks = payload(await client.callTool({ name: "list_backlinks", arguments: { id: andrea.id } }));
+  const attendee = { kind: "property", field: "attendees", label: "Attendees" };
+  assert.deepEqual(
+    backlinks
+      .map((b: { title: string; url: string; via: unknown[] }) => [b.title, b.url, b.via])
+      .sort(([a]: string[], [b]: string[]) => a!.localeCompare(b!)),
+    [
+      ["Kickoff", `http://app.test/d/${kickoff.id}`, [{ kind: "body" }, attendee]],
+      ["Sync", `http://app.test/d/${sync.id}`, [attendee]],
+    ],
+  );
+});
