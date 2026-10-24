@@ -262,10 +262,11 @@ export interface DocumentOrigin {
   liveSections?: number;
 }
 
-/** Field kinds. List kinds (multi_select, doc_list) hold several values;
- * `json` holds imported structures the app can't edit. */
+/** Field kinds. List kinds (text_list, multi_select, doc_list) hold several
+ * values; `json` holds imported structures the app can't edit. */
 export const FIELD_KINDS = [
   "text",
+  "text_list",
   "number",
   "checkbox",
   "date",

@@ -116,8 +116,8 @@ has fewer live sections than its last page had, or changed since that page.
 
 ## Types and properties
 
-A page can have a type (Meeting, Project) and typed properties: text,
-number, checkbox, date, date and time, select, multi-select, URL, a page
+A page can have a type (Meeting, Project) and typed properties: text, a text
+list, number, checkbox, date, date and time, select, multi-select, URL, a page
 reference, a list of page references, and read-only imported JSON. A
 workspace owner or admin defines types and their fields; ad-hoc fields (any
 page can hold one) come from a markdown import or from **Add field** on a page
@@ -131,7 +131,10 @@ like the body, and come back when a version is restored. Every write changes
 single fields; nothing rewrites the whole set. The server validates values
 when it saves the page: one that no longer fits its field (after a kind
 change, say) is kept and reported, never dropped. A select changed to another
-kind reads the options it held as their labels. Property text is searchable.
+kind reads the options it held as their labels. Changing a field from text to
+a text list splits each page's value on commas and semicolons ("Fabrizio,
+Fabrizo" becomes two values); changing it back joins them with ", ". The
+server makes that rewrite as the System. Property text is searchable.
 Renaming a field keeps its old key working.
 
 In the app, the **Type** button in a page's header attaches, changes or

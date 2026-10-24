@@ -108,6 +108,19 @@ test("importValue stores option ids and page ids, and reports what doesn't fit",
   });
 });
 
+test("importValue keeps a text list's items as text, and splits one text the way a kind change does", () => {
+  const aliases = { id: "f5", key: "aliases", kind: "text_list" as const, options: [] };
+  assert.deepEqual(importValue(aliases, ["Fabrizio", " Fabrizio ", 7, "Fab, Fabi"], () => null), {
+    value: ["Fabrizio", "7", "Fab, Fabi"],
+    problems: [],
+  });
+  assert.deepEqual(importValue(aliases, "Fabrizio, Fabrizo; Fab", () => null), {
+    value: ["Fabrizio", "Fabrizo", "Fab"],
+    problems: [],
+  });
+  assert.deepEqual(importValue(aliases, " ; ", () => null), { value: null, problems: [] });
+});
+
 test("parseSidecar reads a fields file and refuses anything else", () => {
   const sidecar = {
     version: 1,

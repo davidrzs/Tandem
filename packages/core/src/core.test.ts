@@ -35,7 +35,14 @@ import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
 import { evaluateDefaults, normalizeDefault } from "./services/template-defaults.js";
 import { expandVariables, TemplateService } from "./services/templates.js";
-import { parseFieldInput, projectProperties, TypeService, type FieldDef } from "./services/types.js";
+import {
+  parseFieldInput,
+  projectProperties,
+  reshapeOp,
+  splitTextList,
+  TypeService,
+  type FieldDef,
+} from "./services/types.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -2032,6 +2039,95 @@ test("properties: changing or retiring a field re-projects the pages holding it"
     [{ op: "unset", field: due.id }],
     "the retired field is still reachable by id once a new field takes its key",
   );
+});
+
+test("text lists: elements are free text, trimmed, deduped, capped and searchable", () => {
+  const aliases: FieldDef = { id: "a", key: "aliases", kind: "text_list", options: [], retiredAt: null };
+  const fields = new Map([["a", aliases]]);
+  assert.deepEqual(parseFieldInput(aliases, "  Fab "), { value: "Fab" });
+  assert.deepEqual(parseFieldInput(aliases, 7), { value: "7" });
+  assert.deepEqual(parseFieldInput(aliases, " "), { error: "expected text" });
+  assert.deepEqual(parseFieldInput(aliases, "x".repeat(10_001)), { error: "text is longer than 10000 characters" });
+  assert.deepEqual(projectProperties({ a: ["Fabrizio", "Fabrizo", "Fabrizio", "", 3] }, fields), {
+    properties: { a: ["Fabrizio", "Fabrizo"] },
+    propertyIssues: [{ fieldId: "a", code: "invalid_value", message: "expected text", value: ["", 3] }],
+    propertiesText: "Fabrizio\nFabrizo",
+  });
+  assert.deepEqual(projectProperties({ a: "Fabrizio, Fabrizo" }, fields), {
+    properties: {},
+    propertyIssues: [{ fieldId: "a", code: "invalid_value", message: "expected a list", value: "Fabrizio, Fabrizo" }],
+    propertiesText: "",
+  });
+  const many = projectProperties({ a: Array.from({ length: 1001 }, (_, i) => `n${i}`) }, fields);
+  assert.equal((many.properties.a as string[]).length, 1000);
+  assert.deepEqual(many.propertyIssues, [
+    { fieldId: "a", code: "invalid_value", message: "holds more than 1000 values; kept the first 1000", value: 1001 },
+  ]);
+
+  assert.deepEqual(splitTextList(" Fabrizio, Fabrizo;Fab ,, Fabrizio ;"), ["Fabrizio", "Fabrizo", "Fab"]);
+  assert.deepEqual(reshapeOp(aliases, "A; B"), { op: "setList", field: "a", values: ["A", "B"] });
+  assert.deepEqual(reshapeOp(aliases, " ; "), { op: "setList", field: "a", values: [] });
+  assert.equal(reshapeOp(aliases, ["A"]), null);
+  const text = { id: "t", kind: "text" } as const;
+  assert.deepEqual(reshapeOp(text, [" A", "B", 3]), { op: "set", field: "t", value: "A, B" });
+  assert.deepEqual(reshapeOp(text, []), { op: "unset", field: "t" });
+  assert.equal(reshapeOp(text, "A, B"), null);
+});
+
+test("text lists: patches add, remove and set single values; a kind change splits text and joins it back", async () => {
+  const { ws, col, types } = await typedWorkspace("tl-owner", "tl-member");
+  const contact = await types.createType(ws.id, "Contact");
+  const aliases = await types.createField({ workspaceId: ws.id, typeId: contact.id, key: "aliases", kind: "text" });
+  const page = await new DocumentService(db, user("tl-member")).create({
+    collectionId: col.id,
+    title: "Contact page",
+    typeId: contact.id,
+    properties: [{ op: "set", field: aliases.id, value: "Fabrizio, Fabrizo; Fab ,," }],
+  });
+  const stored = async () => {
+    const [row] = await db
+      .select({
+        ydocState: documentsTable.ydocState,
+        properties: documentsTable.properties,
+        issues: documentsTable.propertyIssues,
+        text: documentsTable.propertiesText,
+      })
+      .from(documentsTable)
+      .where(eq(documentsTable.id, page.id));
+    const { ydocState, ...projection } = row!;
+    return { held: stateProperties(ydocState!)[aliases.id], ...projection };
+  };
+
+  await types.updateField(aliases.id, { kind: "text_list" });
+  assert.deepEqual(await stored(), {
+    held: ["Fabrizio", "Fabrizo", "Fab"],
+    properties: { [aliases.id]: ["Fabrizio", "Fabrizo", "Fab"] },
+    issues: [],
+    text: "Fabrizio\nFabrizo\nFab",
+  });
+  assert.deepEqual(
+    (await new DocumentQueryService(db, user("tl-owner")).search("Fabrizo")).map((h) => h.title),
+    ["Contact page"],
+  );
+
+  const documents = new DocumentService(db, user("tl-owner"));
+  const added = await types.planPatch(page.id, { add: { aliases: [" Fabi ", "Fab"] } });
+  assert.deepEqual(added, [{ op: "add", field: aliases.id, values: ["Fabi", "Fab"] }]);
+  await documents.editProperties(page.id, added);
+  assert.deepEqual((await stored()).held, ["Fabrizio", "Fabrizo", "Fab", "Fabi"]);
+  await documents.editProperties(page.id, await types.planPatch(page.id, { remove: { aliases: "Fabrizo" } }));
+  assert.deepEqual((await stored()).held, ["Fabrizio", "Fab", "Fabi"]);
+  await documents.editProperties(page.id, await types.planPatch(page.id, { set: { aliases: ["Fab", "Fab", "Fabrizio"] } }));
+  assert.deepEqual((await stored()).held, ["Fabrizio", "Fab"]);
+  await assert.rejects(() => types.planPatch(page.id, { add: { aliases: "  " } }), /^InvalidInputError: aliases: expected text$/);
+
+  await types.updateField(aliases.id, { kind: "text" });
+  assert.deepEqual(await stored(), {
+    held: "Fabrizio, Fab",
+    properties: { [aliases.id]: "Fabrizio, Fab" },
+    issues: [],
+    text: "Fabrizio, Fab",
+  });
 });
 
 test("template defaults: each expression and literal yields its stored value", () => {

@@ -17,7 +17,13 @@ import {
   type PropertyIssue,
   type TypeField,
 } from "@tandem/db";
-import { stateProperties, type PropertiesJSON, type PropertyOp } from "@tandem/editor";
+import {
+  applyPropertiesToState,
+  stateProperties,
+  SYSTEM_AUTHOR,
+  type PropertiesJSON,
+  type PropertyOp,
+} from "@tandem/editor";
 import { ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
 import { INPUT_LIMITS, type PropertyPatchInput } from "../inputs.js";
 
@@ -95,6 +101,17 @@ const KINDS: Record<FieldKind, KindSpec> = {
     coerce: (v) => (typeof v === "number" || typeof v === "boolean" ? String(v) : v),
     text: (v) => String(v),
   },
+  text_list: {
+    shape: "list",
+    invalid: (v) =>
+      typeof v !== "string" || v.trim() === ""
+        ? "expected text"
+        : v.length > TEXT_MAX
+          ? `text is longer than ${TEXT_MAX} characters`
+          : null,
+    coerce: (v) => (typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : v),
+    text: (v) => String(v),
+  },
   number: {
     shape: "scalar",
     invalid: (v) => (typeof v === "number" && Number.isFinite(v) ? null : "expected a number"),
@@ -158,6 +175,35 @@ const KINDS: Record<FieldKind, KindSpec> = {
 };
 
 export const isListKind = (kind: FieldKind) => KINDS[kind].shape === "list";
+
+/** Text as the list it names: the pieces between commas and semicolons,
+ * trimmed, with blanks and repeats dropped. */
+export function splitTextList(text: string): string[] {
+  return [...new Set(text.split(/[,;]/).map((s) => s.trim()).filter(Boolean))];
+}
+
+/** Whether a kind change rewrites stored values: text splits into a
+ * text_list, a text_list joins back into text. */
+export const reshapesValues = (from: FieldKind, to: FieldKind) =>
+  (from === "text" && to === "text_list") || (from === "text_list" && to === "text");
+
+/** The op that rewrites a value stored in the other shape for `field`'s
+ * kind: text split into a text_list's elements, a text_list's elements
+ * joined into text with ", ". Null when the value needs no rewrite. */
+export function reshapeOp(field: Pick<FieldDef, "id" | "kind">, stored: unknown): PropertyOp | null {
+  if (field.kind === "text_list" && typeof stored === "string") {
+    return { op: "setList", field: field.id, values: splitTextList(stored) };
+  }
+  if (field.kind === "text" && Array.isArray(stored)) {
+    const text = stored
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .join(", ");
+    return text ? { op: "set", field: field.id, value: text } : { op: "unset", field: field.id };
+  }
+  return null;
+}
 
 /** Lenient input (an option label, a page url, a date-time without a zone)
  * mapped to the stored form of one value, or why it doesn't fit the field. */
@@ -273,9 +319,15 @@ export async function projectionColumns(
  * they are now, so views, search and Due soon stop reading values checked
  * against the old definition before each page's next save. Runs as the
  * system after the definition commits: the change reaches pages the admin
- * can't read too. Each page is locked and projected from its stored state.
+ * can't read too. Values of the `reshape` fields are rewritten for their
+ * kind first (see reshapeOp).
  */
-async function reprojectFieldPages(db: Database, workspaceId: string, fieldIds: string[]): Promise<void> {
+async function reprojectFieldPages(
+  db: Database,
+  workspaceId: string,
+  fieldIds: string[],
+  reshape: readonly FieldDef[] = [],
+): Promise<void> {
   const ids = sql.join(
     fieldIds.map((id) => sql`${id}`),
     sql`, `,
@@ -290,19 +342,39 @@ async function reprojectFieldPages(db: Database, workspaceId: string, fieldIds: 
           OR EXISTS (SELECT 1 FROM jsonb_array_elements(${documents.propertyIssues}) i WHERE i->>'fieldId' IN (${ids})))`,
       ),
     );
-  for (const { id } of pages) {
-    await db.transaction(async (tx) => {
-      const page = tx as unknown as Database;
-      const [doc] = await page
-        .select({ ydocState: documents.ydocState })
-        .from(documents)
-        .where(eq(documents.id, id))
-        .for("update");
-      if (!doc?.ydocState) return;
-      const projected = await projectionColumns(page, workspaceId, stateProperties(doc.ydocState));
-      await page.update(documents).set(projected).where(eq(documents.id, id));
-    });
-  }
+  for (const { id } of pages) await reprojectPage(db, workspaceId, id, reshape);
+}
+
+/** Project one page from its stored state, its row locked, after rewriting
+ * the values of the `reshape` fields for their kind as the system. A page
+ * open in a live session gets the same rewrite there (the server's
+ * reshapeLiveDocs), so its next save doesn't undo this one. Returns
+ * whether a value was rewritten. */
+export async function reprojectPage(
+  db: Database,
+  workspaceId: string,
+  id: string,
+  reshape: readonly FieldDef[] = [],
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const page = tx as unknown as Database;
+    const [doc] = await page
+      .select({ ydocState: documents.ydocState })
+      .from(documents)
+      .where(eq(documents.id, id))
+      .for("update");
+    if (!doc?.ydocState) return false;
+    const held = stateProperties(doc.ydocState);
+    const ops = reshape.flatMap((f) => reshapeOp(f, held[f.id]) ?? []);
+    const reshaped =
+      ops.length > 0 ? applyPropertiesToState(doc.ydocState, ops, { ...SYSTEM_AUTHOR, at: Date.now() }) : null;
+    const projected = await projectionColumns(page, workspaceId, reshaped ? stateProperties(reshaped) : held);
+    await page
+      .update(documents)
+      .set(reshaped ? { ...projected, ydocState: reshaped } : projected)
+      .where(eq(documents.id, id));
+    return reshaped !== null;
+  });
 }
 
 export interface FieldView {
@@ -660,13 +732,14 @@ export class TypeService {
     });
   }
 
-  /** Change a field's definition. Stored values are never rewritten: a
-   * renamed key stays usable as an alias, and the pages holding the field
-   * are re-projected, so values that no longer fit a changed kind or a
-   * retired option show up as issues straight away. */
+  /** Change a field's definition. A renamed key stays usable as an alias,
+   * and the pages holding the field are re-projected, so values that no
+   * longer fit a changed kind or a retired option show up as issues
+   * straight away. Stored values stay as they are, except that a change
+   * between text and text_list splits or joins them (reshapeOp). */
   async updateField(id: string, patch: UpdateFieldInput): Promise<FieldView> {
     assertLength([patch.label, ...(patch.options ?? []).map((o) => o.label)], INPUT_LIMITS.name, "a label");
-    const updated = await this.exec(async (db) => {
+    const { updated, reshape } = await this.exec(async (db) => {
       const field = await this.fieldForEdit(db, id);
       const set: Partial<typeof typeFields.$inferInsert> = { updatedAt: new Date() };
       const key = patch.key?.trim();
@@ -699,10 +772,13 @@ export class TypeService {
         .select({ key: fieldKeyAliases.key, fieldId: fieldKeyAliases.fieldId })
         .from(fieldKeyAliases)
         .where(eq(fieldKeyAliases.fieldId, id));
-      return fieldView(row!, { types: [], fields: [], aliases });
+      return {
+        updated: fieldView(row!, { types: [], fields: [], aliases }),
+        reshape: reshapesValues(field.kind, row!.kind) ? [row!] : [],
+      };
     });
     if (patch.kind !== undefined || patch.options !== undefined) {
-      await reprojectFieldPages(this.db, updated.workspaceId, [updated.id]);
+      await reprojectFieldPages(this.db, updated.workspaceId, [updated.id], reshape);
     }
     return updated;
   }

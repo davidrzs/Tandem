@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { documents, runAsActor, SYSTEM, typeFields, type Actor, type Database } from "@tandem/db";
-import type { AuthorIdentity, AuthorInfo } from "@tandem/editor";
+import { SYSTEM_AUTHOR, type AuthorIdentity, type AuthorInfo } from "@tandem/editor";
 
 /** Internal helpers shared by DocumentService, DocumentTreeService, and
  * DocumentQueryService. Not exported from the package index. */
@@ -57,10 +57,7 @@ export abstract class DocumentServiceBase {
   /** Attribution identity for content this service writes into Yjs state. */
   protected authorInfo(): AuthorInfo {
     const identity =
-      this.author ??
-      (this.actor.kind === "user"
-        ? { userId: this.actor.userId, name: "", ai: false }
-        : { userId: "system", name: "System", ai: true });
+      this.author ?? (this.actor.kind === "user" ? { userId: this.actor.userId, name: "", ai: false } : SYSTEM_AUTHOR);
     return { ...identity, at: Date.now() };
   }
 

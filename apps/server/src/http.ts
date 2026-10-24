@@ -17,6 +17,7 @@ import {
   user as userTable,
   type Actor,
   type Database,
+  type FieldKind,
 } from "@tandem/db";
 import type { AuthorIdentity } from "@tandem/editor";
 import { eq, sql } from "drizzle-orm";
@@ -28,7 +29,7 @@ import {
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createAuth } from "./auth.js";
 import { createMailerFromEnv, type Mailer } from "./mail.js";
-import { createCollabWriter } from "./collab-writer.js";
+import { createCollabWriter, reshapeLiveDocs } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
 import { registerImageRoutes } from "./images.js";
 import { registerSetupRoutes } from "./setup-routes.js";
@@ -315,6 +316,7 @@ export async function buildHttpServer(
           mailer,
           appUrl,
           notifyDocument,
+          reshapeLiveDocs: (field: { id: string; kind: FieldKind }) => reshapeLiveDocs(hocuspocus, field, actor.userId),
           // Remaining 2FA backup codes (server-only Better Auth endpoint);
           // null when the user isn't enrolled.
           countBackupCodes: async (userId: string) => {

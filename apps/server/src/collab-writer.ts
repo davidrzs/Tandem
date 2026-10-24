@@ -8,6 +8,7 @@ import {
   propertiesToJSON,
   stateProperties,
   stateToJSON,
+  SYSTEM_AUTHOR,
   withTaskBlockIds,
   type AuthorIdentity,
   type PropertyOp,
@@ -17,7 +18,9 @@ import * as Y from "yjs";
 import type { Hocuspocus } from "@hocuspocus/server";
 import {
   DocumentWriteDeniedError,
+  reshapeOp,
   type DocumentService,
+  type FieldView,
   type SnapshotService,
 } from "@tandem/core";
 
@@ -158,3 +161,24 @@ export function createCollabWriter(
 }
 
 export type CollabWriter = ReturnType<typeof createCollabWriter>;
+
+/**
+ * After a field's kind changed between text and text_list, rewrite its
+ * values in the pages open in live sessions, as the system: TypeService
+ * rewrote the stored states, and a live page's next save would otherwise
+ * put its old shape back. The save runs as `userId`, who changed the kind,
+ * or as a connected writer when they can't write the page. Each page's
+ * clients are told to refetch the field definitions, so their panel shows
+ * the new kind instead of editing the value as the old one.
+ */
+export function reshapeLiveDocs(hocuspocus: Hocuspocus, field: Pick<FieldView, "id" | "kind">, userId: string): void {
+  for (const document of hocuspocus.documents.values()) {
+    const op = reshapeOp(field, propertiesToJSON(document)[field.id]);
+    if (!op) continue;
+    document.transact(() => applyAttributedProperties(document, [op], { ...SYSTEM_AUTHOR, at: Date.now() }), {
+      source: "local",
+      context: { userId },
+    });
+    document.broadcastStateless(JSON.stringify({ topic: "fields" }));
+  }
+}

@@ -10,12 +10,20 @@ import {
   user as userTable,
   workspaceMembers,
 } from "@tandem/db";
-import { COLLAB_FIELD, blameSpans, getAuthors, jsonToMarkdown, propertiesToJSON, schema } from "@tandem/editor";
+import {
+  COLLAB_FIELD,
+  blameSpans,
+  getAuthors,
+  jsonToMarkdown,
+  propertiesToJSON,
+  propertyBlame,
+  schema,
+} from "@tandem/editor";
 import { CollectionService, TypeService, WorkspaceService } from "@tandem/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import type * as Y from "yjs";
 import { createAuth } from "./auth.js";
-import { createCollabWriter } from "./collab-writer.js";
+import { createCollabWriter, reshapeLiveDocs } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
 import { mcpAuthor } from "./http.js";
 import { createMcpServer } from "./mcp.js";
@@ -379,5 +387,41 @@ test("a write to a read-only document is a permission error, not silent success"
     assert.equal(meta!.archivedAt, null, "not archived");
   } finally {
     await u2Client.close();
+  }
+});
+
+test("a text/text_list kind change reaches a page open in a live session, written as the System", async () => {
+  const workspaceId = (await services.documents.getMeta(docId))!.workspaceId;
+  const types = new TypeService(db, u1);
+  const nicknames = await types.createField({ workspaceId, typeId: null, key: "nicknames", kind: "text" });
+  const page = await services.documents.create({
+    collectionId,
+    title: "Fabrizio",
+    properties: [{ op: "set", field: nicknames.id, value: "Fabrizio, Fabrizo" }],
+  });
+
+  for (const [kind, want] of [
+    ["text_list", ["Fabrizio", "Fabrizo"]],
+    ["text", "Fabrizio, Fabrizo"],
+  ] as const) {
+    const open = await hocuspocus.openDirectConnection(page.id, { userId: "u1" });
+    const field = await types.updateField(nicknames.id, { kind });
+    reshapeLiveDocs(hocuspocus, field, "u1");
+    let live: unknown;
+    let writers: string[] = [];
+    await open.transact((doc) => {
+      const ydoc = doc as unknown as Y.Doc;
+      live = propertiesToJSON(ydoc)[nicknames.id];
+      const authors = getAuthors(ydoc);
+      writers = propertyBlame(ydoc).map((b) => `${authors.get(b.clientId)?.name}:${authors.get(b.clientId)?.ai}`);
+    });
+    await open.disconnect();
+    assert.deepEqual(live, want);
+    assert.deepEqual(writers, kind === "text_list" ? ["System:true", "System:true"] : ["System:true"]);
+    assert.deepEqual(
+      (await services.documents.get(page.id))!.properties[nicknames.id],
+      want,
+      "the live page's save, made as it closed, keeps the new shape",
+    );
   }
 });

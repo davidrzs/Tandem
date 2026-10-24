@@ -27,7 +27,7 @@ export type PropertyEdit =
   | { op: "add"; value: unknown }
   | { op: "remove"; value: unknown };
 
-export const isListKind = (kind: FieldKind) => kind === "multi_select" || kind === "doc_list";
+export const isListKind = (kind: FieldKind) => kind === "text_list" || kind === "multi_select" || kind === "doc_list";
 
 export const isEmptyValue = (raw: unknown) =>
   raw == null || raw === "" || (Array.isArray(raw) && raw.length === 0);
@@ -182,6 +182,8 @@ export function formatValue(field: Pick<Field, "kind" | "options">, raw: unknown
     }
     case "select":
       return optionLabel(field, raw);
+    case "text_list":
+      return listValues(raw).map(String).join(", ");
     case "multi_select":
       return listValues(raw).map((id) => optionLabel(field, id)).join(", ");
     case "doc":
@@ -265,6 +267,7 @@ export function describeDefault(
  * a title lookup per cell. */
 const COLUMN_KINDS: Record<FieldKind, boolean> = {
   text: true,
+  text_list: true,
   number: true,
   checkbox: true,
   date: true,
@@ -302,6 +305,7 @@ export function sortValue(field: Pick<Field, "kind" | "options">, raw: unknown):
       const index = field.options.findIndex((o) => o.id === raw);
       return index < 0 ? field.options.length : index;
     }
+    case "text_list":
     case "multi_select":
       return formatValue(field, raw);
     default:

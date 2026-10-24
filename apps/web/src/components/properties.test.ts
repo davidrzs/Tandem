@@ -155,6 +155,7 @@ test("stored values format for reading: labels, dates, checkboxes, page titles, 
   const opts = { locale: "en-US", timeZone: "UTC", titleOf: (id: string) => titles[id] };
   assert.equal(formatValue(status, "opt_open", opts), "Open");
   assert.equal(formatValue(topics, ["opt_budget", "opt_hiring"], opts), "Budget, Hiring");
+  assert.equal(formatValue(field("aliases", "text_list"), ["Fabrizio", "Fabrizo"], opts), "Fabrizio, Fabrizo");
   assert.equal(formatValue(field("due", "date"), "2026-10-22", opts), "Oct 22, 2026");
   assert.equal(formatValue(field("starts", "datetime"), "2026-10-22T18:30:00.000Z", opts), "Oct 22, 2026, 6:30 PM");
   assert.equal(formatValue(field("done", "checkbox"), false, opts), "No");
