@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   collections,
   documents,
@@ -9,12 +9,13 @@ import {
   type Database,
   type FieldKind,
   type TemplateDefault,
+  type TypeField,
 } from "@tandem/db";
 import type { AuthorInfo } from "@tandem/editor";
 import { NotFoundError } from "../errors.js";
 import { insertDocument } from "./documents.js";
 import { normalizeDefault } from "./template-defaults.js";
-import { assertCanDefine, shortId } from "./types.js";
+import { assertCanDefine, reprojectPage, shortId } from "./types.js";
 
 interface StarterType {
   name: string;
@@ -32,7 +33,7 @@ interface StarterTemplate {
   children: Array<{ title: string; markdown: string; defaultTemplate: string }>;
 }
 
-/** Aliases are free text: a multi_select would need an admin for every new alias. */
+/** Aliases are a free-form list: a multi_select would need an admin for every new alias. */
 export const STARTER_TYPES: readonly StarterType[] = [
   {
     name: "Meeting",
@@ -55,7 +56,7 @@ export const STARTER_TYPES: readonly StarterType[] = [
     fields: [
       { key: "email", label: "Email", kind: "text" },
       { key: "affiliation", label: "Affiliation", kind: "text" },
-      { key: "aliases", label: "Aliases", kind: "text" },
+      { key: "aliases", label: "Aliases", kind: "text_list" },
     ],
   },
 ];
@@ -192,4 +193,51 @@ export async function seedStarterKit(
     added.templates.push(spec.name);
   }
   return added;
+}
+
+/**
+ * Upgrade workspaces seeded while the starter Person's `aliases` was one
+ * text field ("Fabrizio, Fabrizo"): the field becomes a text_list, and every
+ * page whose text_list value is still stored as text has it split into the
+ * list as the system. The second step also finishes a kind change from text
+ * that stopped before reaching every page. Idempotent; runs at boot, before
+ * any live session can hold a page.
+ */
+export async function upgradeTextLists(db: Database, log: (message: string) => void = console.error): Promise<void> {
+  const converted = await db
+    .update(typeFields)
+    .set({ kind: "text_list", updatedAt: new Date() })
+    .where(
+      and(
+        eq(typeFields.key, "aliases"),
+        eq(typeFields.kind, "text"),
+        isNull(typeFields.retiredAt),
+        inArray(
+          typeFields.typeId,
+          db.select({ id: documentTypes.id }).from(documentTypes).where(sql`lower(${documentTypes.name}) = 'person'`),
+        ),
+      ),
+    )
+    .returning({ id: typeFields.id, workspaceId: typeFields.workspaceId });
+  for (const f of converted) log(`Person.aliases (${f.id}) in workspace ${f.workspaceId} is now a text list`);
+
+  const stale = await db
+    .select({ id: documents.id, workspaceId: documents.workspaceId, field: typeFields })
+    .from(documents)
+    .innerJoin(typeFields, and(eq(typeFields.workspaceId, documents.workspaceId), eq(typeFields.kind, "text_list")))
+    .where(
+      sql`(jsonb_typeof(${documents.properties} -> ${typeFields.id}) = 'string'
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(${documents.propertyIssues}) i WHERE i->>'fieldId' = ${typeFields.id}))`,
+    );
+  const pages = new Map<string, { workspaceId: string; fields: TypeField[] }>();
+  for (const row of stale) {
+    const page = pages.get(row.id) ?? { workspaceId: row.workspaceId, fields: [] };
+    page.fields.push(row.field);
+    pages.set(row.id, page);
+  }
+  let split = 0;
+  for (const [id, page] of pages) {
+    if (await reprojectPage(db, page.workspaceId, id, page.fields)) split++;
+  }
+  if (split > 0) log(`text lists: split stored text into lists on ${split} page${split === 1 ? "" : "s"}`);
 }

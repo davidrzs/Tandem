@@ -165,11 +165,13 @@ they are.
 
 **Add starter types** in the **Type** menu (owners and admins) adds Meeting
 (date, attendees, status), Project (status, next review, next action) and
-Person (email, affiliation, aliases) with a template each. The Project
-template has a **Meetings** sub-page whose **+** makes a Meeting dated today
-with the previous meeting's attendees. Running it again adds only what is
-missing; types and templates that already exist by name are kept as they are
-(an older Meeting template does not gain the live sections).
+Person (email, affiliation, aliases as a text list) with a template each. The
+Project template has a **Meetings** sub-page whose **+** makes a Meeting dated
+today with the previous meeting's attendees. Running it again adds only what
+is missing; types and templates that already exist by name are kept as they
+are (an older Meeting template does not gain the live sections). A Person
+type from before aliases were a list has its text `aliases` field turned into
+a text list when the server starts, its values split as above.
 
 ## Authorship model (how blame works)
 

@@ -35,6 +35,7 @@ import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
 import { evaluateDefaults, normalizeDefault } from "./services/template-defaults.js";
 import { expandVariables, TemplateService } from "./services/templates.js";
+import { upgradeTextLists } from "./services/seed-types.js";
 import {
   parseFieldInput,
   projectProperties,
@@ -2130,6 +2131,57 @@ test("text lists: patches add, remove and set single values; a kind change split
   });
 });
 
+test("text lists: the boot upgrade turns an old starter Person's text aliases into a list, once", async () => {
+  const { ws, col, types } = await typedWorkspace("tlu-owner", "tlu-member");
+  const person = await types.createType(ws.id, "Person");
+  const company = await types.createType(ws.id, "Company");
+  const aliases = await types.createField({ workspaceId: ws.id, typeId: person.id, key: "aliases", kind: "text" });
+  const other = await types.createField({ workspaceId: ws.id, typeId: company.id, key: "aliases", kind: "text" });
+  const documents = new DocumentService(db, user("tlu-owner"));
+  const fabrizio = await documents.create({
+    collectionId: col.id,
+    title: "Fabrizio",
+    typeId: person.id,
+    properties: [{ op: "set", field: aliases.id, value: "Fabrizio, Fabrizo" }],
+  });
+  const acme = await documents.create({
+    collectionId: col.id,
+    title: "Acme",
+    typeId: company.id,
+    properties: [{ op: "set", field: other.id, value: "Acme, ACME Inc" }],
+  });
+  const row = async (id: string) => {
+    const [r] = await db
+      .select({ ydocState: documentsTable.ydocState, properties: documentsTable.properties })
+      .from(documentsTable)
+      .where(eq(documentsTable.id, id));
+    return r!;
+  };
+
+  const logs: string[] = [];
+  await upgradeTextLists(db, (m) => logs.push(m));
+  assert.deepEqual(logs, [
+    `Person.aliases (${aliases.id}) in workspace ${ws.id} is now a text list`,
+    "text lists: split stored text into lists on 1 page",
+  ]);
+  assert.deepEqual(
+    (await types.listFields(ws.id)).filter((f) => f.key === "aliases").map((f) => [f.typeName, f.kind]),
+    [
+      ["Company", "text"],
+      ["Person", "text_list"],
+    ],
+  );
+  const upgraded = await row(fabrizio.id);
+  assert.deepEqual(stateProperties(upgraded.ydocState!), { [aliases.id]: ["Fabrizio", "Fabrizo"] });
+  assert.deepEqual(upgraded.properties, { [aliases.id]: ["Fabrizio", "Fabrizo"] });
+  assert.deepEqual((await row(acme.id)).properties, { [other.id]: "Acme, ACME Inc" });
+
+  const again: string[] = [];
+  await upgradeTextLists(db, (m) => again.push(m));
+  assert.deepEqual(again, []);
+  assert.deepEqual(await row(fabrizio.id), upgraded, "a second run rewrites nothing");
+});
+
 test("template defaults: each expression and literal yields its stored value", () => {
   const field = (id: string, kind: FieldKind, options: string[] = []): FieldDef => ({
     id,
@@ -2319,7 +2371,7 @@ test("starter kit: Meeting, Project and Person are added once; running it again 
   assert.deepEqual(seeded, {
     types: [
       ["Meeting", [["date", "date", []], ["attendees", "doc_list", []], ["status", "select", ["Planned", "Done"]]]],
-      ["Person", [["email", "text", []], ["affiliation", "text", []], ["aliases", "text", []]]],
+      ["Person", [["email", "text", []], ["affiliation", "text", []], ["aliases", "text_list", []]]],
       ["Project", [["status", "select", ["Idea", "Active", "Paused", "Killed"]], ["next_review", "date", []], ["next_action", "text", []]]],
     ],
     templates: [
