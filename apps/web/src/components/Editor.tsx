@@ -28,6 +28,7 @@ import { useCommentNavigation, useComments } from "./editor/useComments.js";
 import { useDocActions } from "./editor/useDocActions.js";
 import { usePresence } from "./editor/usePresence.js";
 import { useSnapshots } from "./editor/useSnapshots.js";
+import { useLiveSectionGuard } from "./editor/useLiveSectionGuard.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
 async function uploadAndInsert(view: EditorView, file: File, docId: string) {
@@ -309,6 +310,7 @@ export function Editor({
   const canDefine = myRole === "owner" || myRole === "admin";
   const templates = trpc.templates.list.useQuery({ workspaceId });
   const template = templates.data?.find((t) => t.id === docId) ?? null;
+  useLiveSectionGuard(editor, template !== null);
   useEffect(() => {
     if (!doc.data) return;
     if (!titleLoaded.current) {
