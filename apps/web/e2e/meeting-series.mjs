@@ -105,6 +105,8 @@ try {
 
   await series.locator(".live-section-head").click();
   await series.and(page.locator(".selected")).waitFor();
+  await page.waitForTimeout(500);
+  if (await page.locator(".bubble-group").isVisible()) throw new Error("the format bubble shows over the selected series");
   await page.keyboard.type("x");
   await eventually(
     () => markdownLines(meetings),

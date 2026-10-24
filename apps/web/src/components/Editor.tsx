@@ -462,6 +462,7 @@ export function Editor({
           shouldShow={({ editor, state }) =>
             previewId === null &&
             !editor.isActive("table") &&
+            !editor.isActive("liveSection") &&
             (!state.selection.empty || (canEdit && editor.isActive("link")))
           }
         >
