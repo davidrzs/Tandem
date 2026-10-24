@@ -125,6 +125,10 @@ fits its field, or holds a retired option) carries a marker saying why. A
 retired field's value stays in the panel, read-only, with **Remove**. Unlike
 the body, properties can't be edited offline: the panel says so and turns
 read-only until the page is back online.
+A page held in a page-reference property counts as linked from the page
+holding it. The **Linked from** panel names the field ("via Attendees"), so a
+Person page lists the meetings with that person. A retired field no longer
+links.
 When every page in a Contents table shares a type, the table shows that
 type's first three text-like fields (not page references or JSON) as sortable
 columns.
@@ -180,7 +184,8 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `recent_documents`, `get_document`, `search_documents` (also filters by an exact tag),
   `create_document`, `update_document` (title and/or tags), `move_document`,
   `archive_document`, `restore_document`, `list_archived`, `list_tags`,
-  `list_backlinks`.
+  `list_backlinks` (each with `via`: a body link and/or the property fields
+  holding the page).
 - **Templates**: `list_templates` (each with its `type` and `defaults` by
   field key), `create_from_template` (`templateId` optional: the target
   folder's default, as **+** in the app; `variables` answers the template's

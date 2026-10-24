@@ -686,12 +686,16 @@ export function Editor({
       {(backlinks.data?.length ?? 0) > 0 && (
         <div className="backlinks">
           <h3>Linked from</h3>
-          {backlinks.data!.map((d) => (
-            <RouterLink key={d.id} className="backlink" to={`/d/${d.id}`}>
-              <Icon name="page" size={13} />
-              {d.title || "Untitled"}
-            </RouterLink>
-          ))}
+          {backlinks.data!.map((d) => {
+            const fields = d.via.flatMap((v) => (v.kind === "property" ? [v.label] : []));
+            return (
+              <RouterLink key={d.id} className="backlink" to={`/d/${d.id}`}>
+                <Icon name="page" size={13} />
+                {d.title || "Untitled"}
+                {fields.length > 0 && <span className="backlink-via">via {fields.join(", ")}</span>}
+              </RouterLink>
+            );
+          })}
         </div>
       )}
       {hover && (

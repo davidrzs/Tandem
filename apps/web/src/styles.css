@@ -3731,6 +3731,11 @@ p.live-section-source a:hover {
   color: var(--accent-ink);
 }
 
+.backlink-via {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
 /* @mentions of real members: a soft tint in the person's identity hue
    (background set inline per member). */
 .mention {
