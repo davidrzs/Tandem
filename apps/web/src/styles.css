@@ -162,8 +162,15 @@ button {
 /* ---------- app shell ---------- */
 
 /* The react-resizable-panels Group lays out .app inline (flex row, 100vh);
- * the panes' inner divs carry .sidebar-pane / .main-pane. */
+ * the panes' inner divs carry .sidebar-pane / .main-pane.
+ *
+ * Both shell scrollers are positioned so they contain absolutely positioned
+ * descendants. Otherwise such an element (a visually hidden live region, say)
+ * escapes the scroller's clip at its unscrolled offset, makes the page itself
+ * taller than the viewport, and wheel scrolls then chain to the window and
+ * slide the whole shell away. */
 .main {
+  position: relative;
   height: 100%;
   overflow-y: auto;
   background: var(--surface);
@@ -208,6 +215,7 @@ button {
  * the account footer below stay pinned. The negative margin puts the scrollbar
  * at the sidebar's edge rather than 8px inside it. */
 .sidebar-scroll {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
