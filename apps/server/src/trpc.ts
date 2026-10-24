@@ -452,8 +452,13 @@ export const appRouter = t.router({
 
     // A live section, resolved against the page that holds it on every render.
     liveSection: protectedProcedure
-      .input(z.object({ id: uuid, query: z.enum(LIVE_SECTION_QUERIES) }))
+      .input(z.object({ id: uuid, query: z.enum(LIVE_SECTION_QUERIES).exclude(["meeting_series"]) }))
       .query(({ ctx, input }) => ctx.services.documentQueries.liveSection(input.id, input.query)),
+
+    // The meeting series live section: the newest `limit` pages under `id`.
+    meetingSeries: protectedProcedure
+      .input(z.object({ id: uuid, limit: z.number().int().min(1).max(500) }))
+      .query(({ ctx, input }) => ctx.services.documentQueries.meetingSeries(input.id, input.limit)),
 
     // `today` is the reader's calendar day, so "overdue" matches their clock.
     dueSoon: protectedProcedure

@@ -2188,7 +2188,7 @@ test("templates: a typed template sets the type and first values; attendees come
 });
 
 test("starter kit: Meeting, Project and Person are added once; running it again adds nothing", async () => {
-  const { col, tree, templates } = await templateWorkspace("sk", "Sky");
+  const { col, tree, templates, docs } = await templateWorkspace("sk", "Sky");
   const types = new TypeService(db, user("sk"));
   const snapshot = async () => {
     const registry = await types.listTypes(col.workspaceId);
@@ -2237,6 +2237,8 @@ test("starter kit: Meeting, Project and Person are added once; running it again 
       ["New person", []],
     ],
   });
+  const meetingsPage = (await tree.tree(col.id)).find((n) => n.title === "New project")!.children[0]!;
+  assert.equal((await docs.get(meetingsPage.id))!.contentMd, "<!-- live-section: meeting_series -->");
 
   assert.deepEqual(await templates.addStarterKit(col.workspaceId, col.id), { types: [], templates: [] });
   assert.deepEqual(await snapshot(), seeded, "a second run changes nothing");
@@ -2464,4 +2466,54 @@ test("tasks: open tasks by page, subtree and previous meeting; changes since; li
     ],
   );
   assert.ok(!(await queries.listMyTodos()).some((t) => t.text === "template task"));
+});
+
+test("meeting series: Meetings under a page, newest date first, undated by creation; templates and other pages left out", async () => {
+  const { col, docs, queries, templates } = await templateWorkspace("ms", "Mia");
+  const types = new TypeService(db, user("ms"));
+  const meeting = await types.createType(col.workspaceId, "Meeting");
+  await types.createField({ workspaceId: col.workspaceId, typeId: meeting.id, key: "date", kind: "date" });
+  await types.createField({ workspaceId: col.workspaceId, typeId: meeting.id, key: "attendees", kind: "doc_list" });
+  const page = async (title: string, parentDocumentId: string | null, markdown = "", typeId?: string, set?: Record<string, unknown>) => {
+    const created = await docs.create({ collectionId: col.id, parentDocumentId, title, markdown });
+    if (typeId) await types.setDocumentType(created.id, typeId);
+    if (set) await docs.editProperties(created.id, await types.planPatch(created.id, { set }));
+    return created;
+  };
+  const ann = await page("Ann", null);
+  const meetings = await page("Meetings", null, "<!-- live-section: meeting_series -->");
+  const kickoff = await page("Kickoff", meetings.id, "Agreed scope", meeting.id, { date: "2026-09-01", attendees: [ann.id] });
+  const review = await page("Review", meetings.id, "Shipped it", meeting.id, { date: "2026-10-01" });
+  const first = await page("Undated first", meetings.id, "", meeting.id);
+  const second = await page("Undated second", meetings.id, "", meeting.id);
+  await page("Agenda ideas", meetings.id, "not a meeting");
+  const tpl = await page("Meeting template", meetings.id, "", meeting.id, { date: "2027-01-01" });
+  await templates.templatize(tpl.id, "Meeting");
+
+  const series = await queries.meetingSeries(meetings.id, 10);
+  assert.deepEqual(
+    series.entries.map((e) => [e.id, e.title, e.date, e.attendees, e.markdown]),
+    [
+      [review.id, "Review", "2026-10-01", [], "Shipped it"],
+      [kickoff.id, "Kickoff", "2026-09-01", [{ id: ann.id, title: "Ann" }], "Agreed scope"],
+      [second.id, "Undated second", null, [], ""],
+      [first.id, "Undated first", null, [], ""],
+    ],
+  );
+  assert.equal(series.total, 4);
+
+  const newest = await queries.meetingSeries(meetings.id, 2);
+  assert.deepEqual([newest.entries.map((e) => e.title), newest.total], [["Review", "Kickoff"], 4]);
+
+  const notes = await page("Notes", null);
+  await page("Older note", notes.id);
+  await page("Newer note", notes.id);
+  assert.deepEqual(
+    (await queries.meetingSeries(notes.id, 10)).entries.map((e) => [e.title, e.date]),
+    [["Newer note", null], ["Older note", null]],
+    "untyped children fall back to creation time",
+  );
+
+  const outsider = await templateWorkspace("ms-out", "Oz");
+  assert.deepEqual(await outsider.queries.meetingSeries(meetings.id, 10), { entries: [], total: 0 });
 });

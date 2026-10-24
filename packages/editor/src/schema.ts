@@ -114,6 +114,7 @@ export const LIVE_SECTION_QUERIES = [
   "open_from_last_time",
   "since_last_meeting",
   "open_tasks_here",
+  "meeting_series",
 ] as const;
 export type LiveSectionQuery = (typeof LIVE_SECTION_QUERIES)[number];
 

@@ -65,7 +65,7 @@ shows the id.
 
 ### Live sections
 
-A live section is a read-only list the page works out each time it renders.
+A live section is a read-only view the page works out each time it renders.
 Insert one from the `/` menu:
 
 - **Open from last time**: the open tasks of the previous page of the same
@@ -73,11 +73,23 @@ Insert one from the `/` menu:
 - **Since last meeting**: pages edited, tasks closed and tasks added since that
   page's date, under the nearest typed page above this one (the project).
 - **Open tasks under this page**: open tasks in the pages below this one.
+- **Meeting series**: the pages directly below this one, read like one long
+  rolling notes page. Each shows its title, date, attendees, an Open link and
+  its whole body. Newest come first, by the page type's first date field, then
+  by creation time. When some of those pages are Meetings, only the Meetings
+  show. The newest 10 show at first; **Show older** reveals 10 more. A live
+  section inside a meeting shows as a link to that meeting.
+
+A live section stays whole while you type. Backspace or Delete beside it
+selects it, and a second press deletes it. Typing while it is selected starts
+a new paragraph after it.
 
 In markdown (export, MCP, import) a live section is an HTML comment such as
 `<!-- live-section: open_from_last_time -->`. Search and the task list ignore
-it. The starter Meeting template opens with the first two and the Project
-template ends with the third.
+it. The starter Meeting template opens with the first two, the Project
+template ends with the third, and the Project's Meetings page holds a meeting
+series. Workspaces that added the starter kit earlier keep their templates as
+they are; insert the series by hand there.
 
 ## Templates
 

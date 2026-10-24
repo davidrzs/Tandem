@@ -28,8 +28,8 @@ interface StarterTemplate {
   markdown: string;
   /** By field key; literals as a person would type them (option labels). */
   defaults: Record<string, TemplateDefault>;
-  /** Child pages, each with the template new pages under it start from. */
-  children: Array<{ title: string; defaultTemplate: string }>;
+  /** Child pages, each with its body and the template new pages under it start from. */
+  children: Array<{ title: string; markdown: string; defaultTemplate: string }>;
 }
 
 /** Aliases are free text: a multi_select would need an admin for every new alias. */
@@ -81,7 +81,7 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = [
     title: "New project",
     markdown: "## Overview\n\n## Next steps\n\n<!-- live-section: open_tasks_here -->\n",
     defaults: { status: { kind: "value", value: "Idea" } },
-    children: [{ title: "Meetings", defaultTemplate: "Meeting" }],
+    children: [{ title: "Meetings", markdown: "<!-- live-section: meeting_series -->\n", defaultTemplate: "Meeting" }],
   },
   { name: "Person", type: "Person", title: "New person", markdown: "", defaults: {}, children: [] },
 ];
@@ -182,6 +182,7 @@ export async function seedStarterKit(
           collectionId,
           parentDocumentId: doc.id,
           title: child.title,
+          markdown: child.markdown,
           defaultTemplateId: templateIds.get(child.defaultTemplate.toLowerCase()) ?? null,
         },
         author,

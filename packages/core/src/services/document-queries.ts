@@ -1,6 +1,16 @@
 import { ForbiddenError, NotFoundError } from "../errors.js";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
-import { collections, documents, runAsActor, SYSTEM, tasks, typeFields, user, type Database } from "@tandem/db";
+import {
+  collections,
+  documents,
+  documentTypes,
+  runAsActor,
+  SYSTEM,
+  tasks,
+  typeFields,
+  user,
+  type Database,
+} from "@tandem/db";
 import type { LiveSectionQuery } from "@tandem/editor";
 import type { DocumentMeta } from "./documents.js";
 import {
@@ -125,6 +135,23 @@ export type LiveSectionResult =
     }
   | { query: "open_tasks_here"; tasks: TaskRow[] };
 
+/** One page of a series, as the series view shows it. `date` is its value of
+ * its type's first date field; `attendees` the readable pages its type's
+ * first page-list field points at. */
+export interface SeriesEntry {
+  id: string;
+  title: string;
+  date: string | null;
+  attendees: PageLink[];
+  markdown: string;
+}
+
+/** The newest `limit` entries of a series and how many it holds. */
+export interface MeetingSeries {
+  entries: SeriesEntry[];
+  total: number;
+}
+
 /** A page whose due or review date is past or within the horizon. */
 export interface DueItem {
   documentId: string;
@@ -165,6 +192,19 @@ const subtreeIds = (rootId: string) => sql`(
     SELECT d.id FROM documents d JOIN sub ON d.parent_document_id = sub.id
   )
   SELECT id FROM sub
+)`;
+
+/** The id of the first live field of one of `kinds` on the row's type, the
+ * field a series reads its date or attendees from. */
+const firstFieldOf = (kinds: string[]) => sql`(
+  SELECT f.id FROM type_fields f
+  WHERE f.type_id = ${documents.typeId} AND f.retired_at IS NULL
+    AND f.kind::text IN (${sql.join(
+      kinds.map((k) => sql`${k}`),
+      sql`, `,
+    )})
+  ORDER BY f.position, f.key
+  LIMIT 1
 )`;
 
 /** Task rows of live, non-template pages matching `where`. */
@@ -544,8 +584,12 @@ export class DocumentQueryService extends DocumentServiceBase {
     return previousSibling(db, { ...page, typeId: page.typeId }, id);
   }
 
-  /** Resolve a live section against the page `documentId` that holds it. */
-  async liveSection(documentId: string, query: LiveSectionQuery): Promise<LiveSectionResult> {
+  /** Resolve a list live section against the page `documentId` that holds
+   * it. The meeting series pages through `meetingSeries` instead. */
+  async liveSection(
+    documentId: string,
+    query: Exclude<LiveSectionQuery, "meeting_series">,
+  ): Promise<LiveSectionResult> {
     return this.exec(async (db) => {
       if (query === "open_tasks_here") {
         const under = sql`${tasks.documentId} IN ${subtreeIds(documentId)}`;
@@ -607,6 +651,64 @@ export class DocumentQueryService extends DocumentServiceBase {
       .from(documents)
       .where(eq(documents.id, documentId));
     return { collectionId: self!.collectionId };
+  }
+
+  /**
+   * The pages directly under `documentId`, newest first: by their type's
+   * first date field (undated last), then by creation time. When some are
+   * Meetings, only the Meetings count. Templates never appear.
+   */
+  async meetingSeries(documentId: string, limit: number): Promise<MeetingSeries> {
+    return this.exec(async (db) => {
+      const children = and(
+        eq(documents.parentDocumentId, documentId),
+        isNull(documents.deletedAt),
+        isNull(documents.archivedAt),
+        notTemplate,
+      );
+      const meeting = sql`${documents.typeId} IN (SELECT id FROM ${documentTypes} WHERE lower(${documentTypes.name}) = 'meeting')`;
+      const [anyMeeting] = await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(and(children, meeting))
+        .limit(1);
+      const date = sql<string | null>`${documents.properties} ->> ${firstFieldOf(["date", "datetime"])}`;
+      const rows = await db
+        .select({
+          id: documents.id,
+          title: documents.title,
+          date,
+          attendees: sql<unknown>`${documents.properties} -> ${firstFieldOf(["doc_list"])}`,
+          markdown: documents.contentMd,
+          total: sql<number>`(count(*) OVER ())::int`,
+        })
+        .from(documents)
+        .where(and(children, anyMeeting ? meeting : undefined))
+        .orderBy(sql`${date} DESC NULLS LAST`, desc(documents.createdAt), desc(documents.id))
+        .limit(limit);
+      const attendeeIds = new Map(
+        rows.map((r) => [r.id, [r.attendees].flat().filter((v): v is string => typeof v === "string")]),
+      );
+      const refIds = [...new Set([...attendeeIds.values()].flat())];
+      // Compared as text: a stale value need not be a uuid.
+      const people =
+        refIds.length === 0
+          ? []
+          : await db
+              .select({ id: documents.id, title: documents.title })
+              .from(documents)
+              .where(and(inArray(sql`${documents.id}::text`, refIds), isNull(documents.deletedAt)));
+      const titleOf = new Map(people.map((p) => [p.id, p.title]));
+      return {
+        total: rows[0]?.total ?? 0,
+        entries: rows.map(({ attendees: _, total: __, ...row }) => ({
+          ...row,
+          attendees: attendeeIds
+            .get(row.id)!
+            .flatMap((id) => (titleOf.has(id) ? [{ id, title: titleOf.get(id)! }] : [])),
+        })),
+      };
+    });
   }
 
   /** Pages whose due or review date (a date field keyed like `due` or

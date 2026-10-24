@@ -1,18 +1,26 @@
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { LiveSection, type LiveSectionQuery } from "@tandem/editor";
+import { LiveSection, markdownToJSON, type LiveSectionQuery } from "@tandem/editor";
 import type { RouterOutputs } from "@tandem/server/trpc";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
+import { formatValue } from "./properties.js";
+import { ReadOnlyDoc } from "./ReadOnlyDoc.js";
 
 type Section = RouterOutputs["documents"]["liveSection"];
 type Task = Extract<Section, { tasks: unknown }>["tasks"][number];
+type SeriesEntry = RouterOutputs["documents"]["meetingSeries"]["entries"][number];
 
 export const LIVE_SECTION_LABELS: Record<LiveSectionQuery, string> = {
   open_from_last_time: "Open from last time",
   since_last_meeting: "Since last meeting",
   open_tasks_here: "Open tasks under this page",
+  meeting_series: "Meeting series",
 };
+
+/** How many more meetings "Show older" reveals. */
+const SERIES_PAGE = 10;
 
 function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
   if (tasks.length === 0) return <p className="live-section-empty">{empty}</p>;
@@ -78,11 +86,94 @@ function Body({ section }: { section: Section }) {
   );
 }
 
-/** A read-only list resolved from this page every time it renders. */
+function ListSection({ documentId, query }: { documentId: string; query: Exclude<LiveSectionQuery, "meeting_series"> }) {
+  const section = trpc.documents.liveSection.useQuery({ id: documentId, query }, { enabled: !!documentId });
+  if (section.data) return <Body section={section.data} />;
+  return <p className="live-section-empty">{section.error ? "Couldn't load this section." : "Loading…"}</p>;
+}
+
+/** A live section inside a series entry: a link to the page that holds it,
+ * never resolved, so a series can't nest. */
+function SectionLink({ node, extension }: NodeViewProps) {
+  return (
+    <NodeViewWrapper className="live-section-link" contentEditable={false}>
+      <Link to={`/d/${extension.options.documentId as string}`}>
+        {LIVE_SECTION_LABELS[node.attrs.query as LiveSectionQuery]}
+      </Link>
+    </NodeViewWrapper>
+  );
+}
+
+const SectionLinkNode = LiveSection.extend<{ documentId: string }>({
+  addOptions() {
+    return { documentId: "" };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(SectionLink);
+  },
+});
+
+function SeriesItem({ entry }: { entry: SeriesEntry }) {
+  const content = useMemo(() => markdownToJSON(entry.markdown), [entry.markdown]);
+  const sectionLink = useMemo(() => SectionLinkNode.configure({ documentId: entry.id }), [entry.id]);
+  return (
+    <article className="series-entry">
+      <header className="series-entry-head">
+        <h3>{entry.title || "Untitled"}</h3>
+        {entry.date && (
+          <span className="series-entry-meta">
+            {formatValue({ kind: entry.date.length === 10 ? "date" : "datetime", options: [] }, entry.date)}
+          </span>
+        )}
+        {entry.attendees.length > 0 && (
+          <span className="series-entry-meta">
+            {entry.attendees.map((person, i) => (
+              <span key={person.id}>
+                {i > 0 && ", "}
+                <Link to={`/d/${person.id}`}>{person.title || "Untitled"}</Link>
+              </span>
+            ))}
+          </span>
+        )}
+        <Link className="series-entry-open" to={`/d/${entry.id}`}>
+          Open
+        </Link>
+      </header>
+      <ReadOnlyDoc contentJson={content} liveSection={sectionLink} />
+    </article>
+  );
+}
+
+/** The pages under this one, newest first, each with its whole body. */
+function SeriesSection({ documentId }: { documentId: string }) {
+  const [limit, setLimit] = useState(SERIES_PAGE);
+  const series = trpc.documents.meetingSeries.useQuery(
+    { id: documentId, limit },
+    { enabled: !!documentId, placeholderData: (prev) => prev },
+  );
+  if (!series.data) {
+    return <p className="live-section-empty">{series.error ? "Couldn't load this section." : "Loading…"}</p>;
+  }
+  const { entries, total } = series.data;
+  if (entries.length === 0) return <p className="live-section-empty">No meetings under this page yet.</p>;
+  return (
+    <>
+      {entries.map((entry) => (
+        <SeriesItem key={entry.id} entry={entry} />
+      ))}
+      {total > entries.length && (
+        <button type="button" className="btn series-older" onClick={() => setLimit(entries.length + SERIES_PAGE)}>
+          Show older ({total - entries.length})
+        </button>
+      )}
+    </>
+  );
+}
+
+/** A read-only view resolved from this page every time it renders. */
 function LiveSectionView({ node, extension, selected }: NodeViewProps) {
   const query = node.attrs.query as LiveSectionQuery;
   const documentId = extension.options.documentId as string;
-  const section = trpc.documents.liveSection.useQuery({ id: documentId, query }, { enabled: !!documentId });
   return (
     <NodeViewWrapper
       className={"live-section" + (selected ? " selected" : "")}
@@ -93,10 +184,10 @@ function LiveSectionView({ node, extension, selected }: NodeViewProps) {
         <Icon name="check" size={12} />
         {LIVE_SECTION_LABELS[query]}
       </div>
-      {section.data ? (
-        <Body section={section.data} />
+      {query === "meeting_series" ? (
+        <SeriesSection documentId={documentId} />
       ) : (
-        <p className="live-section-empty">{section.error ? "Couldn't load this section." : "Loading…"}</p>
+        <ListSection documentId={documentId} query={query} />
       )}
     </NodeViewWrapper>
   );

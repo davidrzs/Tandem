@@ -8,7 +8,7 @@ import { Breadcrumbs } from "./Breadcrumbs.js";
 import { RowMenu } from "./Modal.js";
 import { CommentsPanel } from "./CommentsPanel.js";
 import { HistoryPanel } from "./HistoryPanel.js";
-import { SnapshotPreview } from "./SnapshotPreview.js";
+import { ReadOnlyDoc } from "./ReadOnlyDoc.js";
 import { TocRail } from "./TocRail.js";
 import { authorColor, authorKey } from "./colors.js";
 import { FindBar } from "./FindBar.js";
@@ -681,7 +681,7 @@ export function Editor({
       </div>
       {previewId !== null &&
         (preview.data ? (
-          <SnapshotPreview key={previewId} contentJson={preview.data.contentJson} />
+          <ReadOnlyDoc key={previewId} contentJson={preview.data.contentJson} />
         ) : (
           <div className="empty">Loading version…</div>
         ))}
