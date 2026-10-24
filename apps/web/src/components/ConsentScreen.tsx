@@ -34,7 +34,7 @@ export function ConsentScreen({ request }: { request: ConsentRequest }) {
           </ul>
         )}
         {error && <div className="auth-error">{error}</div>}
-        <button type="button" onClick={() => decide(true)} disabled={busy}>
+        <button type="button" className="btn primary" onClick={() => decide(true)} disabled={busy}>
           {busy ? "…" : "Allow"}
         </button>
         <button
