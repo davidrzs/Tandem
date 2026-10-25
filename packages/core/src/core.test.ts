@@ -10,6 +10,7 @@ import {
   documentTypes,
   documentSnapshots,
   migrateDatabase,
+  oauthApplication,
   runAsActor,
   SYSTEM,
   user as userTable,
@@ -955,6 +956,26 @@ test("backlinks: doc and doc_list properties count, labelled by field; retired f
     ["Both", [{ kind: "body" }, attendee]],
     ["Listed", [attendee]],
   ]);
+});
+
+test("settings: oauthClient exposes the name and redirect hosts, never the secret", async () => {
+  const { SettingsService } = await import("./services/settings.js");
+  await runAsActor(db, SYSTEM, (tx) =>
+    tx.insert(oauthApplication).values({
+      id: randomUUID(),
+      name: "  Claude ",
+      clientId: "client-consent",
+      clientSecret: "s3cret",
+      redirectUrls: "https://claude.ai/api/mcp/auth_callback,https://claude.ai/other,not a url",
+      type: "public",
+    }),
+  );
+  const s1 = new SettingsService(db, user("u1"));
+  assert.deepEqual(await s1.oauthClient("client-consent"), {
+    name: "Claude",
+    redirectHosts: ["claude.ai"],
+  });
+  assert.equal(await s1.oauthClient("no-such-client"), null);
 });
 
 test("settings: MCP kill switch and workspace audit trail", async () => {

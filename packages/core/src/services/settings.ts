@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   auditLog,
   documents,
+  oauthApplication,
   runAsActor,
   SYSTEM,
   user,
@@ -18,6 +19,15 @@ export interface SidebarState {
   expandedCollections: string[];
   /** Document ids the user has folded (document nodes default expanded). */
   collapsedDocs: string[];
+}
+
+/** What the consent screen shows about an OAuth client. Both fields come from
+ * dynamic client registration, which anyone can call: the name is
+ * self-asserted, so the redirect hosts (where the grant actually goes) are
+ * shown beside it. */
+export interface OAuthClientView {
+  name: string | null;
+  redirectHosts: string[];
 }
 
 export interface AuditView {
@@ -76,6 +86,25 @@ export class SettingsService {
           set: { mcpEnabled: enabled, updatedAt: new Date() },
         });
     });
+  }
+
+  /** Public facts about a registered OAuth client, or null if unknown. */
+  async oauthClient(clientId: string): Promise<OAuthClientView | null> {
+    const [row] = await this.system((db) =>
+      db
+        .select({ name: oauthApplication.name, redirectUrls: oauthApplication.redirectUrls })
+        .from(oauthApplication)
+        .where(eq(oauthApplication.clientId, clientId)),
+    );
+    if (!row) return null;
+    const hosts = (row.redirectUrls ?? "").split(",").flatMap((u) => {
+      try {
+        return [new URL(u.trim()).host];
+      } catch {
+        return [];
+      }
+    });
+    return { name: row.name?.trim() || null, redirectHosts: [...new Set(hosts)] };
   }
 
   /** Sidebar fold state. Collections store the expanded set (default
