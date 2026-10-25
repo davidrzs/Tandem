@@ -13,11 +13,11 @@
   "dependencies": {
     "@tandem/db": "workspace:*",
     "@tandem/editor": "workspace:*",
-    "drizzle-orm": "^0.38.3",
+    "drizzle-orm": "^0.45.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2"
   }
 }
