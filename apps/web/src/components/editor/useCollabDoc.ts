@@ -60,6 +60,10 @@ export function useCollabDoc(docId: string, uid: string | undefined, canEdit: bo
               // Someone renamed the doc (the title lives outside the CRDT).
               void utilsRef.current.documents.getMeta.invalidate({ id: docId });
               void utilsRef.current.documents.tree.invalidate();
+            } else if (message.topic === "fields") {
+              // A field's kind changed and the server reshaped its value here.
+              void utilsRef.current.types.invalidate();
+              void utilsRef.current.documents.properties.invalidate({ id: docId });
             }
           } catch {
             // Unknown payloads are ignored.

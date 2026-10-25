@@ -1,8 +1,9 @@
 // Typed templates and the meeting flow: the owner adds the starter types from
 // the Type menu, creates a Project from its template (its Meetings sub-page
 // comes along), and "+" under Meetings makes a Meeting dated today that
-// copies the previous meeting's attendees. The Meeting template's page shows
-// its defaults, and an owner changes one there. Needs web+api (run.sh).
+// copies the previous meeting's attendees, and Ann's page lists both meetings
+// as linked via Attendees. The Meeting template's page shows its defaults,
+// and an owner changes one there. Needs web+api (run.sh).
 import { chromium } from "playwright";
 import { BASE, signUp, createCollection, newDocument } from "./_helpers.mjs";
 
@@ -119,6 +120,19 @@ try {
     "the second meeting's values",
   );
 
+  await page.goto(`${BASE}/d/${ann}`);
+  await page.locator(".backlinks .backlink").nth(1).waitFor();
+  assertEqual(
+    await page.locator(".backlinks .backlink").evaluateAll((rows) =>
+      rows.map((r) => [r.getAttribute("href"), r.querySelector(".backlink-via")?.textContent]),
+    ),
+    [
+      [`/d/${second}`, "via Attendees"],
+      [`/d/${first}`, "via Attendees"],
+    ],
+    "Ann's Linked from rows",
+  );
+
   // The Meeting template's page shows its defaults; the owner changes one.
   await page.goto(`${BASE}/d/${templateId("Meeting")}`);
   const panel = page.locator('.props-panel[aria-label="Template defaults"]');
@@ -188,7 +202,7 @@ try {
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log(
-    "MEETING PASS — starter types from the Type menu, Project with Meetings, + under Meetings dated today with the previous attendees, template defaults edited",
+    "MEETING PASS — starter types from the Type menu, Project with Meetings, + under Meetings dated today with the previous attendees, Ann linked from both via Attendees, template defaults edited",
   );
 } finally {
   await browser.close();

@@ -35,7 +35,15 @@ import { GroupService } from "./services/groups.js";
 import { SnapshotService } from "./services/snapshots.js";
 import { evaluateDefaults, normalizeDefault } from "./services/template-defaults.js";
 import { expandVariables, TemplateService } from "./services/templates.js";
-import { parseFieldInput, projectProperties, TypeService, type FieldDef } from "./services/types.js";
+import { upgradeTextLists } from "./services/seed-types.js";
+import {
+  parseFieldInput,
+  projectProperties,
+  reshapeOp,
+  splitTextList,
+  TypeService,
+  type FieldDef,
+} from "./services/types.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
 
@@ -881,6 +889,74 @@ test("backlinks: pages referencing a doc, RLS-scoped, archived sources excluded"
   assert.equal((await d1Queries.backlinks(target.id)).length, 0);
 });
 
+test("backlinks: doc and doc_list properties count, labelled by field; retired fields and unreadable pages don't", async () => {
+  const { ws, col, types, meeting } = await typedWorkspace("blp-owner", "blp-member");
+  const people = await types.createField({
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "people",
+    label: "Attendees",
+    kind: "doc_list",
+  });
+  const host = await types.createField({ workspaceId: ws.id, typeId: meeting.id, key: "host", label: "Host", kind: "doc" });
+  const owner = new DocumentService(db, user("blp-owner"));
+  const andrea = await owner.create({ collectionId: col.id, title: "Andrea" });
+  const bob = await owner.create({ collectionId: col.id, title: "Bob" });
+  await owner.create({
+    collectionId: col.id,
+    title: "Listed",
+    properties: [{ op: "setList", field: people.id, values: [bob.id, andrea.id] }],
+  });
+  await owner.create({
+    collectionId: col.id,
+    title: "Both",
+    markdown: `With [Andrea](/d/${andrea.id}).`,
+    properties: [
+      { op: "set", field: host.id, value: andrea.id },
+      { op: "setList", field: people.id, values: [andrea.id] },
+    ],
+  });
+  await owner.create({
+    collectionId: col.id,
+    title: "Bob only",
+    properties: [{ op: "setList", field: people.id, values: [bob.id] }],
+  });
+  const collections = new CollectionService(db, user("blp-owner"));
+  const hidden = await collections.create({ name: "Private", slug: "blp-private" });
+  await collections.setDefaultRole(hidden.id, "none");
+  await owner.create({
+    collectionId: hidden.id,
+    title: "Private 1:1",
+    properties: [{ op: "set", field: host.id, value: andrea.id }],
+  });
+
+  const backlinksAs = async (userId: string) =>
+    (await new DocumentQueryService(db, user(userId)).backlinks(andrea.id))
+      .map((b) => [b.title, b.via])
+      .sort(([a], [b]) => String(a).localeCompare(String(b)));
+  const attendee = { kind: "property", field: "people", label: "Attendees" };
+  const hostedBy = { kind: "property", field: "host", label: "Host" };
+  assert.deepEqual(await backlinksAs("blp-owner"), [
+    ["Both", [{ kind: "body" }, attendee, hostedBy]],
+    ["Listed", [attendee]],
+    ["Private 1:1", [hostedBy]],
+  ]);
+  assert.deepEqual(
+    await backlinksAs("blp-member"),
+    [
+      ["Both", [{ kind: "body" }, attendee, hostedBy]],
+      ["Listed", [attendee]],
+    ],
+    "a page the member can't open stays hidden",
+  );
+
+  await types.retireField(host.id);
+  assert.deepEqual(await backlinksAs("blp-owner"), [
+    ["Both", [{ kind: "body" }, attendee]],
+    ["Listed", [attendee]],
+  ]);
+});
+
 test("settings: MCP kill switch and workspace audit trail", async () => {
   const { SettingsService } = await import("./services/settings.js");
   const s1 = new SettingsService(db, user("u1"));
@@ -1294,7 +1370,7 @@ test("templates: instantiate expands variables, copies 3 levels, records origin"
   const page = created.document!;
   assert.equal(page.title, "Meeting 2026-01-02");
   assert.equal(page.contentMd, "# Meeting 2026-01-02\n\nBy Tara in Team\n\nClient: Acme");
-  assert.deepEqual(page.origin, { templateId: tpl.id, version: summary.version });
+  assert.deepEqual(page.origin, { templateId: tpl.id, version: summary.version, liveSections: 0 });
   const copied = await tree.subtree(page.id, 10);
   const titles = (nodes: typeof copied.nodes): unknown[] =>
     nodes.map((n) => [n.title, titles(n.children)]);
@@ -1326,13 +1402,86 @@ test("templates: editing only a copied sub-page changes the template version", a
   assert.notEqual(after.version, before.version);
   assert.equal(after.version, (await docs.get(child.id))!.updatedAt.toISOString());
   const page = await templates.instantiate({ templateId: tpl.id, collectionId: col.id });
-  assert.deepEqual(page.document!.origin, { templateId: tpl.id, version: after.version });
+  assert.deepEqual(page.document!.origin, { templateId: tpl.id, version: after.version, liveSections: 0 });
   assert.deepEqual((await docs.getMeta(page.document!.id))!.origin, {
     templateId: tpl.id,
     templateName: "Versioned",
     version: after.version,
   });
   assert.equal((await docs.getMeta(tpl.id))!.origin, null);
+});
+
+test("templates: a title prompt is asked for, and a given title replaces the template's", async () => {
+  const { col, docs, templates } = await templateWorkspace("tn", "Tess");
+  const tpl = await docs.create({ collectionId: col.id, title: "{{name}}", markdown: "# {{title}}\n\nRole: {{role}}" });
+  await templates.templatize(tpl.id, "Person");
+
+  const asked = await templates.instantiate({
+    templateId: tpl.id,
+    collectionId: col.id,
+    variables: { name: "Ada" },
+    dryRun: true,
+  });
+  assert.deepEqual(asked.prompts, ["name", "role"]);
+  assert.deepEqual(asked.missing, ["role"]);
+  assert.deepEqual(asked.page, { title: "Ada", markdown: "# Ada\n\nRole: ", children: [] });
+
+  const named = await templates.instantiate({
+    templateId: tpl.id,
+    collectionId: col.id,
+    title: "Grace Hopper",
+    variables: { role: "admiral" },
+  });
+  assert.deepEqual(named.prompts, ["role"], "the replaced title's prompt is not asked for");
+  assert.deepEqual(named.missing, []);
+  assert.equal(named.document!.title, "Grace Hopper");
+  assert.equal(named.document!.contentMd, "# Grace Hopper\n\nRole: admiral");
+  assert.equal(named.document!.origin?.templateId, tpl.id);
+});
+
+test("templates: warn when a template lost a live section or changed since its last use", async () => {
+  const { col, docs, templates } = await templateWorkspace("tw", "Wren");
+  const tpl = await docs.create({
+    collectionId: col.id,
+    title: "Meeting",
+    markdown: "<!-- live-section: open_from_last_time -->\n\n<!-- live-section: since_last_meeting -->\n\n## Notes",
+  });
+  await templates.templatize(tpl.id, "Meeting");
+  const use = async () => {
+    const { liveSections, lastUsedAt, changedSinceLastUse, warnings } = (await templates.list()).find(
+      (t) => t.id === tpl.id,
+    )!;
+    return { liveSections, lastUsedAt, changedSinceLastUse, warnings };
+  };
+  assert.deepEqual(await use(), { liveSections: 2, lastUsedAt: null, changedSinceLastUse: false, warnings: [] });
+
+  const first = (await templates.instantiate({ templateId: tpl.id, collectionId: col.id })).document!;
+  assert.equal(first.origin?.liveSections, 2);
+  const usedAt = first.createdAt.toISOString();
+  assert.deepEqual(await use(), { liveSections: 2, lastUsedAt: usedAt, changedSinceLastUse: false, warnings: [] });
+
+  await docs.editBody(tpl.id, (md) => md.replace("<!-- live-section: open_from_last_time -->", "open_from_last_time"));
+  const expected = {
+    liveSections: 1,
+    lastUsedAt: usedAt,
+    changedSinceLastUse: true,
+    warnings: [
+      `It has 1 live section(s) where the page made from it at ${usedAt} had 2: ` +
+        "a live section may have been deleted or turned into plain text.",
+      `It changed after its last use at ${usedAt}.`,
+    ],
+  };
+  assert.deepEqual(await use(), expected);
+  const dry = await templates.instantiate({ templateId: tpl.id, collectionId: col.id, dryRun: true });
+  const { liveSections, lastUsedAt, changedSinceLastUse, warnings } = dry.template!;
+  assert.deepEqual({ liveSections, lastUsedAt, changedSinceLastUse, warnings }, expected);
+
+  const second = (await templates.instantiate({ templateId: tpl.id, collectionId: col.id })).document!;
+  assert.deepEqual(
+    await use(),
+    { liveSections: 1, lastUsedAt: second.createdAt.toISOString(), changedSinceLastUse: false, warnings: [] },
+    "the next use compares with the newest page",
+  );
 });
 
 test("templates: the deepest default wins, then the collection's, else blank", async () => {
@@ -1893,6 +2042,146 @@ test("properties: changing or retiring a field re-projects the pages holding it"
   );
 });
 
+test("text lists: elements are free text, trimmed, deduped, capped and searchable", () => {
+  const aliases: FieldDef = { id: "a", key: "aliases", kind: "text_list", options: [], retiredAt: null };
+  const fields = new Map([["a", aliases]]);
+  assert.deepEqual(parseFieldInput(aliases, "  Fab "), { value: "Fab" });
+  assert.deepEqual(parseFieldInput(aliases, 7), { value: "7" });
+  assert.deepEqual(parseFieldInput(aliases, " "), { error: "expected text" });
+  assert.deepEqual(parseFieldInput(aliases, "x".repeat(10_001)), { error: "text is longer than 10000 characters" });
+  assert.deepEqual(projectProperties({ a: ["Fabrizio", "Fabrizo", "Fabrizio", "", 3] }, fields), {
+    properties: { a: ["Fabrizio", "Fabrizo"] },
+    propertyIssues: [{ fieldId: "a", code: "invalid_value", message: "expected text", value: ["", 3] }],
+    propertiesText: "Fabrizio\nFabrizo",
+  });
+  assert.deepEqual(projectProperties({ a: "Fabrizio, Fabrizo" }, fields), {
+    properties: {},
+    propertyIssues: [{ fieldId: "a", code: "invalid_value", message: "expected a list", value: "Fabrizio, Fabrizo" }],
+    propertiesText: "",
+  });
+  const many = projectProperties({ a: Array.from({ length: 1001 }, (_, i) => `n${i}`) }, fields);
+  assert.equal((many.properties.a as string[]).length, 1000);
+  assert.deepEqual(many.propertyIssues, [
+    { fieldId: "a", code: "invalid_value", message: "holds more than 1000 values; kept the first 1000", value: 1001 },
+  ]);
+
+  assert.deepEqual(splitTextList(" Fabrizio, Fabrizo;Fab ,, Fabrizio ;"), ["Fabrizio", "Fabrizo", "Fab"]);
+  assert.deepEqual(reshapeOp(aliases, "A; B"), { op: "setList", field: "a", values: ["A", "B"] });
+  assert.deepEqual(reshapeOp(aliases, " ; "), { op: "setList", field: "a", values: [] });
+  assert.equal(reshapeOp(aliases, ["A"]), null);
+  const text = { id: "t", kind: "text" } as const;
+  assert.deepEqual(reshapeOp(text, [" A", "B", 3]), { op: "set", field: "t", value: "A, B" });
+  assert.deepEqual(reshapeOp(text, []), { op: "unset", field: "t" });
+  assert.equal(reshapeOp(text, "A, B"), null);
+});
+
+test("text lists: patches add, remove and set single values; a kind change splits text and joins it back", async () => {
+  const { ws, col, types } = await typedWorkspace("tl-owner", "tl-member");
+  const contact = await types.createType(ws.id, "Contact");
+  const aliases = await types.createField({ workspaceId: ws.id, typeId: contact.id, key: "aliases", kind: "text" });
+  const page = await new DocumentService(db, user("tl-member")).create({
+    collectionId: col.id,
+    title: "Contact page",
+    typeId: contact.id,
+    properties: [{ op: "set", field: aliases.id, value: "Fabrizio, Fabrizo; Fab ,," }],
+  });
+  const stored = async () => {
+    const [row] = await db
+      .select({
+        ydocState: documentsTable.ydocState,
+        properties: documentsTable.properties,
+        issues: documentsTable.propertyIssues,
+        text: documentsTable.propertiesText,
+      })
+      .from(documentsTable)
+      .where(eq(documentsTable.id, page.id));
+    const { ydocState, ...projection } = row!;
+    return { held: stateProperties(ydocState!)[aliases.id], ...projection };
+  };
+
+  await types.updateField(aliases.id, { kind: "text_list" });
+  assert.deepEqual(await stored(), {
+    held: ["Fabrizio", "Fabrizo", "Fab"],
+    properties: { [aliases.id]: ["Fabrizio", "Fabrizo", "Fab"] },
+    issues: [],
+    text: "Fabrizio\nFabrizo\nFab",
+  });
+  assert.deepEqual(
+    (await new DocumentQueryService(db, user("tl-owner")).search("Fabrizo")).map((h) => h.title),
+    ["Contact page"],
+  );
+
+  const documents = new DocumentService(db, user("tl-owner"));
+  const added = await types.planPatch(page.id, { add: { aliases: [" Fabi ", "Fab"] } });
+  assert.deepEqual(added, [{ op: "add", field: aliases.id, values: ["Fabi", "Fab"] }]);
+  await documents.editProperties(page.id, added);
+  assert.deepEqual((await stored()).held, ["Fabrizio", "Fabrizo", "Fab", "Fabi"]);
+  await documents.editProperties(page.id, await types.planPatch(page.id, { remove: { aliases: "Fabrizo" } }));
+  assert.deepEqual((await stored()).held, ["Fabrizio", "Fab", "Fabi"]);
+  await documents.editProperties(page.id, await types.planPatch(page.id, { set: { aliases: ["Fab", "Fab", "Fabrizio"] } }));
+  assert.deepEqual((await stored()).held, ["Fabrizio", "Fab"]);
+  await assert.rejects(() => types.planPatch(page.id, { add: { aliases: "  " } }), /^InvalidInputError: aliases: expected text$/);
+
+  await types.updateField(aliases.id, { kind: "text" });
+  assert.deepEqual(await stored(), {
+    held: "Fabrizio, Fab",
+    properties: { [aliases.id]: "Fabrizio, Fab" },
+    issues: [],
+    text: "Fabrizio, Fab",
+  });
+});
+
+test("text lists: the boot upgrade turns an old starter Person's text aliases into a list, once", async () => {
+  const { ws, col, types } = await typedWorkspace("tlu-owner", "tlu-member");
+  const person = await types.createType(ws.id, "Person");
+  const company = await types.createType(ws.id, "Company");
+  const aliases = await types.createField({ workspaceId: ws.id, typeId: person.id, key: "aliases", kind: "text" });
+  const other = await types.createField({ workspaceId: ws.id, typeId: company.id, key: "aliases", kind: "text" });
+  const documents = new DocumentService(db, user("tlu-owner"));
+  const fabrizio = await documents.create({
+    collectionId: col.id,
+    title: "Fabrizio",
+    typeId: person.id,
+    properties: [{ op: "set", field: aliases.id, value: "Fabrizio, Fabrizo" }],
+  });
+  const acme = await documents.create({
+    collectionId: col.id,
+    title: "Acme",
+    typeId: company.id,
+    properties: [{ op: "set", field: other.id, value: "Acme, ACME Inc" }],
+  });
+  const row = async (id: string) => {
+    const [r] = await db
+      .select({ ydocState: documentsTable.ydocState, properties: documentsTable.properties })
+      .from(documentsTable)
+      .where(eq(documentsTable.id, id));
+    return r!;
+  };
+
+  const logs: string[] = [];
+  await upgradeTextLists(db, (m) => logs.push(m));
+  assert.deepEqual(logs, [
+    `Person.aliases (${aliases.id}) in workspace ${ws.id} is now a text list`,
+    "text lists: split stored text into lists on 1 page",
+  ]);
+  assert.deepEqual(
+    (await types.listFields(ws.id)).filter((f) => f.key === "aliases").map((f) => [f.typeName, f.kind]),
+    [
+      ["Company", "text"],
+      ["Person", "text_list"],
+    ],
+  );
+  const upgraded = await row(fabrizio.id);
+  assert.deepEqual(stateProperties(upgraded.ydocState!), { [aliases.id]: ["Fabrizio", "Fabrizo"] });
+  assert.deepEqual(upgraded.properties, { [aliases.id]: ["Fabrizio", "Fabrizo"] });
+  assert.deepEqual((await row(acme.id)).properties, { [other.id]: "Acme, ACME Inc" });
+
+  const again: string[] = [];
+  await upgradeTextLists(db, (m) => again.push(m));
+  assert.deepEqual(again, []);
+  assert.deepEqual(await row(fabrizio.id), upgraded, "a second run rewrites nothing");
+});
+
 test("template defaults: each expression and literal yields its stored value", () => {
   const field = (id: string, kind: FieldKind, options: string[] = []): FieldDef => ({
     id,
@@ -2008,7 +2297,7 @@ test("templates: a typed template sets the type and first values; attendees come
   const first = await meetingOn("2026-10-01");
   assert.equal(first.title, "Meeting 2026-10-01");
   assert.equal(first.typeId, meeting.id);
-  assert.deepEqual(first.origin, { templateId: tpl.id, version: summary.version });
+  assert.deepEqual(first.origin, { templateId: tpl.id, version: summary.version, liveSections: 0 });
   assert.deepEqual(first.properties, { [date.id]: "2026-10-01", [status.id]: planned });
   assert.deepEqual(
     stateProperties(first.ydocState!),
@@ -2047,7 +2336,7 @@ test("templates: a typed template sets the type and first values; attendees come
 });
 
 test("starter kit: Meeting, Project and Person are added once; running it again adds nothing", async () => {
-  const { col, tree, templates } = await templateWorkspace("sk", "Sky");
+  const { col, tree, templates, docs } = await templateWorkspace("sk", "Sky");
   const types = new TypeService(db, user("sk"));
   const snapshot = async () => {
     const registry = await types.listTypes(col.workspaceId);
@@ -2082,7 +2371,7 @@ test("starter kit: Meeting, Project and Person are added once; running it again 
   assert.deepEqual(seeded, {
     types: [
       ["Meeting", [["date", "date", []], ["attendees", "doc_list", []], ["status", "select", ["Planned", "Done"]]]],
-      ["Person", [["email", "text", []], ["affiliation", "text", []], ["aliases", "text", []]]],
+      ["Person", [["email", "text", []], ["affiliation", "text", []], ["aliases", "text_list", []]]],
       ["Project", [["status", "select", ["Idea", "Active", "Paused", "Killed"]], ["next_review", "date", []], ["next_action", "text", []]]],
     ],
     templates: [
@@ -2096,6 +2385,8 @@ test("starter kit: Meeting, Project and Person are added once; running it again 
       ["New person", []],
     ],
   });
+  const meetingsPage = (await tree.tree(col.id)).find((n) => n.title === "New project")!.children[0]!;
+  assert.equal((await docs.get(meetingsPage.id))!.contentMd, "<!-- live-section: meeting_series -->");
 
   assert.deepEqual(await templates.addStarterKit(col.workspaceId, col.id), { types: [], templates: [] });
   assert.deepEqual(await snapshot(), seeded, "a second run changes nothing");
@@ -2323,4 +2614,54 @@ test("tasks: open tasks by page, subtree and previous meeting; changes since; li
     ],
   );
   assert.ok(!(await queries.listMyTodos()).some((t) => t.text === "template task"));
+});
+
+test("meeting series: Meetings under a page, newest date first, undated by creation; templates and other pages left out", async () => {
+  const { col, docs, queries, templates } = await templateWorkspace("ms", "Mia");
+  const types = new TypeService(db, user("ms"));
+  const meeting = await types.createType(col.workspaceId, "Meeting");
+  await types.createField({ workspaceId: col.workspaceId, typeId: meeting.id, key: "date", kind: "date" });
+  await types.createField({ workspaceId: col.workspaceId, typeId: meeting.id, key: "attendees", kind: "doc_list" });
+  const page = async (title: string, parentDocumentId: string | null, markdown = "", typeId?: string, set?: Record<string, unknown>) => {
+    const created = await docs.create({ collectionId: col.id, parentDocumentId, title, markdown });
+    if (typeId) await types.setDocumentType(created.id, typeId);
+    if (set) await docs.editProperties(created.id, await types.planPatch(created.id, { set }));
+    return created;
+  };
+  const ann = await page("Ann", null);
+  const meetings = await page("Meetings", null, "<!-- live-section: meeting_series -->");
+  const kickoff = await page("Kickoff", meetings.id, "Agreed scope", meeting.id, { date: "2026-09-01", attendees: [ann.id] });
+  const review = await page("Review", meetings.id, "Shipped it", meeting.id, { date: "2026-10-01" });
+  const first = await page("Undated first", meetings.id, "", meeting.id);
+  const second = await page("Undated second", meetings.id, "", meeting.id);
+  await page("Agenda ideas", meetings.id, "not a meeting");
+  const tpl = await page("Meeting template", meetings.id, "", meeting.id, { date: "2027-01-01" });
+  await templates.templatize(tpl.id, "Meeting");
+
+  const series = await queries.meetingSeries(meetings.id, 10);
+  assert.deepEqual(
+    series.entries.map((e) => [e.id, e.title, e.date, e.attendees, e.markdown]),
+    [
+      [review.id, "Review", "2026-10-01", [], "Shipped it"],
+      [kickoff.id, "Kickoff", "2026-09-01", [{ id: ann.id, title: "Ann" }], "Agreed scope"],
+      [second.id, "Undated second", null, [], ""],
+      [first.id, "Undated first", null, [], ""],
+    ],
+  );
+  assert.equal(series.total, 4);
+
+  const newest = await queries.meetingSeries(meetings.id, 2);
+  assert.deepEqual([newest.entries.map((e) => e.title), newest.total], [["Review", "Kickoff"], 4]);
+
+  const notes = await page("Notes", null);
+  await page("Older note", notes.id);
+  await page("Newer note", notes.id);
+  assert.deepEqual(
+    (await queries.meetingSeries(notes.id, 10)).entries.map((e) => [e.title, e.date]),
+    [["Newer note", null], ["Older note", null]],
+    "untyped children fall back to creation time",
+  );
+
+  const outsider = await templateWorkspace("ms-out", "Oz");
+  assert.deepEqual(await outsider.queries.meetingSeries(meetings.id, 10), { entries: [], total: 0 });
 });

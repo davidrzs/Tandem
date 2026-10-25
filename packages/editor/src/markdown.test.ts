@@ -305,4 +305,10 @@ test("a live section round-trips as an HTML comment; unknown queries are dropped
   });
   assert.equal(normalizeMarkdown(md), md);
   assert.equal(normalizeMarkdown("<!-- live-section: everything -->\n\nNotes"), "Notes");
+  const series = "## Meetings\n\n<!-- live-section: meeting_series -->\n";
+  assert.deepEqual(JSON.parse(JSON.stringify(markdownToJSON(series))).content[1], {
+    type: "liveSection",
+    attrs: { query: "meeting_series" },
+  });
+  assert.equal(normalizeMarkdown(series), series.trimEnd());
 });

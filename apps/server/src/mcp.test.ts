@@ -174,6 +174,54 @@ test("templates over MCP: list_templates, then create_from_template with and wit
   assert.deepEqual(orphan.origin, { templateId: tpl.id, templateName: null, version: made.template.version });
 });
 
+test("create_from_template over MCP: title names the page; a damaged template comes back with warnings", async () => {
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { name: "People", slug: "people" } }),
+  );
+  const tpl = payload(
+    await client.callTool({
+      name: "create_document",
+      arguments: { collectionId: col.id, title: "New person", markdown: "# {{title}}\n\n<!-- live-section: open_tasks_here -->" },
+    }),
+  );
+  await services.templates.templatize(tpl.id, "Person");
+
+  const made = payload(
+    await client.callTool({
+      name: "create_from_template",
+      arguments: { templateId: tpl.id, collectionId: col.id, title: "Ada Lovelace" },
+    }),
+  );
+  assert.equal(made.document.title, "Ada Lovelace");
+  assert.equal((await services.documents.get(made.document.id))!.contentMd, "# Ada Lovelace\n\n<!-- live-section: open_tasks_here -->");
+  assert.deepEqual(made.template.warnings, []);
+  const fetched = payload(await client.callTool({ name: "get_document", arguments: { id: made.document.id } }));
+  assert.deepEqual(fetched.origin, { templateId: tpl.id, templateName: "Person", version: made.template.version });
+
+  await services.documents.editBody(tpl.id, () => "# {{title}}\n\nopen tasks here");
+  const usedAt = (await services.documents.get(made.document.id))!.createdAt.toISOString();
+  const warnings = [
+    `It has 0 live section(s) where the page made from it at ${usedAt} had 1: ` +
+      "a live section may have been deleted or turned into plain text.",
+    `It changed after its last use at ${usedAt}.`,
+  ];
+  const listed = payload(await client.callTool({ name: "list_templates", arguments: {} })).find(
+    (t: { id: string }) => t.id === tpl.id,
+  );
+  assert.deepEqual(
+    [listed.liveSections, listed.lastUsedAt, listed.changedSinceLastUse, listed.warnings],
+    [0, usedAt, true, warnings],
+  );
+  const dry = payload(
+    await client.callTool({
+      name: "create_from_template",
+      arguments: { templateId: tpl.id, collectionId: col.id, title: "Grace Hopper", dryRun: true },
+    }),
+  );
+  assert.equal(dry.page.title, "Grace Hopper");
+  assert.deepEqual([dry.template.changedSinceLastUse, dry.template.warnings], [true, warnings]);
+});
+
 test("full lifecycle over MCP: create -> get -> search -> edit -> tree", async () => {
   const col = payload(
     await client.callTool({
@@ -1077,5 +1125,41 @@ test("open_tasks over MCP: by page, subtree and previous meeting, with the agent
   assert.equal(
     errorText(await client.callTool({ name: "open_tasks", arguments: { previousSiblingOf: randomUUID() } })),
     "document not found",
+  );
+});
+
+test("list_backlinks over MCP: says whether the page links in its body or holds the target in a property", async () => {
+  const ws = await new WorkspaceService(db, SYSTEM).provisionForUser("u1", { name: "People", slug: "u1-people" });
+  const col = payload(
+    await client.callTool({ name: "create_collection", arguments: { workspaceId: ws.id, name: "People", slug: "people-14" } }),
+  );
+  const meeting = await services.types.createType(ws.id, "Meeting");
+  await services.types.createField({
+    workspaceId: ws.id,
+    typeId: meeting.id,
+    key: "attendees",
+    label: "Attendees",
+    kind: "doc_list",
+  });
+  const create = async (args: Record<string, unknown>) =>
+    payload(await client.callTool({ name: "create_document", arguments: { collectionId: col.id, ...args } }));
+  const andrea = await create({ title: "Andrea" });
+  const sync = await create({ title: "Sync", type: "Meeting", properties: { attendees: [andrea.id] } });
+  const kickoff = await create({
+    title: "Kickoff",
+    markdown: `Ask [Andrea](/d/${andrea.id}).`,
+    type: "Meeting",
+    properties: { attendees: [andrea.id] },
+  });
+  const backlinks = payload(await client.callTool({ name: "list_backlinks", arguments: { id: andrea.id } }));
+  const attendee = { kind: "property", field: "attendees", label: "Attendees" };
+  assert.deepEqual(
+    backlinks
+      .map((b: { title: string; url: string; via: unknown[] }) => [b.title, b.url, b.via])
+      .sort(([a]: string[], [b]: string[]) => a!.localeCompare(b!)),
+    [
+      ["Kickoff", `http://app.test/d/${kickoff.id}`, [{ kind: "body" }, attendee]],
+      ["Sync", `http://app.test/d/${sync.id}`, [attendee]],
+    ],
   );
 });

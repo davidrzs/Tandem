@@ -10,6 +10,7 @@ export * from "./services/groups.js";
 export * from "./services/images.js";
 export * from "./services/instance.js";
 export * from "./services/notifications.js";
+export { upgradeTextLists } from "./services/seed-types.js";
 export * from "./services/settings.js";
 export * from "./services/snapshots.js";
 export * from "./services/templates.js";

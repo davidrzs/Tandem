@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import {
   collections,
@@ -11,6 +11,7 @@ import {
   user,
   type Database,
   type Document,
+  type DocumentOrigin,
   type TemplateDefault,
 } from "@tandem/db";
 import type { AuthorInfo, PropertyOp } from "@tandem/editor";
@@ -46,6 +47,23 @@ export interface TemplateSummary {
   defaults: Record<string, TemplateDefault>;
 }
 
+/** A template beside the last page made from it (the newest the actor can
+ * read), so a damaged or changed template shows before the next page copies
+ * it. */
+export interface TemplateUse {
+  /** Live sections across the pages instantiation copies. */
+  liveSections: number;
+  /** When the last page was made from it; null if none was. */
+  lastUsedAt: string | null;
+  /** Its version is newer than the one that page was made from. */
+  changedSinceLastUse: boolean;
+  /** Sentences for the caller: fewer live sections than that page had, and
+   * a change since then. Empty when neither holds. */
+  warnings: string[];
+}
+
+export type ListedTemplate = TemplateSummary & TemplateUse;
+
 /** One page instantiation would create, variables already expanded. */
 export interface PlannedPage {
   title: string;
@@ -55,7 +73,7 @@ export interface PlannedPage {
 
 export interface TemplatePlan {
   /** Null for a blank page: no template given and no default here. */
-  template: TemplateSummary | null;
+  template: ListedTemplate | null;
   page: PlannedPage;
   /** Prompt names the template uses, in first-use order. */
   prompts: string[];
@@ -76,6 +94,9 @@ export interface InstantiateInput {
   parentDocumentId?: string | null;
   /** Prompt answers. Values for built-ins (date, title, me, parent) override them. */
   variables?: Record<string, string>;
+  /** The top page's title, in place of the template's expanded title (and
+   * of `variables.title`); its `{{title}}` reads it. */
+  title?: string;
   /** Plan only: resolve and expand, create nothing. */
   dryRun?: boolean;
 }
@@ -108,10 +129,12 @@ const BLANK: TemplateNode = {
   children: [],
 };
 
-function promptsOf(root: TemplateNode): string[] {
+/** Prompt names in first-use order; `rootTitle: false` skips the top page's
+ * title when the caller replaces it. */
+function promptsOf(root: TemplateNode, rootTitle: boolean): string[] {
   const names = new Set<string>();
   const visit = (node: TemplateNode) => {
-    for (const text of [node.title, node.contentMd]) {
+    for (const text of node === root && !rootTitle ? [node.contentMd] : [node.title, node.contentMd]) {
       for (const [, name] of text.matchAll(VARIABLE)) {
         if (!Object.hasOwn(BUILTIN_VARIABLES, name!)) names.add(name!);
       }
@@ -165,17 +188,39 @@ async function createPages(
   return doc;
 }
 
-/** Latest `updated_at` over the template page and the descendants
- * instantiation copies, so editing any copied page changes the version. */
-const subtreeUpdatedAt = sql<Date>`(
+/** `aggregate` over `v`: the template page and the descendants instantiation
+ * copies. */
+const overSubtree = (aggregate: SQL) => sql`(
   WITH RECURSIVE sub(id, depth) AS (
     SELECT ${documents.id}, 0
     UNION ALL
     SELECT d.id, s.depth + 1 FROM documents d JOIN sub s ON d.parent_document_id = s.id
     WHERE s.depth < ${TEMPLATE_SUBTREE_DEPTH} AND d.deleted_at IS NULL AND d.archived_at IS NULL
   )
-  SELECT max(v.updated_at) FROM sub JOIN documents v ON v.id = sub.id
-)`.mapWith(documents.updatedAt);
+  SELECT ${aggregate} FROM sub JOIN documents v ON v.id = sub.id
+)`;
+
+/** Latest `updated_at` over the copied pages, so editing any of them changes
+ * the version. */
+const subtreeUpdatedAt = overSubtree(sql`max(v.updated_at)`).mapWith(documents.updatedAt);
+
+/** Live sections over the copied pages: the markdown writes each as this
+ * comment on a line of its own. */
+const subtreeLiveSections = overSubtree(
+  sql`coalesce(sum((SELECT count(*) FROM regexp_matches(v.content_md, '^<!-- live-section: [a-z_]+ -->$', 'gn'))), 0)`,
+).mapWith(Number);
+
+interface LastUse {
+  origin: DocumentOrigin;
+  at: string;
+}
+
+/** The template's newest page: its origin and creation time. */
+const lastUse = sql<LastUse | null>`(
+  SELECT jsonb_build_object('origin', d.origin, 'at', d.created_at) FROM documents d
+  WHERE d.origin IS NOT NULL AND d.origin->>'templateId' = ${templates.documentId}::text
+  ORDER BY d.created_at DESC LIMIT 1
+)`;
 
 const summaryColumns = {
   id: templates.documentId,
@@ -187,18 +232,41 @@ const summaryColumns = {
   defaults: templates.defaults,
 };
 
+const listedColumns = { ...summaryColumns, liveSections: subtreeLiveSections, lastUse };
+
 function toSummary({ updatedAt, ...row }: { updatedAt: Date } & Omit<TemplateSummary, "version">): TemplateSummary {
   return { ...row, version: updatedAt.toISOString() };
+}
+
+function toListed({
+  liveSections,
+  lastUse,
+  ...row
+}: Parameters<typeof toSummary>[0] & { liveSections: number; lastUse: LastUse | null }): ListedTemplate {
+  const summary = toSummary(row);
+  if (!lastUse) return { ...summary, liveSections, lastUsedAt: null, changedSinceLastUse: false, warnings: [] };
+  const lastUsedAt = new Date(lastUse.at).toISOString();
+  const changedSinceLastUse = Date.parse(summary.version) > Date.parse(lastUse.origin.version);
+  const before = lastUse.origin.liveSections;
+  const warnings: string[] = [];
+  if (before !== undefined && liveSections < before) {
+    warnings.push(
+      `It has ${liveSections} live section(s) where the page made from it at ${lastUsedAt} had ${before}: ` +
+        "a live section may have been deleted or turned into plain text.",
+    );
+  }
+  if (changedSinceLastUse) warnings.push(`It changed after its last use at ${lastUsedAt}.`);
+  return { ...summary, liveSections, lastUsedAt, changedSinceLastUse, warnings };
 }
 
 /** Templates are documents plus a `templates` row; this service lists,
  * marks, and instantiates them. Every call is RLS-scoped to the actor. */
 export class TemplateService extends DocumentServiceBase {
   /** Active templates the actor can read, by name. */
-  async list(workspaceId?: string): Promise<TemplateSummary[]> {
+  async list(workspaceId?: string): Promise<ListedTemplate[]> {
     const rows = await this.exec((db) =>
       db
-        .select(summaryColumns)
+        .select(listedColumns)
         .from(templates)
         .innerJoin(documents, eq(documents.id, templates.documentId))
         .where(
@@ -210,7 +278,7 @@ export class TemplateService extends DocumentServiceBase {
         )
         .orderBy(asc(templates.name), asc(templates.documentId)),
     );
-    return rows.map(toSummary);
+    return rows.map(toListed);
   }
 
   /** Mark a document (and so its subtree) as a template named `name`.
@@ -396,9 +464,10 @@ export class TemplateService extends DocumentServiceBase {
    * location's default, or none for a blank page), expand its variables, then
    * copy its body and up to TEMPLATE_SUBTREE_DEPTH levels of child pages in
    * one transaction. Every copied body is the instantiating actor's writing.
-   * The top page records `origin`, gets the template's type, and its first
-   * values as per-field ops by the same author; later template edits never
-   * touch it.
+   * The top page records `origin` (with the template's live-section count,
+   * which the next use compares against), gets the template's type, and its
+   * first values as per-field ops by the same author; later template edits
+   * never touch it.
    */
   async instantiate(input: InstantiateInput): Promise<InstantiateResult> {
     const me = await this.displayName();
@@ -420,11 +489,11 @@ export class TemplateService extends DocumentServiceBase {
         input.templateId === undefined
           ? await this.resolveDefault(db, input.collectionId, parentDocumentId)
           : input.templateId;
-      let template: TemplateSummary | null = null;
+      let template: ListedTemplate | null = null;
       let root = BLANK;
       if (templateId) {
         const [row] = await db
-          .select(summaryColumns)
+          .select(listedColumns)
           .from(templates)
           .innerJoin(documents, eq(documents.id, templates.documentId))
           .where(eq(templates.documentId, templateId));
@@ -432,7 +501,7 @@ export class TemplateService extends DocumentServiceBase {
         if (row.workspaceId !== place.workspaceId) {
           throw new InvalidInputError("template belongs to another workspace");
         }
-        template = toSummary(row);
+        template = toListed(row);
         root = await this.loadTree(db, templateId);
       }
 
@@ -443,8 +512,9 @@ export class TemplateService extends DocumentServiceBase {
         parent: place.name,
         ...variables,
       };
-      const page = planPage(root, values, variables.title);
-      const prompts = promptsOf(root);
+      const title = input.title ?? variables.title;
+      const page = planPage(root, values, title);
+      const prompts = promptsOf(root, title === undefined);
       const plan: TemplatePlan = {
         template,
         page,
@@ -470,7 +540,12 @@ export class TemplateService extends DocumentServiceBase {
         root,
         page,
         placement,
-        template ? { origin: { templateId: template.id, version: template.version }, ...typed } : {},
+        template
+          ? {
+              origin: { templateId: template.id, version: template.version, liveSections: template.liveSections },
+              ...typed,
+            }
+          : {},
       );
       return { ...plan, document };
     });

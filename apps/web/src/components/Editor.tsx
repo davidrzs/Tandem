@@ -8,7 +8,7 @@ import { Breadcrumbs } from "./Breadcrumbs.js";
 import { RowMenu } from "./Modal.js";
 import { CommentsPanel } from "./CommentsPanel.js";
 import { HistoryPanel } from "./HistoryPanel.js";
-import { SnapshotPreview } from "./SnapshotPreview.js";
+import { ReadOnlyDoc } from "./ReadOnlyDoc.js";
 import { TocRail } from "./TocRail.js";
 import { authorColor, authorKey } from "./colors.js";
 import { FindBar } from "./FindBar.js";
@@ -28,6 +28,7 @@ import { useCommentNavigation, useComments } from "./editor/useComments.js";
 import { useDocActions } from "./editor/useDocActions.js";
 import { usePresence } from "./editor/usePresence.js";
 import { useSnapshots } from "./editor/useSnapshots.js";
+import { useLiveSectionGuard } from "./editor/useLiveSectionGuard.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
 async function uploadAndInsert(view: EditorView, file: File, docId: string) {
@@ -309,6 +310,7 @@ export function Editor({
   const canDefine = myRole === "owner" || myRole === "admin";
   const templates = trpc.templates.list.useQuery({ workspaceId });
   const template = templates.data?.find((t) => t.id === docId) ?? null;
+  useLiveSectionGuard(editor, template !== null);
   useEffect(() => {
     if (!doc.data) return;
     if (!titleLoaded.current) {
@@ -460,6 +462,7 @@ export function Editor({
           shouldShow={({ editor, state }) =>
             previewId === null &&
             !editor.isActive("table") &&
+            !editor.isActive("liveSection") &&
             (!state.selection.empty || (canEdit && editor.isActive("link")))
           }
         >
@@ -679,19 +682,23 @@ export function Editor({
       </div>
       {previewId !== null &&
         (preview.data ? (
-          <SnapshotPreview key={previewId} contentJson={preview.data.contentJson} />
+          <ReadOnlyDoc key={previewId} contentJson={preview.data.contentJson} />
         ) : (
           <div className="empty">Loading version…</div>
         ))}
       {(backlinks.data?.length ?? 0) > 0 && (
         <div className="backlinks">
           <h3>Linked from</h3>
-          {backlinks.data!.map((d) => (
-            <RouterLink key={d.id} className="backlink" to={`/d/${d.id}`}>
-              <Icon name="page" size={13} />
-              {d.title || "Untitled"}
-            </RouterLink>
-          ))}
+          {backlinks.data!.map((d) => {
+            const fields = d.via.flatMap((v) => (v.kind === "property" ? [v.label] : []));
+            return (
+              <RouterLink key={d.id} className="backlink" to={`/d/${d.id}`}>
+                <Icon name="page" size={13} />
+                {d.title || "Untitled"}
+                {fields.length > 0 && <span className="backlink-via">via {fields.join(", ")}</span>}
+              </RouterLink>
+            );
+          })}
         </div>
       )}
       {hover && (

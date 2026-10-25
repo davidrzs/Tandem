@@ -16,12 +16,13 @@ import {
   NotFoundError,
   positionSchema,
   propertyPatchShape,
+  reshapesValues,
   tagsSchema,
   templateDefaultSchema,
   templateVariablesSchema,
   titleSchema,
 } from "@tandem/core";
-import { FIELD_KINDS, type FieldOption } from "@tandem/db";
+import { FIELD_KINDS, type FieldKind, type FieldOption } from "@tandem/db";
 import { LIVE_SECTION_QUERIES, stateToJSON, type PropertyOp } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
@@ -43,6 +44,9 @@ export interface Context {
    * collaboration channel (no data — clients refetch through their own,
    * RLS-scoped queries). Absent in tests that run without Hocuspocus. */
   notifyDocument?: (documentId: string, topic: "comments" | "snapshots" | "meta") => void;
+  /** Rewrite a field's values in live docs after a text/text_list kind
+   * change (reshapeLiveDocs). Absent without Hocuspocus. */
+  reshapeLiveDocs?: (field: { id: string; kind: FieldKind }) => void;
   /** Remaining single-use 2FA backup codes for a user, or null when not
    * enrolled. Server-side Better Auth call — wired in http.ts. */
   countBackupCodes?: (userId: string) => Promise<number | null>;
@@ -452,8 +456,13 @@ export const appRouter = t.router({
 
     // A live section, resolved against the page that holds it on every render.
     liveSection: protectedProcedure
-      .input(z.object({ id: uuid, query: z.enum(LIVE_SECTION_QUERIES) }))
+      .input(z.object({ id: uuid, query: z.enum(LIVE_SECTION_QUERIES).exclude(["meeting_series"]) }))
       .query(({ ctx, input }) => ctx.services.documentQueries.liveSection(input.id, input.query)),
+
+    // The meeting series live section: the newest `limit` pages under `id`.
+    meetingSeries: protectedProcedure
+      .input(z.object({ id: uuid, limit: z.number().int().min(1).max(500) }))
+      .query(({ ctx, input }) => ctx.services.documentQueries.meetingSeries(input.id, input.limit)),
 
     // `today` is the reader's calendar day, so "overdue" matches their clock.
     dueSoon: protectedProcedure
@@ -612,6 +621,7 @@ export const appRouter = t.router({
           collectionId: uuid,
           parentDocumentId: uuid.nullable().optional(),
           variables: templateVariablesSchema.optional(),
+          title: titleSchema.optional(),
           dryRun: z.boolean().optional(),
         }),
       )
@@ -769,9 +779,10 @@ export const appRouter = t.router({
       )
       .mutation(async ({ ctx, input }) => {
         const { id, ...patch } = input;
-        const before = patch.options ? await ctx.services.types.getField(id) : null;
+        const before = patch.options || patch.kind ? await ctx.services.types.getField(id) : null;
         const field = await ctx.services.types.updateField(id, patch);
-        const options = before ? optionChanges(before.options, field.options) : "";
+        if (before && reshapesValues(before.kind, field.kind)) ctx.reshapeLiveDocs?.(field);
+        const options = patch.options && before ? optionChanges(before.options, field.options) : "";
         await ctx.services.settings.recordAudit({
           workspaceId: field.workspaceId,
           userId: ctx.user.id,

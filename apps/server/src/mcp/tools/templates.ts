@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { templateVariablesSchema, type TemplateSummary, type TypeWithFields } from "@tandem/core";
+import { templateVariablesSchema, titleSchema, type TemplateSummary, type TypeWithFields } from "@tandem/core";
 import { json, type ToolContext } from "../shared.js";
 
 /** Template listing and instantiation. */
@@ -40,6 +40,11 @@ export function registerTemplateTools(server: McpServer, ctx: ToolContext): void
         '{"value": ...} is a literal, "today" and "now" the moment of creation, "me" ' +
         'the creator\'s name, and "from_previous_sibling" the same field on the latest ' +
         "page of the type under the same parent (by its date field, else newest). " +
+        "Each template is compared with the last page made from it: lastUsedAt " +
+        "(null if none), changedSinceLastUse (its version is newer than that page's), " +
+        "liveSections (in the copied pages now) and warnings, sentences to pass on " +
+        "when it has fewer live sections than that page had (one was likely deleted " +
+        "or turned into plain text) or changed since. " +
         "Templates never appear in search, backlinks, recent documents or tasks.",
       inputSchema: { workspaceId: z.string().uuid().optional() },
     },
@@ -59,25 +64,31 @@ export function registerTemplateTools(server: McpServer, ctx: ToolContext): void
         "Create a page (plus up to 3 levels of the template's child pages) from a " +
         "template. Omit templateId to use the default template of the target folder " +
         "or collection, as the app's + New does; with no default the page is blank. " +
+        "title names the new top page instead of the template's own title. " +
         "Built-in variables {{date}} (YYYY-MM-DD), {{title}}, {{me}} and {{parent}} " +
-        "are filled in; any other {{name}} is a prompt answered through variables " +
-        "(a variable also overrides a built-in). Unanswered prompts become empty and " +
-        "are listed in missing. A typed template gives the page its type and default " +
-        "values (the date default follows {{date}}); the returned document carries " +
-        "the committed properties. dryRun returns the expanded pages and creates nothing.",
+        "are filled in; any other {{name}}, in a title or a body, is a prompt answered " +
+        "through variables (a variable also overrides a built-in). Unanswered prompts " +
+        "become empty and are listed in missing. A typed template gives the page its " +
+        "type and default values (the date default follows {{date}}); the returned " +
+        "document carries the committed properties. The returned template carries " +
+        "warnings, lastUsedAt and changedSinceLastUse as in list_templates: check " +
+        "warnings, ideally on a dryRun first. dryRun returns the expanded pages and " +
+        "creates nothing.",
       inputSchema: {
         templateId: z.string().uuid().optional(),
         collectionId: z.string().uuid(),
         parentId: z.string().uuid().optional(),
+        title: titleSchema.optional(),
         variables: templateVariablesSchema.optional(),
         dryRun: z.boolean().optional(),
       },
     },
-    async ({ templateId, collectionId, parentId, variables, dryRun }) => {
+    async ({ templateId, collectionId, parentId, title, variables, dryRun }) => {
       const { document, ...plan } = await services.templates.instantiate({
         templateId,
         collectionId,
         parentDocumentId: parentId ?? null,
+        title,
         variables,
         dryRun,
       });

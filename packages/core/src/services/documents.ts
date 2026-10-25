@@ -13,6 +13,7 @@ import {
   applyEditToState,
   diffProperties,
   stateProperties,
+  SYSTEM_AUTHOR,
   type AuthorInfo,
   type ProjectedTask,
   type PropertiesJSON,
@@ -248,8 +249,7 @@ function backfillPage(db: Database, id: string): Promise<boolean> {
       .where(eq(documents.id, id))
       .for("update");
     if (!doc) return false;
-    const author = { userId: "system", name: "System", ai: true, at: Date.now() };
-    const edited = applyEditToState(doc.ydocState, {}, author, doc.contentMd);
+    const edited = applyEditToState(doc.ydocState, {}, { ...SYSTEM_AUTHOR, at: Date.now() }, doc.contentMd);
     if (edited.tasks.length === 0) return false;
     await page.update(documents).set({ ydocState: edited.ydocState }).where(eq(documents.id, id));
     await writeTaskRows(page, id, edited.tasks, doc.updatedAt);

@@ -288,12 +288,16 @@ export function registerDiscoveryTools(server: McpServer, ctx: ToolContext): voi
     "list_backlinks",
     {
       title: "List backlinks",
-      description: "Documents that link to the given document (cross-references).",
+      description:
+        "Documents that reference the given document, newest first (at most 50). `via` says how: " +
+        '{kind: "body"} for a link in the page text, {kind: "property", field, label} for each ' +
+        "page-reference property holding it (a Meeting's attendees, say), so on a Person page " +
+        "it lists the meetings with that person.",
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       if (!(await documents.get(id))) return notFound("document");
-      return json((await documentQueries.backlinks(id)).map(publicDoc));
+      return json((await documentQueries.backlinks(id)).map((b) => ({ ...publicDoc(b), via: b.via })));
     },
   );
 

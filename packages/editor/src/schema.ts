@@ -10,6 +10,7 @@ import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 import type { Extensions } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
+import { liveSectionGuard } from "./live-section-guard.js";
 
 /**
  * Image node with a display `width` attribute (resize is a layout attribute,
@@ -113,6 +114,7 @@ export const LIVE_SECTION_QUERIES = [
   "open_from_last_time",
   "since_last_meeting",
   "open_tasks_here",
+  "meeting_series",
 ] as const;
 export type LiveSectionQuery = (typeof LIVE_SECTION_QUERIES)[number];
 
@@ -121,10 +123,10 @@ export function isLiveSectionQuery(value: unknown): value is LiveSectionQuery {
 }
 
 /**
- * A read-only list computed from the workspace (open tasks of the previous
- * meeting, what changed since it, open tasks under this page). Only the
- * query is stored; in markdown it is the comment `<!-- live-section: q -->`,
- * which search and the task scan both ignore.
+ * A read-only view computed from the workspace (open tasks of the previous
+ * meeting, what changed since it, open tasks under this page, the meetings
+ * under this page). Only the query is stored; in markdown it is the comment
+ * `<!-- live-section: q -->`, which search and the task scan both ignore.
  */
 export const LiveSection = Node.create({
   name: "liveSection",
@@ -146,6 +148,9 @@ export const LiveSection = Node.create({
         },
       },
     ];
+  },
+  addProseMirrorPlugins() {
+    return [liveSectionGuard()];
   },
   renderHTML({ node }) {
     return ["div", { "data-live-section": String(node.attrs.query), class: "live-section" }];

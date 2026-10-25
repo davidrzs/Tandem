@@ -3129,6 +3129,63 @@ p.live-section-source a:hover {
   font-size: 12px;
 }
 
+.series-entry {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  user-select: text;
+}
+
+.series-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.series-entry-head h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.series-entry-meta {
+  color: var(--ink-muted);
+}
+
+.live-section .series-entry-head a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.live-section .series-entry-head a:hover {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+
+.live-section .series-entry-head .series-entry-open {
+  margin-left: auto;
+  color: var(--accent-ink);
+}
+
+.series-entry .prose {
+  margin-top: 4px;
+}
+
+.series-entry .ProseMirror {
+  min-height: 0;
+}
+
+.live-section-link a {
+  color: var(--ink-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.series-older {
+  margin-top: 12px;
+}
+
 /* ---------- errors & banners ---------- */
 
 .error-panel {
@@ -3729,6 +3786,11 @@ p.live-section-source a:hover {
 
 .backlink:hover {
   color: var(--accent-ink);
+}
+
+.backlink-via {
+  font-size: 12px;
+  color: var(--ink-muted);
 }
 
 /* @mentions of real members: a soft tint in the person's identity hue

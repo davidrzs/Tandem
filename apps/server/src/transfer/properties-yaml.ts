@@ -1,4 +1,4 @@
-import { isListKind, parseFieldInput, type FieldView, type TypeService } from "@tandem/core";
+import { isListKind, parseFieldInput, splitTextList, type FieldView, type TypeService } from "@tandem/core";
 import { FIELD_KINDS, type FieldKind } from "@tandem/db";
 import { diffProperties, type PropertyOp } from "@tandem/editor";
 import { z } from "zod";
@@ -238,7 +238,8 @@ function selectLabels(raw: unknown): string[] {
 
 /** A front-matter value in its stored form for `field` (option ids, page
  * ids, ISO dates), or null when nothing in it fits; `problems` says what
- * was left out. */
+ * was left out. One text for a text_list (a file from before the field was
+ * a list) splits the way a kind change from text does. */
 export function importValue(
   field: ImportField,
   raw: unknown,
@@ -246,7 +247,9 @@ export function importValue(
 ): { value: unknown; problems: string[] } {
   if (field.kind === "json") return { value: isEmpty(raw) ? null : raw, problems: [] };
   const list = isListKind(field.kind);
-  const items = [raw].flat().filter((v) => !isEmpty(v));
+  const items = (field.kind === "text_list" && typeof raw === "string" ? splitTextList(raw) : [raw].flat()).filter(
+    (v) => !isEmpty(v),
+  );
   if (!list && items.length > 1) return { value: null, problems: ["expected one value, not a list"] };
   const values: unknown[] = [];
   const problems: string[] = [];

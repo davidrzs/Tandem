@@ -64,6 +64,7 @@ type Control = { id: string; "aria-label"?: string };
 
 const KIND_LABELS: Record<Exclude<FieldKind, "json">, string> = {
   text: "Text",
+  text_list: "Text list",
   number: "Number",
   checkbox: "Checkbox",
   date: "Date",
@@ -605,7 +606,7 @@ function ReadValue({
       </>
     );
   }
-  if (field.kind === "multi_select") {
+  if (field.kind === "multi_select" || field.kind === "text_list") {
     return (
       <>
         {listValues(raw).map((id) => (
@@ -653,6 +654,8 @@ function Widget({
       return <DateWidget field={field} raw={raw} control={control} onEdit={onEdit} />;
     case "select":
       return <SelectWidget field={field} raw={raw} control={control} onEdit={onEdit} />;
+    case "text_list":
+      return <TextListWidget field={field} raw={raw} marks={marks} inputId={inputId} onEdit={onEdit} />;
     case "multi_select": {
       const chosen = listValues(raw);
       const left = field.options.filter((o) => !o.retired && !chosen.includes(o.id));
@@ -772,6 +775,73 @@ function TextWidget({
           <Icon name="share" size={12} />
         </a>
       )}
+    </>
+  );
+}
+
+/** Free-form list fields: each value a removable chip, then an input where
+ * Enter (or leaving it) adds what was typed and Backspace on an empty input
+ * removes the last value. */
+function TextListWidget({
+  field,
+  raw,
+  marks,
+  inputId,
+  onEdit,
+}: {
+  field: Field;
+  raw: unknown;
+  marks: AiMark[] | undefined;
+  inputId: string;
+  onEdit: OnEdit;
+}) {
+  const values = listValues(raw).map(String);
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const value = draft.trim();
+    setDraft("");
+    if (!value || values.includes(value)) return;
+    void onEdit({ op: "add", value }).then((ok) => {
+      if (!ok) setDraft((current) => current || value);
+    });
+  };
+  return (
+    <>
+      {values.map((value) => (
+        <span className="prop-chip" key={value}>
+          {value}
+          <AiBadge mark={markFor(marks, value)} />
+          <button
+            type="button"
+            className="tag-remove"
+            aria-label={`Remove ${value}`}
+            onClick={() => onEdit({ op: "remove", value })}
+          >
+            <Icon name="close" size={10} />
+          </button>
+        </span>
+      ))}
+      <input
+        id={inputId}
+        type="text"
+        className="prop-input prop-text"
+        aria-label={`Add ${field.label}`}
+        placeholder={values.length === 0 ? "Empty" : "Add…"}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={add}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add();
+          } else if (e.key === "Escape") {
+            setDraft("");
+          } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
+            e.preventDefault();
+            void onEdit({ op: "remove", value: values[values.length - 1] });
+          }
+        }}
+      />
     </>
   );
 }

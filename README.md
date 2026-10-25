@@ -65,7 +65,7 @@ shows the id.
 
 ### Live sections
 
-A live section is a read-only list the page works out each time it renders.
+A live section is a read-only view the page works out each time it renders.
 Insert one from the `/` menu:
 
 - **Open from last time**: the open tasks of the previous page of the same
@@ -73,11 +73,23 @@ Insert one from the `/` menu:
 - **Since last meeting**: pages edited, tasks closed and tasks added since that
   page's date, under the nearest typed page above this one (the project).
 - **Open tasks under this page**: open tasks in the pages below this one.
+- **Meeting series**: the pages directly below this one, read like one long
+  rolling notes page. Each shows its title, date, attendees, an Open link and
+  its whole body. Newest come first, by the page type's first date field, then
+  by creation time. When some of those pages are Meetings, only the Meetings
+  show. The newest 10 show at first; **Show older** reveals 10 more. A live
+  section inside a meeting shows as a link to that meeting.
+
+A live section stays whole while you type. Backspace or Delete beside it
+selects it, and a second press deletes it. Typing while it is selected starts
+a new paragraph after it.
 
 In markdown (export, MCP, import) a live section is an HTML comment such as
 `<!-- live-section: open_from_last_time -->`. Search and the task list ignore
-it. The starter Meeting template opens with the first two and the Project
-template ends with the third.
+it. The starter Meeting template opens with the first two, the Project
+template ends with the third, and the Project's Meetings page holds a meeting
+series. Workspaces that added the starter kit earlier keep their templates as
+they are; insert the series by hand there.
 
 ## Templates
 
@@ -90,16 +102,22 @@ template and a **Blank page**.
 
 A new page copies the template's body and up to three levels of its sub-pages,
 as writing by whoever created it. `{{date}}`, `{{title}}`, `{{me}}` and
-`{{parent}}` are filled in; any other `{{name}}` is asked for when the page is
-created. The new page remembers which template and version it came from (its
-header shows "From template …"), and
+`{{parent}}` are filled in; any other `{{name}}`, in a title or a body, is
+asked for when the page is created. The new page remembers which template and
+version it came from (its header shows "From template …"), and how many live
+sections the template had then;
 later edits to the template never change it. Templates and their sub-pages are
 left out of search, backlinks, recents, tags, tasks and Home.
 
+Editing a template's page so that a live section disappears shows "This
+template lost a live section" (with **Undo** for your own edit). Agents get
+the same check from the server: each template carries `warnings` when it now
+has fewer live sections than its last page had, or changed since that page.
+
 ## Types and properties
 
-A page can have a type (Meeting, Project) and typed properties: text,
-number, checkbox, date, date and time, select, multi-select, URL, a page
+A page can have a type (Meeting, Project) and typed properties: text, a text
+list, number, checkbox, date, date and time, select, multi-select, URL, a page
 reference, a list of page references, and read-only imported JSON. A
 workspace owner or admin defines types and their fields; ad-hoc fields (any
 page can hold one) come from a markdown import or from **Add field** on a page
@@ -113,7 +131,10 @@ like the body, and come back when a version is restored. Every write changes
 single fields; nothing rewrites the whole set. The server validates values
 when it saves the page: one that no longer fits its field (after a kind
 change, say) is kept and reported, never dropped. A select changed to another
-kind reads the options it held as their labels. Property text is searchable.
+kind reads the options it held as their labels. Changing a field from text to
+a text list splits each page's value on commas and semicolons ("Fabrizio,
+Fabrizo" becomes two values); changing it back joins them with ", ". The
+server makes that rewrite as the System. Property text is searchable.
 Renaming a field keeps its old key working.
 
 In the app, the **Type** button in a page's header attaches, changes or
@@ -125,6 +146,10 @@ fits its field, or holds a retired option) carries a marker saying why. A
 retired field's value stays in the panel, read-only, with **Remove**. Unlike
 the body, properties can't be edited offline: the panel says so and turns
 read-only until the page is back online.
+A page held in a page-reference property counts as linked from the page
+holding it. The **Linked from** panel names the field ("via Attendees"), so a
+Person page lists the meetings with that person. A retired field no longer
+links.
 When every page in a Contents table shares a type, the table shows that
 type's first three text-like fields (not page references or JSON) as sortable
 columns.
@@ -140,11 +165,13 @@ they are.
 
 **Add starter types** in the **Type** menu (owners and admins) adds Meeting
 (date, attendees, status), Project (status, next review, next action) and
-Person (email, affiliation, aliases) with a template each. The Project
-template has a **Meetings** sub-page whose **+** makes a Meeting dated today
-with the previous meeting's attendees. Running it again adds only what is
-missing; types and templates that already exist by name are kept as they are
-(an older Meeting template does not gain the live sections).
+Person (email, affiliation, aliases as a text list) with a template each. The
+Project template has a **Meetings** sub-page whose **+** makes a Meeting dated
+today with the previous meeting's attendees. Running it again adds only what
+is missing; types and templates that already exist by name are kept as they
+are (an older Meeting template does not gain the live sections). A Person
+type from before aliases were a list has its text `aliases` field turned into
+a text list when the server starts, its values split as above.
 
 ## Authorship model (how blame works)
 
@@ -180,12 +207,16 @@ its edits are blamed to your AI). The agent has colleague-level access:
   `recent_documents`, `get_document`, `search_documents` (also filters by an exact tag),
   `create_document`, `update_document` (title and/or tags), `move_document`,
   `archive_document`, `restore_document`, `list_archived`, `list_tags`,
-  `list_backlinks`.
+  `list_backlinks` (each with `via`: a body link and/or the property fields
+  holding the page).
 - **Templates**: `list_templates` (each with its `type` and `defaults` by
-  field key), `create_from_template` (`templateId` optional: the target
-  folder's default, as **+** in the app; `variables` answers the template's
-  prompts; the created page comes back with its committed `type` and
-  `properties`; `dryRun` returns the expanded pages without creating anything).
+  field key, and `lastUsedAt`, `changedSinceLastUse`, `liveSections` and
+  `warnings` against the last page made from it), `create_from_template`
+  (`templateId` optional: the target folder's default, as **+** in the app;
+  `title` names the new page instead of the template's title; `variables`
+  answers the template's prompts; the created page comes back with its
+  committed `type` and `properties`, the template with its `warnings`;
+  `dryRun` returns the expanded pages without creating anything).
   `get_document` returns `origin`: `{templateId, templateName, version}` for a
   page made from a template (`templateName` is null once it is no longer a
   template), else null.

@@ -292,6 +292,7 @@ test("export -> import keeps every kind, and a re-import patches only what chang
   await define("approved", "checkbox", meeting.id);
   await define("start", "datetime", meeting.id);
   await define("link", "url", meeting.id);
+  await define("nicknames", "text_list", meeting.id);
   const version = await define("version", "text", null);
   const raw = await define("raw", "json", null);
 
@@ -309,6 +310,7 @@ test("export -> import keeps every kind, and a re-import patches only what chang
       approved: true,
       start: "2026-10-22T09:30:00Z",
       link: "https://example.com/agenda",
+      nicknames: ["Stand-up", "Daily, short"],
       version: "1.10",
     },
   });
@@ -342,6 +344,9 @@ test("export -> import keeps every kind, and a re-import patches only what chang
       "approved: true",
       "start: 2026-10-22T09:30:00.000Z",
       "link: https://example.com/agenda",
+      "nicknames:",
+      "  - Stand-up",
+      "  - Daily, short",
       "raw:",
       "  room: 4B",
       "  seats:",
@@ -370,6 +375,7 @@ test("export -> import keeps every kind, and a re-import patches only what chang
       'define_field field "date" (date)',
       'define_field field "lead" (doc)',
       'define_field field "link" (url)',
+      'define_field field "nicknames" (text_list)',
       'define_field field "raw" (json)',
       'define_field field "start" (datetime)',
       'define_field field "status" (select)',
@@ -382,7 +388,7 @@ test("export -> import keeps every kind, and a re-import patches only what chang
   assert.deepEqual((await services.types.view(copy.get("Standup")!)).type?.name, "Meeting");
   assert.deepEqual(
     (await services.types.listTypes(copyWs)).map((t) => [t.name, t.fields.map((f) => f.key)]),
-    [["Meeting", ["date", "status", "attendees", "lead", "topics", "budget", "approved", "start", "link"]]],
+    [["Meeting", ["date", "status", "attendees", "lead", "topics", "budget", "approved", "start", "link", "nicknames"]]],
   );
   const copiedValues = await services.types.view(copy.get("Standup")!);
   assert.deepEqual(
@@ -400,6 +406,7 @@ test("export -> import keeps every kind, and a re-import patches only what chang
       approved: true,
       start: "2026-10-22T09:30:00.000Z",
       link: "https://example.com/agenda",
+      nicknames: ["Stand-up", "Daily, short"],
       raw: { room: "4B", seats: [1, 2] },
       version: "1.10",
     },

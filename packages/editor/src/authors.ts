@@ -127,6 +127,18 @@ export function applyAttributedProperties(
   return runAttributed(doc, author, () => applyPropertyPatch(doc, ops) > 0);
 }
 
+/** Apply a property patch to a persisted state as one attributed session,
+ * leaving the body alone. The new state, or null when nothing changed. */
+export function applyPropertiesToState(
+  state: Uint8Array,
+  ops: readonly PropertyOp[],
+  author: AuthorInfo,
+): Uint8Array | null {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, state);
+  return applyAttributedProperties(doc, ops, author) === null ? null : Y.encodeStateAsUpdate(doc);
+}
+
 /** Build a new Y.Doc seeded with `json`, attributed to `author` (creation). */
 export function seedAttributedDoc(json: unknown, author: AuthorInfo): Y.Doc {
   const doc = new Y.Doc();
@@ -147,6 +159,10 @@ export function stateToJSON(state: Uint8Array): unknown {
 /** Attribution for content whose author predates blame tracking (legacy docs
  * seeded from markdown at load time). */
 export const UNKNOWN_AUTHOR: AuthorInfo = { userId: "", name: "Unknown", ai: false, at: 0 };
+
+/** Attribution for what the server writes on no person's behalf: backfills,
+ * upgrades, conversions after a field's kind changes. */
+export const SYSTEM_AUTHOR: AuthorIdentity = { userId: "system", name: "System", ai: true };
 
 export interface EditedState {
   ydocState: Uint8Array;
