@@ -4,8 +4,8 @@
 // Assumes web (5173) + api (3001) running (run.sh).
 import { createHash, randomBytes } from "node:crypto";
 import { chromium } from "playwright";
+import { BASE, signUp } from "./_helpers.mjs";
 
-const BASE = "http://localhost:5173";
 const b64url = (b) =>
   b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const verifier = b64url(randomBytes(32));
@@ -39,13 +39,7 @@ try {
   );
 
   // Sign up (establishes a session in the browser).
-  await page.goto(BASE);
-  await page.getByText("Need an account? Sign up").click();
-  await page.fill('input[placeholder="Name"]', "Consent User");
-  await page.fill('input[type="email"]', `consent${Date.now()}@example.com`);
-  await page.fill('input[type="password"]', "supersecret123");
-  await page.click('button[type="submit"]');
-  await page.waitForSelector(".sidebar");
+  await signUp(page, "Consent User");
 
   // Hit the authorize endpoint -> redirects to the consent screen.
   const q = new URLSearchParams({
@@ -63,9 +57,9 @@ try {
   // The consent UI renders.
   await page.waitForSelector(".auth-card");
   const cardText = await page.textContent(".auth-card");
-  if (!cardText.includes("Authorize access"))
-    throw new Error(`consent screen not shown: ${cardText}`);
-  if (!cardText.includes(clientId)) throw new Error("client id not shown on consent");
+  if (!cardText.includes("Connect Browser Consent Test"))
+    throw new Error(`consent screen not shown with the client's name: ${cardText}`);
+  if (!cardText.includes("localhost:9999")) throw new Error("redirect host not shown on consent");
 
   // Allow -> back to the client redirect_uri with a code.
   await page.getByRole("button", { name: "Allow" }).click();

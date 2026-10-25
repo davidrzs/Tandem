@@ -911,6 +911,9 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         ctx.services.settings.setSidebarNode(input.kind, input.id, input.expanded),
       ),
+    oauthClient: protectedProcedure
+      .input(z.object({ clientId: z.string().min(1).max(200) }))
+      .query(({ ctx, input }) => ctx.services.settings.oauthClient(input.clientId)),
     backupCodes: protectedProcedure.query(async ({ ctx }) => ({
       remaining: (await ctx.countBackupCodes?.(ctx.user.id)) ?? null,
     })),
