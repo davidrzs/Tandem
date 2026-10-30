@@ -15,7 +15,7 @@ export function CollectionPage() {
     { enabled: !!collectionId && !!collection },
   );
 
-  if (collectionsLoading) return <div className="empty">Loading collection…</div>;
+  if (collectionsLoading) return <div className="empty"><span className="shimmer">Loading collection…</span></div>;
   if (!collection) {
     return (
       <div className="empty">
@@ -50,7 +50,7 @@ export function CollectionPage() {
             </button>
           </div>
         )}
-        {documents.isLoading && <p className="home-empty">Loading documents…</p>}
+        {documents.isLoading && <p className="home-empty"><span className="shimmer">Loading documents…</span></p>}
         {documents.data && (
           <DocOutline key={collection.id} nodes={nodes} collectionId={collection.id} canEdit={collection.writable} />
         )}

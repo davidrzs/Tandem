@@ -13,6 +13,7 @@ import { TocRail } from "./TocRail.js";
 import { authorColor, authorKey } from "./colors.js";
 import { FindBar } from "./FindBar.js";
 import { Icon } from "./Icon.js";
+import { RollingNumber } from "./motion.js";
 import type { MentionCandidate } from "./mention.js";
 import { mentionHighlightKey } from "./mention-highlight.js";
 import { timeAgo } from "./time.js";
@@ -328,7 +329,7 @@ export function Editor({
     );
   }, 500);
 
-  if (doc.isLoading) return <div className="empty">Loading…</div>;
+  if (doc.isLoading) return <div className="empty"><span className="shimmer">Loading…</span></div>;
   if (doc.error)
     return <div className="empty">{friendlyError(doc.error, "Couldn't load this document.")}</div>;
   if (!doc.data) return <div className="empty">Document not found, or you don't have access to it.</div>;
@@ -378,7 +379,15 @@ export function Editor({
             onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
           >
             <Icon name="comment" size={15} />
-            Comments{openThreadCount > 0 ? ` (${openThreadCount})` : ""}
+            <span>
+              Comments
+              {openThreadCount > 0 && (
+                <>
+                  {" ("}
+                  <RollingNumber value={openThreadCount} />)
+                </>
+              )}
+            </span>
           </button>
           <button type="button"
             className={"tool-btn" + (findOpen ? " active" : "")}
@@ -684,7 +693,7 @@ export function Editor({
         (preview.data ? (
           <ReadOnlyDoc key={previewId} contentJson={preview.data.contentJson} />
         ) : (
-          <div className="empty">Loading version…</div>
+          <div className="empty"><span className="shimmer">Loading version…</span></div>
         ))}
       {(backlinks.data?.length ?? 0) > 0 && (
         <div className="backlinks">
@@ -741,7 +750,7 @@ export function Editor({
           onReply={(parentId, body) =>
             void createComment.mutateAsync({ documentId: docId, body, parentId })
           }
-          onResolve={(id, resolved) => void resolveComment.mutateAsync({ id, resolved })}
+          onResolve={(id, resolved) => resolveComment.mutateAsync({ id, resolved })}
           onDelete={(id) => void deleteComment.mutateAsync({ id })}
           onJumpTo={jumpToComment}
           onClose={() => {

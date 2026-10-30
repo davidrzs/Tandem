@@ -44,7 +44,9 @@ export function InviteAccept({ token }: { token: string }) {
     return (
       <div className="auth-screen">
         <div className="auth-card">
-          <h1>Loading…</h1>
+          <h1>
+            <span className="shimmer">Loading…</span>
+          </h1>
         </div>
       </div>
     );

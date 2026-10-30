@@ -39,7 +39,7 @@ export function SidebarTree({
           </button>
         </span>
       </div>
-      {loading && <div className="side-note">Loading…</div>}
+      {loading && <div className="side-note"><span className="shimmer">Loading…</span></div>}
       {!loading && props.collections.length === 0 && (
         <div className="side-note">No collections yet — create one.</div>
       )}

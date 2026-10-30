@@ -188,7 +188,7 @@ export function App() {
             <ErrorBoundary>
               {/* The document route is lazy-loaded; the sidebar stays put while its
                   chunk arrives. */}
-              <Suspense fallback={<div className="empty">Loading…</div>}>
+              <Suspense fallback={<div className="empty"><span className="shimmer">Loading…</span></div>}>
                 <Outlet context={context} />
               </Suspense>
             </ErrorBoundary>

@@ -68,7 +68,7 @@ function Bootstrap() {
       .catch(() => setNeedsSetup(false));
   }, []);
 
-  if (needsSetup === null) return <div className="empty">Loading…</div>;
+  if (needsSetup === null) return <div className="empty"><span className="shimmer">Loading…</span></div>;
   if (needsSetup) return <SetupWizard onComplete={() => setNeedsSetup(false)} />;
 
   // Invite redemption must work for logged-out invitees (they sign up through

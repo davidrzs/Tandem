@@ -51,7 +51,7 @@ export function DocumentPage() {
   const template = templates.data?.find((t) => t.id === docId);
 
   if (!docId) return null;
-  if (meta.isLoading) return <div className="empty">Loading…</div>;
+  if (meta.isLoading) return <div className="empty"><span className="shimmer">Loading…</span></div>;
   if (meta.error) {
     return (
       <div className="error-panel">
@@ -82,7 +82,7 @@ export function DocumentPage() {
     );
   }
   if (!meta.data) {
-    if (trashed.isLoading) return <div className="empty">Loading…</div>;
+    if (trashed.isLoading) return <div className="empty"><span className="shimmer">Loading…</span></div>;
     return (
       <div className="empty">
         Document not found, or you don't have access to it.{" "}

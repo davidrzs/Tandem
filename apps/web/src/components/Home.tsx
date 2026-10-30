@@ -317,7 +317,7 @@ export function Home() {
             <button type="button" className="btn" onClick={() => void todos.refetch()}>Retry</button>
           </div>
         )}
-        {todos.isLoading && <p className="home-empty">Looking for tasks assigned to you…</p>}
+        {todos.isLoading && <p className="home-empty"><span className="shimmer">Looking for tasks assigned to you…</span></p>}
         {!todos.isLoading && openCount === 0 && !todos.error && (
           <p className="home-empty">No open tasks are assigned to you.</p>
         )}

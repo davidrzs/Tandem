@@ -86,7 +86,7 @@ export function ShareModal({
           </label>
 
           <h3>People and groups with explicit access</h3>
-          {permissions.isLoading && <p className="modal-note">Loading…</p>}
+          {permissions.isLoading && <p className="modal-note"><span className="shimmer">Loading…</span></p>}
           {(permissions.data ?? []).length === 0 && !permissions.isLoading && (
             <p className="modal-note">No explicit grants yet.</p>
           )}

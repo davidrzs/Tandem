@@ -123,7 +123,7 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
           row's description, and Retry through the row menu. */}
       {note && (
         <div className="side-note tree-note" aria-hidden="true" style={{ "--level": 1 } as CSSProperties}>
-          <span id={noteId}>{note}</span>
+          <span id={noteId} className={node.load === "loading" ? "shimmer" : undefined}>{note}</span>
           {node.load === "error" && (
             <>
               {" "}

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { prefersReducedMotion } from "./motion.js";
 
 /** A single follow-up action on a toast, e.g. Undo. */
 export interface ToastAction {
@@ -11,6 +12,8 @@ interface Toast {
   text: string;
   tone: "ok" | "danger";
   action?: ToastAction;
+  /** Playing its exit; removed when that animation ends. */
+  leaving?: boolean;
 }
 
 type PushToast = (text: string, tone?: "ok" | "danger", action?: ToastAction) => void;
@@ -25,7 +28,14 @@ export const useToast = (): PushToast => useContext(ToastContext);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
-  const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const remove = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const dismiss = useCallback(
+    (id: number) => {
+      if (prefersReducedMotion()) remove(id);
+      else setToasts((t) => t.map((x) => (x.id === id ? { ...x, leaving: true } : x)));
+    },
+    [remove],
+  );
   const push = useCallback<PushToast>(
     (text, tone = "ok", action) => {
       const id = nextId.current++;
@@ -40,7 +50,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.tone}`}>
+          <div
+            key={t.id}
+            className={`toast toast-${t.tone}${t.leaving ? " leaving" : ""}`}
+            onAnimationEnd={(e) => {
+              if (t.leaving && e.animationName === "toast-out") remove(t.id);
+            }}
+          >
             {t.text}
             {t.action && (
               <button

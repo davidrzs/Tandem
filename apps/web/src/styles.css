@@ -66,6 +66,13 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --label-size: 10.5px;
   --label-tracking: 0.1em;
+  /* Motion: one curve (quick start, long settle) at three speeds. Every
+     transition and animation draws from these; reduced motion switches them
+     all off below. */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 320ms;
 }
 
 /* Navigation labels stay quiet; content headings use a readable sans-serif
@@ -157,6 +164,43 @@ button {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Waiting text: one soft light sweeps across the words. Without motion the
+   band rests off the text, which then reads as plain quiet ink. */
+.shimmer {
+  color: transparent;
+  background: linear-gradient(90deg, var(--ink-2) 40%, var(--ink) 50%, var(--ink-2) 60%) 100% 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Counts roll digit by digit: every place is a 0–9 strip slid to its digit
+   (see RollingNumber). One line tall, so it sits on the text baseline. */
+.roll {
+  display: inline-flex;
+  align-items: flex-start;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: bottom;
+  font-variant-numeric: tabular-nums;
+}
+
+.roll-strip {
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--dur-slow) var(--ease);
+}
+
+.roll-strip > span {
+  height: 1lh;
 }
 
 /* ---------- app shell ---------- */
@@ -270,7 +314,7 @@ button {
 
 .ws-chevron {
   color: var(--ink-3);
-  transition: transform 120ms ease;
+  transition: transform var(--dur-fast) var(--ease);
   transform: rotate(90deg);
 }
 
@@ -408,7 +452,7 @@ button {
 .twist {
   flex: none;
   color: var(--ink-3);
-  transition: transform 120ms ease;
+  transition: transform var(--dur-fast) var(--ease);
 }
 
 .twist.open {
@@ -711,7 +755,7 @@ button.doc-twist:hover .twist {
   padding: 4px;
   display: flex;
   flex-direction: column;
-  animation: pop 120ms ease;
+  animation: pop var(--dur-base) var(--ease);
 }
 
 @keyframes pop {
@@ -1867,6 +1911,14 @@ button.doc-twist:hover .twist {
   display: grid;
   place-content: center;
   margin: 0;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:active {
+  transform: scale(0.88);
 }
 
 .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked {
@@ -1874,21 +1926,35 @@ button.doc-twist:hover .twist {
   border-color: var(--accent);
 }
 
-.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::before {
+/* The tick always exists so it can draw itself: a white half of a
+   double-width gradient slides in left to right, short leg first, while the
+   box fills. Transitions (not animations) keep already-checked items still
+   when a document loads. */
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]::before {
   content: "";
   width: 8px;
   height: 8px;
   clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 16%, 84% 4%, 38% 72%);
-  background: #fff;
+  background: linear-gradient(90deg, #fff 50%, transparent 50%) 100% 0 / 200% 100% no-repeat;
+  transition: background-position var(--dur-fast) var(--ease);
+}
+
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::before {
+  background-position: 0 0;
+  transition: background-position var(--dur-slow) var(--ease) 60ms;
 }
 
 .ProseMirror ul[data-type="taskList"] > li > div {
   flex: 1;
+  text-decoration: line-through;
+  text-decoration-color: transparent;
+  transition:
+    color var(--dur-slow) var(--ease),
+    text-decoration-color var(--dur-slow) var(--ease);
 }
 
 .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div {
   color: var(--ink-3);
-  text-decoration: line-through;
   text-decoration-color: var(--line-strong);
 }
 
@@ -1989,6 +2055,7 @@ button.doc-twist:hover .twist {
   justify-content: center;
   padding-top: 13vh;
   z-index: 100;
+  animation: fade-in var(--dur-base) var(--ease);
 }
 
 .modal {
@@ -2009,7 +2076,13 @@ button.doc-twist:hover .twist {
   /* The keyframe must carry the base translateX(-50%): a keyframe transform
      REPLACES the element's own, which made every modal slide in ~290px from
      the right — visible jank, and clicks aimed mid-slide landed elsewhere. */
-  animation: rise-centered 140ms ease;
+  animation: rise-centered var(--dur-base) var(--ease);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @keyframes rise {
@@ -2259,7 +2332,7 @@ button.doc-twist:hover .twist {
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-modal);
   overflow: hidden;
-  animation: rise 140ms ease;
+  animation: rise var(--dur-base) var(--ease);
 }
 
 .search-input {
@@ -2454,7 +2527,7 @@ button.doc-twist:hover .twist {
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
-  transition: width 180ms ease;
+  transition: width var(--dur-slow) var(--ease);
 }
 
 .onboarding-steps {
@@ -3591,6 +3664,52 @@ p.live-section-source a:hover {
   border-color: var(--accent);
 }
 
+/* Resolving: the tick fills green, then the card slides out and its space
+   closes so the cards below glide up. --h is the card's height at the click;
+   the end state holds until the refetch removes the card. */
+.comment-thread.resolving {
+  pointer-events: none;
+  overflow: hidden;
+  animation: thread-resolve calc(var(--dur-slow) * 1.75) var(--ease) forwards;
+}
+
+.comment-thread.resolving .resolve-btn {
+  color: var(--ok);
+  background: var(--ok-wash);
+  animation: tick-pop var(--dur-slow) var(--ease);
+}
+
+@keyframes thread-resolve {
+  0%,
+  30% {
+    opacity: 1;
+    transform: none;
+    max-height: var(--h);
+  }
+  65% {
+    opacity: 0;
+    transform: translateX(16px);
+    max-height: var(--h);
+    padding-block: 10px;
+    margin-bottom: 10px;
+    border-width: 1px;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(16px);
+    max-height: 0;
+    padding-block: 0;
+    margin-bottom: 0;
+    border-width: 0;
+  }
+}
+
+@keyframes tick-pop {
+  50% {
+    transform: scale(1.18);
+  }
+}
+
 .comment-quote {
   margin: 0 0 8px;
   padding: 2px 8px;
@@ -3993,7 +4112,7 @@ p.live-section-source a:hover {
   background: var(--line-strong);
   position: relative;
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background var(--dur-fast) var(--ease);
   padding: 0;
 }
 
@@ -4020,7 +4139,7 @@ p.live-section-source a:hover {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(15, 20, 28, 0.25);
-  transition: transform 120ms ease;
+  transition: transform var(--dur-fast) var(--ease);
 }
 
 .switch-btn[aria-checked="true"] .switch-thumb {
@@ -4296,7 +4415,7 @@ p.live-section-source a:hover {
   align-items: center;
   gap: 6px;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--dur-fast) var(--ease);
   z-index: 2;
 }
 
@@ -4427,7 +4546,7 @@ select.code-lang:hover {
   padding: 8px 14px;
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-pop);
-  animation: toast-in 160ms ease;
+  animation: toast-in var(--dur-base) var(--ease);
   max-width: min(480px, calc(100vw - 32px));
 }
 
@@ -4454,6 +4573,17 @@ select.code-lang:hover {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+}
+
+.toast.leaving {
+  animation: toast-out var(--dur-base) var(--ease) forwards;
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
   }
 }
 
@@ -4721,7 +4851,7 @@ select.code-lang:hover {
     z-index: 220;
     transform: translateX(-100%);
     /* visibility waits for the slide-out, flips instantly on open */
-    transition: transform 170ms ease, visibility 0s linear 170ms;
+    transition: transform var(--dur-base) var(--ease), visibility 0s linear var(--dur-base);
     visibility: hidden;
   }
 

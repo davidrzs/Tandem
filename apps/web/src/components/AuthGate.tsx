@@ -18,7 +18,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [twoFactorPending, setTwoFactorPending] = useState(false);
 
   if (twoFactorPending && !session) return <TwoFactorChallenge />;
-  if (isPending) return <div className="empty">Loading…</div>;
+  if (isPending) return <div className="empty"><span className="shimmer">Loading…</span></div>;
   if (!session) return <AuthForm onTwoFactorRequired={() => setTwoFactorPending(true)} />;
   return <>{children}</>;
 }

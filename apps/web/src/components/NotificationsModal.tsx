@@ -29,7 +29,7 @@ export function NotificationsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="Inbox" onClose={onClose} wide>
-      {list.isLoading && <p className="modal-note">Loading…</p>}
+      {list.isLoading && <p className="modal-note"><span className="shimmer">Loading…</span></p>}
       {list.error && (
         <p className="modal-note">{friendlyError(list.error, "Couldn't load notifications.")}</p>
       )}

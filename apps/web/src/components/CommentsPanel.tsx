@@ -1,7 +1,8 @@
 import { markdownToHtml } from "@tandem/editor";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
+import { prefersReducedMotion } from "./motion.js";
 import { timeAgo } from "./time.js";
 
 export interface CommentItem {
@@ -46,7 +47,7 @@ export function CommentsPanel({
   onSubmit: (body: string) => void;
   onCancelPending: () => void;
   onReply: (parentId: string, body: string) => void;
-  onResolve: (id: string, resolved: boolean) => void;
+  onResolve: (id: string, resolved: boolean) => Promise<unknown>;
   onDelete: (id: string) => void;
   onJumpTo: (comment: CommentItem) => void;
   onClose: () => void;
@@ -142,31 +143,44 @@ function Thread({
   canEdit: boolean;
   active: boolean;
   onReply: (parentId: string, body: string) => void;
-  onResolve: (id: string, resolved: boolean) => void;
+  onResolve: (id: string, resolved: boolean) => Promise<unknown>;
   onDelete: (id: string) => void;
   onJumpTo: (comment: CommentItem) => void;
 }) {
   const [replying, setReplying] = useState(false);
+  // Resolving plays the card's exit first and sends the change when it ends;
+  // a failed request brings the card back.
+  const [resolving, setResolving] = useState<number | null>(null);
   const resolvedState = !!thread.resolvedAt;
   const canResolve = canEdit || thread.authorId === meId;
+  const resolve = (resolved: boolean) =>
+    void onResolve(thread.id, resolved).catch(() => setResolving(null));
 
   return (
     <div
       data-comment-id={thread.id}
       className={
-        "comment-thread" + (active ? " active" : "") + (resolvedState ? " resolved" : "")
+        "comment-thread" +
+        (active ? " active" : "") +
+        (resolvedState ? " resolved" : "") +
+        (resolving !== null ? " resolving" : "")
       }
+      style={resolving !== null ? ({ "--h": `${resolving}px` } as CSSProperties) : undefined}
+      onAnimationEnd={(e) => {
+        if (e.animationName === "thread-resolve") resolve(true);
+      }}
       onClick={() => onJumpTo(thread)}
     >
       <CommentBody comment={thread} mine={thread.authorId === meId} onDelete={onDelete}>
         {canResolve && (
           <button type="button"
-            className="row-action"
+            className="row-action resolve-btn"
             title={resolvedState ? "Reopen" : "Resolve"}
             aria-label={resolvedState ? "Reopen comment" : "Resolve comment"}
             onClick={(e) => {
               e.stopPropagation();
-              onResolve(thread.id, !resolvedState);
+              if (resolvedState || prefersReducedMotion()) resolve(!resolvedState);
+              else setResolving(e.currentTarget.closest(".comment-thread")!.getBoundingClientRect().height);
             }}
           >
             <Icon name={resolvedState ? "restore" : "check"} />

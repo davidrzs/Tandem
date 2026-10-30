@@ -89,7 +89,7 @@ function Body({ section }: { section: Section }) {
 function ListSection({ documentId, query }: { documentId: string; query: Exclude<LiveSectionQuery, "meeting_series"> }) {
   const section = trpc.documents.liveSection.useQuery({ id: documentId, query }, { enabled: !!documentId });
   if (section.data) return <Body section={section.data} />;
-  return <p className="live-section-empty">{section.error ? "Couldn't load this section." : "Loading…"}</p>;
+  return <p className="live-section-empty">{section.error ? "Couldn't load this section." : <span className="shimmer">Loading…</span>}</p>;
 }
 
 /** A live section inside a series entry: a link to the page that holds it,
@@ -152,7 +152,7 @@ function SeriesSection({ documentId }: { documentId: string }) {
     { enabled: !!documentId, placeholderData: (prev) => prev },
   );
   if (!series.data) {
-    return <p className="live-section-empty">{series.error ? "Couldn't load this section." : "Loading…"}</p>;
+    return <p className="live-section-empty">{series.error ? "Couldn't load this section." : <span className="shimmer">Loading…</span>}</p>;
   }
   const { entries, total } = series.data;
   if (entries.length === 0) return <p className="live-section-empty">No meetings under this page yet.</p>;

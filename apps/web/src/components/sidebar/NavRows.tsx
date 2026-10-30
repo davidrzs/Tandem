@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { trpc } from "../../trpc.js";
 import { effectiveTheme, setTheme, type ThemeChoice } from "../../theme.js";
 import { Icon } from "../Icon.js";
+import { RollingNumber } from "../motion.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
 import { displayTitle } from "../outline.js";
 import type { Workspace } from "./types.js";
@@ -72,7 +73,7 @@ export function InboxNavRow({ onOpen }: { onOpen: () => void }) {
     <button type="button" className="nav-row" onClick={onOpen}>
       <Icon name="bell" />
       Inbox
-      {count > 0 && <span className="nav-badge">{count > 99 ? "99+" : count}</span>}
+      {count > 0 && <span className="nav-badge">{count > 99 ? "99+" : <RollingNumber value={count} />}</span>}
     </button>
   );
 }
