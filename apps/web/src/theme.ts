@@ -21,7 +21,13 @@ export function effectiveTheme(): ThemeChoice {
 }
 
 function apply(): void {
-  document.documentElement.dataset.theme = effectiveTheme();
+  const root = document.documentElement;
+  root.dataset.theme = effectiveTheme();
+  // The browser chrome (and the iOS status bar of the installed app) follows
+  // <meta name="theme-color">, which knows nothing of an explicit in-app
+  // choice: point it at the page's own surface so that choice wins there too.
+  const surface = getComputedStyle(root).getPropertyValue("--surface").trim();
+  if (surface) document.querySelector('meta[name="theme-color"]')?.setAttribute("content", surface);
 }
 
 export function setTheme(choice: ThemeChoice): void {
