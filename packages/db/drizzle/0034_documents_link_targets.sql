@@ -1,0 +1,2 @@
+ALTER TABLE "documents" ADD COLUMN "link_targets" text[] GENERATED ALWAYS AS (doc_link_targets(content_md, properties)) STORED;--> statement-breakpoint
+CREATE INDEX "documents_link_targets_idx" ON "documents" USING gin ("link_targets");

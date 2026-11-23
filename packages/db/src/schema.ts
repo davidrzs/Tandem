@@ -217,6 +217,13 @@ export const documents = pgTable(
     propertyIssues: jsonb("property_issues").$type<PropertyIssue[]>().notNull().default([]),
     propertiesText: text("properties_text").notNull().default(""),
 
+    // Ids of the pages this one links to (body links and page-reference
+    // properties), so backlinks are an index lookup, not a scan of every body.
+    // doc_link_targets is defined in migration 0033.
+    linkTargets: text("link_targets")
+      .array()
+      .generatedAlwaysAs((): any => sql`doc_link_targets(content_md, properties)`),
+
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): any =>
         sql`setweight(to_tsvector('simple', coalesce(title, '')), 'A') || setweight(to_tsvector('simple', coalesce(content_md, '')), 'B') || setweight(to_tsvector('simple', coalesce(properties_text, '')), 'C')`,
@@ -240,6 +247,7 @@ export const documents = pgTable(
       .using("gin", sql`lower(${t.title}) gin_trgm_ops`)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),
     index("documents_tags_idx").using("gin", t.tags),
+    index("documents_link_targets_idx").using("gin", t.linkTargets),
     index("documents_recent_idx")
       .on(t.updatedAt, t.id)
       .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL`),

@@ -91,8 +91,10 @@ export async function runAsActor<T>(
 ): Promise<T> {
   if (actor.kind === "system") return fn(db);
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT set_config('app.user_id', ${actor.userId}, true)`);
-    await tx.execute(sql`SET LOCAL ROLE app_user`);
+    // One round trip for both: set_config('role', …, true) is SET LOCAL ROLE.
+    await tx.execute(
+      sql`SELECT set_config('app.user_id', ${actor.userId}, true), set_config('role', 'app_user', true)`,
+    );
     return fn(tx as unknown as Database);
   });
 }

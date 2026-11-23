@@ -465,9 +465,11 @@ export class DocumentQueryService extends DocumentServiceBase {
             isNull(documents.archivedAt),
             notTemplate,
             ne(documents.id, id),
-            // Any property holding the id, as a value or a list element; the
-            // select narrows it to live page-reference fields.
-            or(linksInBody, sql`${documents.properties} @? ${`$.* ? (@ == ${JSON.stringify(id)})`}::jsonpath`),
+            // Indexed: a body link to it, or any property holding it as a value
+            // or list element (link_targets, see doc_link_targets). The select
+            // tells body links apart and narrows properties to live
+            // page-reference fields.
+            sql`${documents.linkTargets} @> ARRAY[${id}]::text[]`,
           ),
         )
         .as("candidates");

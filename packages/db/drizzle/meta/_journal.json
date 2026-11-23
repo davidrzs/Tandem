@@ -232,6 +232,20 @@
       "when": 1792859152634,
       "tag": "0032_powerful_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795467914073,
+      "tag": "0033_doc_link_targets_fn",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795467924022,
+      "tag": "0034_documents_link_targets",
+      "breakpoints": true
     }
   ]
 }
