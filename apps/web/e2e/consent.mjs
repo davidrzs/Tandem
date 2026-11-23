@@ -55,7 +55,11 @@ try {
   await page.goto(`${BASE}/api/auth/mcp/authorize?${q}`);
 
   // The consent UI renders.
-  await page.waitForSelector(".auth-card");
+  // The client's name arrives in a separate query after the card mounts.
+  await page
+    .getByRole("heading", { name: "Connect Browser Consent Test" })
+    .waitFor({ timeout: 10000 })
+    .catch(() => {});
   const cardText = await page.textContent(".auth-card");
   if (!cardText.includes("Connect Browser Consent Test"))
     throw new Error(`consent screen not shown with the client's name: ${cardText}`);
