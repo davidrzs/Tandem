@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import React, { lazy, useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -16,7 +16,10 @@ import { initTheme } from "./theme.js";
 import { trpc } from "./trpc.js";
 
 initTheme();
-import "@fontsource-variable/ibm-plex-sans";
+import "@fontsource-variable/inter/opsz.css";
+import "@fontsource-variable/inter/opsz-italic.css";
+import "@fontsource-variable/source-serif-4/opsz.css";
+import "@fontsource-variable/source-serif-4/opsz-italic.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./styles.css";
@@ -91,8 +94,29 @@ function Bootstrap() {
   );
 }
 
+/** A client error (not found, forbidden, bad input) won't change on retry. */
+function retryable(failureCount: number, error: unknown): boolean {
+  const status = error instanceof TRPCClientError ? error.data?.httpStatus : undefined;
+  if (typeof status === "number" && status >= 400 && status < 500) return false;
+  return failureCount < 2;
+}
+
+function newQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        // No global staleTime: much of what queries show (tasks, backlinks,
+        // recents, members, instance settings) changes through live document
+        // sync or other people, not through a mutation here that could
+        // invalidate it, so cached data must stay refetchable on navigation.
+        retry: retryable,
+      },
+    },
+  });
+}
+
 function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(newQueryClient);
   const [trpcClient] = useState(() =>
     trpc.createClient({ links: [httpBatchLink({ url: "/trpc" })] }),
   );

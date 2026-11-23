@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { authClient } from "../auth-client.js";
+import { Wordmark } from "./Wordmark.js";
 
 interface PublicSettings {
   instanceName: string;
@@ -84,7 +85,7 @@ function AuthForm({ onTwoFactorRequired }: { onTwoFactorRequired: () => void }) 
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="wordmark">{instance?.instanceName || "Tandem"}</div>
+        <Wordmark name={instance?.instanceName || "Tandem"} />
         <p className="auth-tagline">The wiki that knows who wrote what.</p>
         <h1>
           {showForgot ? "Reset your password" : showSignup ? "Create your account" : "Sign in"}
@@ -192,7 +193,7 @@ export function ResetPassword({ token }: { token: string }) {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="wordmark">Tandem</div>
+        <Wordmark />
         <h1>Choose a new password</h1>
         {done ? (
           <>
@@ -259,7 +260,7 @@ function TwoFactorChallenge() {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="wordmark">Tandem</div>
+        <Wordmark />
         <h1>Two-factor authentication</h1>
         <p className="setup-hint">
           {useBackup

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { authClient } from "../auth-client.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
 import { trpc } from "../trpc.js";
 import { useCreateDocument } from "./create-document.js";
-import { Icon } from "./Icon.js";
+import { Icon, type IconName } from "./Icon.js";
 import { notificationHref, notificationVerb } from "./notification-link.js";
 import { useRecentDocs } from "./recents.js";
 import { formatValue } from "./properties.js";
@@ -52,7 +52,7 @@ const AI_DOCUMENT_ACTIONS = new Set([
  * notifications, and the private browser-local recent list. */
 export function Home() {
   const session = authClient.useSession();
-  const { workspaceId, collections, openSearch, openSettings } = useAppContext();
+  const { workspaceId, collections, openSettings } = useAppContext();
   const navigate = useNavigate();
   const toast = useToast();
   const utils = trpc.useUtils();
@@ -172,6 +172,9 @@ export function Home() {
     <div className="home action-home">
       <div className="home-heading">
         <div>
+          <p className="home-date">
+            {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+          </p>
           <h1>{name ? `Hi ${name}` : "Home"}</h1>
           <p className="home-sub">
             {openCount > 0 || unread.length > 0
@@ -179,12 +182,24 @@ export function Home() {
               : "You're all caught up."}
           </p>
         </div>
-        <button type="button" className="home-search" onClick={() => openSearch()}>
-          <Icon name="search" size={15} />
-          Search Tandem
-          <kbd>⌘K</kbd>
-        </button>
       </div>
+
+      <div className="quick-actions" role="group" aria-label="Quick actions">
+        <QuickAction
+          icon="plus"
+          title="New document"
+          detail={writableCollection ? `A blank page in ${writableCollection.name}` : "Create a collection first"}
+          disabled={!writableCollection || createDocument.isPending}
+          onClick={() =>
+            writableCollection && createDocument.mutate({ collectionId: writableCollection.id, title: "" })
+          }
+        />
+        <QuickAction icon="download" title="Import notes" detail="Markdown files or another wiki" onClick={openSettings} />
+        <QuickAction icon="settings" title="Connect an agent" detail="AI edits you can review" onClick={openSettings} />
+      </div>
+      {createDocument.error && (
+        <p className="error-detail">{friendlyError(createDocument.error, "Couldn't create the document.")}</p>
+      )}
 
       {showOnboarding && (
         <section className="onboarding-card" aria-labelledby="onboarding-title">
@@ -366,33 +381,39 @@ export function Home() {
         </section>
       )}
 
-      <section className="home-section quick-section">
-        <h2>Quick actions</h2>
-        <div className="quick-actions">
-          <button
-            type="button"
-            className="quick-action"
-            disabled={!writableCollection || createDocument.isPending}
-            onClick={() =>
-              writableCollection && createDocument.mutate({ collectionId: writableCollection.id, title: "" })
-            }
-          >
-            <Icon name="plus" /> New document
-          </button>
-          <button type="button" className="quick-action" onClick={openSettings}>
-            <Icon name="download" /> Import notes
-          </button>
-          <button type="button" className="quick-action" onClick={openSettings}>
-            <Icon name="settings" /> Connect an agent
-          </button>
-        </div>
-        {createDocument.error && (
-          <p className="error-detail">
-            {friendlyError(createDocument.error, "Couldn't create the document.")}
-          </p>
-        )}
-      </section>
     </div>
+  );
+}
+
+function QuickAction({
+  icon,
+  title,
+  detail,
+  disabled,
+  onClick,
+}: {
+  icon: IconName;
+  title: string;
+  detail: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const id = useId();
+  return (
+    <button
+      type="button"
+      className="quick-action"
+      disabled={disabled}
+      onClick={onClick}
+      aria-labelledby={`${id}-t`}
+      aria-describedby={`${id}-d`}
+    >
+      <span className="quick-icon"><Icon name={icon} size={16} /></span>
+      <span className="quick-copy">
+        <strong id={`${id}-t`}>{title}</strong>
+        <span id={`${id}-d`}>{detail}</span>
+      </span>
+    </button>
   );
 }
 

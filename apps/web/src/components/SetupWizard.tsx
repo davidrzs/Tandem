@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { authClient } from "../auth-client.js";
+import { Wordmark } from "./Wordmark.js";
 
 type Mode = "open" | "invite" | "domain" | "closed";
 
@@ -63,7 +64,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="wordmark">Tandem</div>
+        <Wordmark />
         <p className="auth-tagline">Set up your server.</p>
         <h1>Create the admin account</h1>
 

@@ -105,13 +105,24 @@ function computeDecorations(
     const range = anchorRange(state, ydoc, c.anchor, c.head);
     if (!range || range.to > state.doc.content.size) continue;
     decorations.push(
-      Decoration.inline(range.from, range.to, {
-        class: "comment-span" + (c.id === activeId ? " active" : ""),
-        "data-comment-id": c.id,
-      }),
+      Decoration.inline(
+        range.from,
+        range.to,
+        {
+          class: "comment-span" + (c.id === activeId ? " active" : ""),
+          "data-comment-id": c.id,
+        },
+        { commentId: c.id },
+      ),
     );
   }
   return DecorationSet.create(state.doc, decorations);
+}
+
+/** The open thread whose highlighted text holds `pos`, if any. */
+export function commentAt(state: EditorState, pos: number): string | null {
+  const found = commentsPluginKey.getState(state)?.decorations.find(pos, pos);
+  return (found?.[0]?.spec as { commentId?: string } | undefined)?.commentId ?? null;
 }
 
 export interface CommentsMeta {

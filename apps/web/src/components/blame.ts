@@ -4,6 +4,7 @@ import type { EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { blameSpans, COLLAB_FIELD, getAuthors } from "@tandem/editor";
 import type * as Y from "yjs";
+import { authorLabel } from "./author-label.js";
 import { authorKey, authorTint } from "./colors.js";
 
 /**
@@ -19,20 +20,6 @@ interface BlamePluginState {
   /** When set, only this session's spans are highlighted. */
   only: number | null;
   decorations: DecorationSet;
-}
-
-/** How an author reads in blame: "David" for humans, "David's AI" for their
- * agent, "David's AI (Claude)" when the stamp names the agent. The ownerless
- * local agent keeps its stored name. */
-export function authorLabel(info: {
-  name: string;
-  ai: boolean;
-  userId: string;
-  agent?: string;
-}): string {
-  if (!info.ai) return info.name || "Unknown";
-  const base = !info.name || info.userId === "system" ? info.name || "AI" : `${info.name}'s AI`;
-  return info.agent ? `${base} (${info.agent})` : base;
 }
 
 function computeDecorations(

@@ -131,7 +131,8 @@ test.describe.serial("wiki journey", () => {
 
     // As the first user Alice is the server admin: the Admin console opens and
     // shows the server-administration surface.
-    await page.getByRole("button", { name: "Admin", exact: true }).click();
+    await page.locator(".ws-button").click();
+    await page.getByRole("menuitem", { name: "Admin", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Server administration" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Server settings" })).toBeVisible();
     await page.locator(".modal-close").click();
@@ -241,7 +242,10 @@ test.describe.serial("wiki journey", () => {
     await expect(page.getByText("No collections yet — create one.")).toBeVisible();
 
     // Bob is a regular member: no admin surface.
-    await expect(page.getByRole("button", { name: "Admin", exact: true })).toHaveCount(0);
+    await page.locator(".ws-button").click();
+    await expect(page.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Admin", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     // Search across the tenant finds nothing of Alice's.
     await page.getByRole("button", { name: "Search ⌘K", exact: true }).click();
@@ -292,7 +296,8 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await expect(carol.locator(".save-state").last()).toHaveText(/Live/);
 
   // --- invite Dave via the People modal (member role) ---
-  await carol.getByRole("button", { name: "People & groups" }).click();
+  await carol.locator(".ws-button").click();
+  await carol.getByRole("menuitem", { name: "People & groups" }).click();
   await carol.getByRole("button", { name: "Create invite link" }).click();
   const inviteLink = await carol.locator(".invite-link").inputValue();
   await carol.locator(".modal-close").click();
@@ -358,7 +363,8 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await expect(carol.locator(".comment-thread")).toContainText("Adding the DOI.");
 
   // --- a group grant restores Dave's write access ---
-  await carol.getByRole("button", { name: "People & groups" }).click();
+  await carol.locator(".ws-button").click();
+  await carol.getByRole("menuitem", { name: "People & groups" }).click();
   await carol.getByPlaceholder("New group name").fill("Editors");
   await carol.getByRole("button", { name: "Create group" }).click();
   await carol.getByRole("button", { name: /Editors/ }).click();
@@ -414,7 +420,7 @@ test("drag and drop nests a document under another", async ({ page }) => {
 test("undo: archive and drag-move are reversible from the toast", async ({ page }) => {
   await signUp(page, "Uma Undo", "uma@example.com");
   await createCollection(page, "Undo");
-  await page.getByRole("button", { name: /Undo/ }).first().click();
+  await page.locator(".collection-row", { hasText: "Undo" }).locator(".collection-name").click();
   const row = page.locator(".collection-row", { hasText: "Undo" });
   for (const title of ["Keep", "Mover"]) {
     const before = page.url();
@@ -493,7 +499,7 @@ test("trash: delete with undo, restore from trash, delete forever", async ({ pag
 test("recents show current titles and drop documents that are gone", async ({ page }) => {
   await signUp(page, "Rhea Recent", "rhea@example.com");
   await createCollection(page, "Recent");
-  await page.getByRole("button", { name: /Recent/ }).first().click();
+  await page.locator(".collection-row", { hasText: "Recent" }).locator(".collection-name").click();
   const row = page.locator(".collection-row", { hasText: "Recent" });
   const urls: string[] = [];
   for (const title of ["Draft one", "Draft two"]) {
@@ -789,7 +795,8 @@ test("admin console: registration policy, server invites, roles, audit", async (
   await signIn(page, "alice@example.com");
   await expect(page.getByTitle("Sign out")).toBeVisible();
 
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
+  await page.locator(".ws-button").click();
+  await page.getByRole("menuitem", { name: "Admin", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Server administration" });
   await expect(dialog).toBeVisible();
 

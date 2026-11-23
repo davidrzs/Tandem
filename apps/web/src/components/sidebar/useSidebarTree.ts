@@ -50,7 +50,7 @@ import { useFoldState } from "./useFoldState.js";
 import { useSidebarActions, type SidebarActions } from "./useSidebarActions.js";
 
 /** Pixels per tree level. */
-export const INDENT_PX = 8;
+export const INDENT_PX = 12;
 /** Row padding before level 0; the drag line starts there. */
 export const ROW_PAD_PX = 4;
 

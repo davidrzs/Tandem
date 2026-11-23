@@ -3,6 +3,7 @@ import { WS_KEY } from "../App.js";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
 import { storageSet } from "../storage.js";
+import { Wordmark } from "./Wordmark.js";
 
 // Carries the invite token through signup so the server's registration gate
 // allows the account even in invite-only/closed mode (see registration.ts).
@@ -100,7 +101,7 @@ function InviteSignup({ token, onSignedUp }: { token: string; onSignedUp: () => 
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="wordmark">Tandem</div>
+        <Wordmark />
         <p className="auth-tagline">You've been invited.</p>
         <h1>Create your account</h1>
         <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />

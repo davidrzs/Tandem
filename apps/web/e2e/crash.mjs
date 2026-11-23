@@ -46,10 +46,10 @@ try {
   await page.getByRole("button", { name: "check", exact: true }).waitFor();
   await assertHealthy("document with rich content");
 
-  // History rail (versions + sessions). Target the toolbar button by class —
-  // getByRole "History" would also match the rail's "Close history" button.
-  const historyBtn = page.locator(".tool-btn", { hasText: "History" });
-  const commentsBtn = page.locator(".tool-btn", { hasText: "Comments" });
+  // History rail (versions + sessions). The toolbar buttons are icon-only;
+  // exact names keep "Close history" / "Close comments" out of the match.
+  const historyBtn = page.getByRole("button", { name: "History", exact: true });
+  const commentsBtn = page.getByRole("button", { name: /^Comments( \(\d+\))?$/ });
   await historyBtn.click();
   await page.waitForSelector(".history-panel");
   await assertHealthy("history rail");
@@ -74,8 +74,9 @@ try {
   await assertHealthy("settings");
   await page.keyboard.press("Escape");
 
-  // People & groups modal.
-  await page.getByRole("button", { name: /People/ }).click();
+  // People & groups modal, from the workspace menu.
+  await page.locator(".ws-button").click();
+  await page.getByRole("menuitem", { name: /People/ }).click();
   await page.waitForSelector(".modal");
   await assertHealthy("people");
   await page.keyboard.press("Escape");

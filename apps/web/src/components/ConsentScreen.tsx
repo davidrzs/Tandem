@@ -3,6 +3,7 @@ import { authClient } from "../auth-client.js";
 import { submitConsent, type ConsentRequest } from "../oauth.js";
 import { trpc } from "../trpc.js";
 import { Icon } from "./Icon.js";
+import { Wordmark } from "./Wordmark.js";
 
 // OIDC scopes the MCP flow asks for, in plain words. Grants beyond these are
 // listed raw so nothing requested is ever hidden.
@@ -47,7 +48,7 @@ export function ConsentScreen({ request }: { request: ConsentRequest }) {
   return (
     <div className="auth-screen">
       <div className="auth-card consent-card">
-        <div className="wordmark">{instanceName}</div>
+        <Wordmark name={instanceName} />
         <h1>{name ? `Connect ${name}` : "Connect an application"}</h1>
         <p className="consent-lede">
           {name ?? "This application"} will be able to act as you in {instanceName}:

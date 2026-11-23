@@ -1,18 +1,20 @@
-import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
+import { BubbleMenu, EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useSearchParams } from "react-router-dom";
 import { authClient } from "../auth-client.js";
 import { trpc } from "../trpc.js";
 import { Breadcrumbs } from "./Breadcrumbs.js";
 import { RowMenu } from "./Modal.js";
 import { CommentsPanel } from "./CommentsPanel.js";
+import { MarginComments } from "./MarginComments.js";
 import { HistoryPanel } from "./HistoryPanel.js";
 import { ReadOnlyDoc } from "./ReadOnlyDoc.js";
 import { TocRail } from "./TocRail.js";
 import { authorColor, authorKey } from "./colors.js";
 import { FindBar } from "./FindBar.js";
 import { Icon } from "./Icon.js";
+import { MOD as MOD_LABEL } from "./keys.js";
 import { RollingNumber } from "./motion.js";
 import type { MentionCandidate } from "./mention.js";
 import { mentionHighlightKey } from "./mention-highlight.js";
@@ -22,6 +24,7 @@ import { SubPages } from "./DocOutline.js";
 import { PropertiesPanel, TemplateDefaultsPanel, TypeMenu } from "./PropertiesPanel.js";
 import { useAppContext } from "../App.js";
 import { friendlyError } from "../errors.js";
+import { BlockInserter } from "./editor/BlockInserter.js";
 import { buildExtensions } from "./editor/extensions.js";
 import { useBlame } from "./editor/useBlame.js";
 import { useCollabDoc } from "./editor/useCollabDoc.js";
@@ -46,6 +49,9 @@ async function uploadAndInsert(view: EditorView, file: File, docId: string) {
   view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
 }
 
+/** Room a margin comment needs to the right of the text: gap, card, edge. */
+const MARGIN_NEEDS = 36 + 248 + 20;
+
 function imageFiles(list: FileList | null | undefined): File[] {
   return Array.from(list ?? []).filter((f) => f.type.startsWith("image/"));
 }
@@ -67,10 +73,13 @@ export function Editor({
   docId,
   canEdit,
   workspaceId,
+  notice = null,
 }: {
   docId: string;
   canEdit: boolean;
   workspaceId: string;
+  /** Status note (archived, template) shown at the top of the column. */
+  notice?: ReactNode;
 }) {
   const utils = trpc.useUtils();
   const session = authClient.useSession();
@@ -82,19 +91,25 @@ export function Editor({
   const doc = trpc.documents.getMeta.useQuery({ id: docId });
   const tagOptions = trpc.documents.listTags.useQuery();
   const update = trpc.documents.update.useMutation({
-    onSuccess: () => {
-      void utils.documents.tree.invalidate();
+    onSuccess: (_data, input) => {
+      // Only this document's collection tree shows its title.
+      const collectionId = doc.data?.collectionId;
+      void (collectionId
+        ? utils.documents.tree.invalidate({ collectionId })
+        : utils.documents.tree.invalidate());
       // Anything showing this doc's title (page-reference chips, headers)
-      // re-reads it after a rename; tag edits refresh the autocomplete pool.
+      // re-reads it after a rename.
       void utils.documents.getMeta.invalidate({ id: docId });
-      void utils.documents.listTags.invalidate();
+      // The tag pool is a workspace-wide aggregate: refresh it only when tags
+      // changed, not on every debounced title save.
+      if (input.tags) void utils.documents.listTags.invalidate();
     },
   });
   const members = trpc.workspaces.members.useQuery(
     { workspaceId },
     { enabled: !!workspaceId },
   );
-  const { openSearch } = useAppContext();
+  const { openSearch, sidebarCollapsed, toggleSidebar, openShare } = useAppContext();
 
   // Members feed the @-mention autocomplete through a ref (they load async;
   // the extension is created once).
@@ -163,10 +178,11 @@ export function Editor({
   // Link bubble state: null = closed, string = draft href being edited.
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
 
-  const editor = useEditor(
-    {
-      editable: canEdit,
-      extensions: buildExtensions({
+  // Read once, when the editor is created for this provider (useEditor's deps
+  // below); building them on every render was wasted work.
+  const extensions = useMemo(
+    () =>
+      buildExtensions({
         docId,
         ydoc,
         provider,
@@ -176,6 +192,16 @@ export function Editor({
         anchorsRef,
         activeCommentRef,
       }),
+    [provider],
+  );
+  const editor = useEditor(
+    {
+      editable: canEdit,
+      extensions,
+      // Typing must not re-render the whole page (properties, tags, sub-pages,
+      // comments). The pieces that follow the selection subscribe on their
+      // own: the format bubble below, the contents rail, the block inserter.
+      shouldRerenderOnTransaction: false,
       editorProps: {
         handleKeyDown(_view, event) {
           // Mod+F finds within the document (the browser's find can't see
@@ -206,6 +232,23 @@ export function Editor({
     [provider],
   );
 
+  // What the format bubble shows; re-renders only when one of these changes.
+  const format = useEditorState({
+    editor,
+    selector: ({ editor: e }) =>
+      e
+        ? {
+            bold: e.isActive("bold"),
+            italic: e.isActive("italic"),
+            strike: e.isActive("strike"),
+            code: e.isActive("code"),
+            link: e.isActive("link"),
+            codeBlock: e.isActive("codeBlock"),
+            hasSelection: !e.state.selection.empty,
+          }
+        : null,
+  });
+
   // Reflect access changes without recreating the editor (which would race
   // with typing and drop the Yjs binding).
   useEffect(() => {
@@ -220,11 +263,52 @@ export function Editor({
   // --- presence: who else is looking at this document ---
   const peers = usePresence(provider);
 
+  const pageMounted = !!doc.data;
+  const docPageRef = useRef<HTMLDivElement>(null);
+  const proseFrameRef = useRef<HTMLDivElement>(null);
+  const [marginRoom, setMarginRoom] = useState(false);
+  useEffect(() => {
+    const frame = proseFrameRef.current;
+    const main = frame?.closest(".main");
+    if (!frame || !main) return;
+    const check = () =>
+      setMarginRoom(
+        main.getBoundingClientRect().right - frame.getBoundingClientRect().right >= MARGIN_NEEDS,
+      );
+    const observer = new ResizeObserver(check);
+    observer.observe(main);
+    observer.observe(frame);
+    check();
+    return () => observer.disconnect();
+  }, [pageMounted]);
+
+  // While the reader types, the header steps back; moving the pointer brings
+  // it back. A class toggle, not state: keystrokes must not re-render this.
+  useEffect(() => {
+    const page = docPageRef.current;
+    if (!editor || !page) return;
+    const dom = editor.view.dom;
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) page.classList.add("is-typing");
+    };
+    const onMove = () => page.classList.remove("is-typing");
+    dom.addEventListener("keydown", onKey);
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => {
+      dom.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousemove", onMove);
+    };
+  }, [editor, pageMounted]);
+
   // Members load after the editor mounts; redraw mention tints when they do.
   useEffect(() => {
     if (!editor || !members.data) return;
     editor.view.dispatch(editor.state.tr.setMeta(mentionHighlightKey, true));
   }, [editor, members.data]);
+  // Open threads sit in the page's right margin when it has room for them and
+  // no panel is using that side; otherwise they live in the comments panel.
+  const inMarginRef = useRef(false);
+  const inMargin = useCallback(() => inMarginRef.current, []);
   const { startComment, jumpToComment } = useCommentNavigation({
     editor,
     ydoc,
@@ -235,6 +319,7 @@ export function Editor({
     setPending,
     setActiveCommentId,
     setRail,
+    inMargin,
   });
 
   const handledTaskTarget = useRef<string | null>(null);
@@ -284,6 +369,19 @@ export function Editor({
 
   // --- version snapshots + preview ---
   const { versions, previewId, setPreviewId, preview, restore } = useSnapshots(docId, rail);
+  const marginMode = marginRoom && rail === null && previewId === null;
+  inMarginRef.current = marginMode;
+  const submitPending = (body: string) => {
+    const anchors = pending;
+    setPending(null);
+    void createComment
+      .mutateAsync({
+        documentId: docId,
+        body,
+        ...(anchors ? { anchor: anchors.anchor, head: anchors.head } : {}),
+      })
+      .then((c) => setActiveCommentId(c.id));
+  };
 
   const onProseClick = useCallback(
     (e: React.MouseEvent) => {
@@ -348,8 +446,17 @@ export function Editor({
           : { label: "Offline", tone: "bad" };
 
   return (
-    <div className="doc-page">
+    <div className="doc-page" ref={docPageRef}>
       <div className="doc-bar">
+        <button type="button"
+          className="tool-btn icon-only sidebar-toggle"
+          aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+          aria-expanded={!sidebarCollapsed}
+          title={`${sidebarCollapsed ? "Show" : "Hide"} sidebar (${MOD_LABEL}+\\)`}
+          onClick={toggleSidebar}
+        >
+          <Icon name="sidebar" size={16} />
+        </button>
         <Breadcrumbs docId={docId} collectionId={doc.data.collectionId} currentTitle={title} />
         {doc.data.origin?.templateName && (
           <span className="doc-origin" title={`Created from the template "${doc.data.origin.templateName}"`}>
@@ -358,8 +465,13 @@ export function Editor({
         )}
         <div className="doc-bar-actions">
           {!canEdit && <span className="save-state">Read only</span>}
-          <span className={`save-state status-${status.tone}`}>
-            <span className="status-dot" /> {status.label}
+          {/* All well is a quiet dot; only trouble earns words. */}
+          <span
+            className={`save-state status-${status.tone}`}
+            title={status.tone === "ok" ? "Live: changes save as you type" : undefined}
+          >
+            <span className="status-dot" />
+            {status.tone === "ok" ? <span className="sr-only">{status.label}</span> : ` ${status.label}`}
           </span>
           <span className="tool-divider" />
           {canEdit && (
@@ -374,39 +486,32 @@ export function Editor({
             />
           )}
           <button type="button"
-            className={"tool-btn" + (rail === "comments" ? " active" : "")}
-            title="Show comments"
+            className={"tool-btn" + (openThreadCount > 0 ? "" : " icon-only") + (rail === "comments" ? " active" : "")}
+            aria-label={openThreadCount > 0 ? `Comments (${openThreadCount})` : "Comments"}
+            title="All comments, including resolved"
             onClick={() => setRail((r) => (r === "comments" ? null : "comments"))}
           >
-            <Icon name="comment" size={15} />
-            <span>
-              Comments
-              {openThreadCount > 0 && (
-                <>
-                  {" ("}
-                  <RollingNumber value={openThreadCount} />)
-                </>
-              )}
-            </span>
+            <Icon name="comment" size={16} />
+            {openThreadCount > 0 && <RollingNumber value={openThreadCount} />}
           </button>
           <button type="button"
-            className={"tool-btn" + (findOpen ? " active" : "")}
-            title="Find in document (Mod+F)"
+            className={"tool-btn icon-only" + (findOpen ? " active" : "")}
+            aria-label="Find"
+            title={`Find in document (${MOD_LABEL}+F)`}
             onClick={() => setFindOpen((f) => !f)}
           >
-            <Icon name="search" size={15} />
-            Find
+            <Icon name="search" size={16} />
           </button>
           <button type="button"
-            className={"tool-btn" + (blameOn ? " active" : "")}
+            className={"tool-btn icon-only" + (blameOn ? " active" : "")}
+            aria-label="History"
             title="Edit history: who wrote each part, and when"
             onClick={() => {
               setOnlySession(null);
               setRail((r) => (r === "history" ? null : "history"));
             }}
           >
-            <Icon name="restore" size={15} />
-            History
+            <Icon name="restore" size={16} />
           </button>
           <RowMenu
             title="Document actions"
@@ -440,7 +545,10 @@ export function Editor({
           {peers.length > 0 && (
             <>
               <span className="tool-divider" />
-              <span className="presence" title={peers.map((p) => p.name).join(", ")}>
+              <span
+                className="presence"
+                title={`${peers.map((p) => p.name).join(", ")} ${peers.length === 1 ? "is" : "are"} here`}
+              >
                 <span className="presence-stack">
                   {peers.slice(0, 4).map((p) => (
                     <span
@@ -453,13 +561,17 @@ export function Editor({
                   ))}
                   {peers.length > 4 && <span className="presence-more">+{peers.length - 4}</span>}
                 </span>
-                <span className="presence-count">
-                  <span className="live-dot" />
-                  {peers.length} editing
-                </span>
+                <span className="sr-only">{peers.length} editing</span>
               </span>
             </>
           )}
+          <button type="button"
+            className="btn primary share-btn"
+            title="Pages share with their collection"
+            onClick={() => openShare(doc.data!.collectionId)}
+          >
+            Share
+          </button>
         </div>
       </div>
     <div className="doc-shell">
@@ -506,7 +618,7 @@ export function Editor({
               <button className="bubble-btn" type="submit">
                 Apply
               </button>
-              {editor.isActive("link") && (
+              {format?.link && (
                 <button
                   className="bubble-btn danger"
                   type="button"
@@ -521,10 +633,10 @@ export function Editor({
             </form>
           ) : (
             <div className="bubble-group">
-              {canEdit && !editor.isActive("codeBlock") && (
+              {canEdit && !format?.codeBlock && (
                 <>
                   <button type="button"
-                    className={"bubble-btn" + (editor.isActive("bold") ? " active" : "")}
+                    className={"bubble-btn" + (format?.bold ? " active" : "")}
                     title="Bold (Mod+B)"
                     aria-label="Bold"
                     onClick={() => editor.chain().focus().toggleBold().run()}
@@ -532,7 +644,7 @@ export function Editor({
                     <strong>B</strong>
                   </button>
                   <button type="button"
-                    className={"bubble-btn" + (editor.isActive("italic") ? " active" : "")}
+                    className={"bubble-btn" + (format?.italic ? " active" : "")}
                     title="Italic (Mod+I)"
                     aria-label="Italic"
                     onClick={() => editor.chain().focus().toggleItalic().run()}
@@ -540,7 +652,7 @@ export function Editor({
                     <em>I</em>
                   </button>
                   <button type="button"
-                    className={"bubble-btn" + (editor.isActive("strike") ? " active" : "")}
+                    className={"bubble-btn" + (format?.strike ? " active" : "")}
                     title="Strikethrough"
                     aria-label="Strikethrough"
                     onClick={() => editor.chain().focus().toggleStrike().run()}
@@ -548,7 +660,7 @@ export function Editor({
                     <s>S</s>
                   </button>
                   <button type="button"
-                    className={"bubble-btn" + (editor.isActive("code") ? " active" : "")}
+                    className={"bubble-btn" + (format?.code ? " active" : "")}
                     title="Inline code"
                     aria-label="Inline code"
                     onClick={() => editor.chain().focus().toggleCode().run()}
@@ -556,9 +668,9 @@ export function Editor({
                     <code>{"<>"}</code>
                   </button>
                   <button type="button"
-                    className={"bubble-btn" + (editor.isActive("link") ? " active" : "")}
-                    title={editor.isActive("link") ? "Edit link" : "Add link"}
-                    aria-label={editor.isActive("link") ? "Edit link" : "Add link"}
+                    className={"bubble-btn" + (format?.link ? " active" : "")}
+                    title={format?.link ? "Edit link" : "Add link"}
+                    aria-label={format?.link ? "Edit link" : "Add link"}
                     onClick={() =>
                       setLinkDraft(String(editor.getAttributes("link").href ?? ""))
                     }
@@ -567,7 +679,7 @@ export function Editor({
                   </button>
                 </>
               )}
-              {!editor.state.selection.empty && (
+              {format?.hasSelection && (
                 <>
                   {canEdit && <span className="bubble-divider" />}
                   <button type="button" className="bubble-btn" onClick={startComment}>
@@ -607,6 +719,7 @@ export function Editor({
           }}
         />
       )}
+      {notice}
       <input
         ref={titleInputRef}
         className="title-input"
@@ -682,12 +795,34 @@ export function Editor({
           hidden while previewing a version. */}
       {/* biome-ignore lint/a11y/useKeyWithMouseEvents: the blame hover card is a pointer affordance; keyboard users read authorship in the History rail */}
       <div
-        className={previewId !== null ? "hidden-editor" : ""}
+        ref={proseFrameRef}
+        className={"prose-frame" + (previewId !== null ? " hidden-editor" : "")}
         onMouseOver={onMouseOver}
         onMouseLeave={() => setHover(null)}
         onClick={onProseClick}
       >
         <EditorContent className="prose" editor={editor} />
+        {editor && canEdit && <BlockInserter editor={editor} frame={proseFrameRef} />}
+        {editor && marginMode && (
+          <MarginComments
+            editor={editor}
+            ydoc={ydoc}
+            frame={proseFrameRef}
+            comments={commentItems}
+            pending={pending}
+            activeId={activeCommentId}
+            meId={user?.id ?? null}
+            canEdit={canEdit}
+            onOpen={jumpToComment}
+            onSubmit={submitPending}
+            onCancelPending={() => setPending(null)}
+            onReply={(parentId, body) =>
+              void createComment.mutateAsync({ documentId: docId, body, parentId })
+            }
+            onResolve={(id, resolved) => resolveComment.mutateAsync({ id, resolved })}
+            onDelete={(id) => void deleteComment.mutateAsync({ id })}
+          />
+        )}
       </div>
       {previewId !== null &&
         (preview.data ? (
@@ -737,15 +872,7 @@ export function Editor({
           meId={user?.id ?? null}
           canEdit={canEdit}
           activeId={activeCommentId}
-          onSubmit={(body) => {
-            const anchors = pending;
-            setPending(null);
-            void createComment.mutateAsync({
-              documentId: docId,
-              body,
-              ...(anchors ? { anchor: anchors.anchor, head: anchors.head } : {}),
-            });
-          }}
+          onSubmit={submitPending}
           onCancelPending={() => setPending(null)}
           onReply={(parentId, body) =>
             void createComment.mutateAsync({ documentId: docId, body, parentId })

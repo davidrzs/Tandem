@@ -24,14 +24,14 @@ export function SidebarTree({
         <span>Collections</span>
         <span className="toolbar-actions">
           <button type="button"
-            className="row-action"
+            className="row-action on-hover"
             title="Reveal active document" aria-label="Reveal active document"
             disabled={!model.canRevealActive}
             onClick={() => void model.revealActive()}
           >
             <Icon name="locate" />
           </button>
-          <button type="button" className="row-action" title="Collapse all" aria-label="Collapse all" onClick={model.collapseAll}>
+          <button type="button" className="row-action on-hover" title="Collapse all" aria-label="Collapse all" onClick={model.collapseAll}>
             <Icon name="collapse" />
           </button>
           <button type="button" className="row-action" title="New collection" aria-label="New collection" onClick={onNewCollection}>

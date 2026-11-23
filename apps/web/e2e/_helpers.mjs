@@ -5,8 +5,10 @@ export const BASE = process.env.E2E_BASE ?? "http://localhost:5173";
 /** Sign up a fresh account and land on the app shell. On a brand-new server the
  * first-run setup wizard stands in for the sign-up form; the first caller
  * becomes the admin and opens registration so later specs can self-register. */
-export async function signUp(page, name = "E2E User") {
+export async function signUp(page, name = "E2E User", { tuckSidebar = false } = {}) {
   await page.goto(BASE);
+  // paper.mjs covers the tucked-away sidebar on document pages.
+  if (tuckSidebar) await page.evaluate(() => localStorage.setItem("tandem.sidebar.pinned", "0"));
   const email = `e2e${Date.now()}${Math.floor(performance.now())}@example.com`;
   await page.waitForSelector(".auth-card");
   const wizard = page.getByRole("button", { name: "Create admin & finish" });

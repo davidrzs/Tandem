@@ -1,6 +1,7 @@
 import type { ItemInstance } from "@headless-tree/core";
 import { useId, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { collectionTone } from "../colors.js";
 import { Icon } from "../Icon.js";
 import { RowMenu } from "../Modal.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
@@ -61,7 +62,14 @@ function CollectionRow({ item, node }: RowProps<"collection">) {
         className={cx("collection-row tree-row", expanded && "open", item.isUnorderedDragTarget() && "drop-into")}
       >
         <button type="button" className="collection-name" tabIndex={-1} onClick={() => toggle(item)}>
-          <Icon name="chevron" size={14} className={"twist" + (expanded ? " open" : "")} />
+          {/* The tile names the collection at rest; pointing at the row swaps
+              it for the fold chevron. */}
+          <span className="coll-mark">
+            <span className="coll-tile" data-tone={collectionTone(c.id)} aria-hidden="true">
+              {c.name.trim().slice(0, 1).toUpperCase()}
+            </span>
+            <Icon name="chevron" size={14} className={"twist" + (expanded ? " open" : "")} />
+          </span>
           <OverflowTooltip text={c.name}>
             <span className="collection-label">{c.name}</span>
           </OverflowTooltip>

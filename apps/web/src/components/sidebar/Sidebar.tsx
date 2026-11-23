@@ -6,8 +6,8 @@ import { trpc } from "../../trpc.js";
 import { authorColor, authorKey } from "../colors.js";
 import { Icon } from "../Icon.js";
 import { PromptDialog } from "../Modal.js";
-import { forgetUserDocs } from "../../offline.js";
-import { FavoritesSection, InboxNavRow, ThemeToggle, WorkspaceSwitcher } from "./NavRows.js";
+import { forgetUserDocs } from "../../offline-store.js";
+import { FavoritesSection, InboxNavRow, WorkspaceSwitcher, type WorkspaceMenuEntry } from "./NavRows.js";
 import { SidebarTree } from "./SidebarTree.js";
 import type { Collection, Workspace } from "./types.js";
 
@@ -28,6 +28,10 @@ interface Props {
   onOpenShortcuts: () => void;
   onOpenAdmin: () => void;
   onShareCollection: (id: string) => void;
+  /** Shown over the page while the collapsed sidebar is peeked at. */
+  peek?: boolean;
+  onPeekEnter?: () => void;
+  onPeekLeave?: () => void;
 }
 
 function slugify(name: string) {
@@ -46,6 +50,9 @@ export function Sidebar({
   activeDocId,
   activeCollectionId,
   open,
+  peek,
+  onPeekEnter,
+  onPeekLeave,
   onSelectWorkspace,
   onOpenSearch,
   onOpenInbox,
@@ -121,18 +128,36 @@ export function Sidebar({
     );
 
   const user = session.data?.user;
+  const menuEntries: WorkspaceMenuEntry[] = [
+    ...(workspaceId ? [{ label: "People & groups", icon: "users" as const, onSelect: onOpenPeople }] : []),
+    { label: "Keyboard shortcuts", icon: "keyboard", onSelect: onOpenShortcuts, hint: "?" },
+    ...(user?.role === "admin" ? [{ label: "Admin", icon: "settings" as const, onSelect: onOpenAdmin }] : []),
+  ];
 
   return (
-    <aside className="sidebar" data-open={open || undefined}>
+    <aside
+      className="sidebar"
+      data-open={open || undefined}
+      data-peek={peek || undefined}
+      onMouseEnter={onPeekEnter}
+      onMouseLeave={onPeekLeave}
+    >
       <WorkspaceSwitcher
         workspaces={workspaces}
         workspaceId={workspaceId}
+        entries={menuEntries}
         onSelect={(id) => {
           onSelectWorkspace(id);
           navigate("/");
         }}
         onNew={newWorkspace}
       />
+
+      <button type="button" className="side-search" onClick={onOpenSearch}>
+        <Icon name="search" />
+        <span>Search</span>
+        <kbd>⌘K</kbd>
+      </button>
 
       <nav className="side-nav">
         <Link
@@ -142,33 +167,7 @@ export function Sidebar({
           <Icon name="home" />
           Home
         </Link>
-        <button type="button" className="nav-row" onClick={onOpenSearch}>
-          <Icon name="search" />
-          Search
-          <kbd>⌘K</kbd>
-        </button>
         <InboxNavRow onOpen={onOpenInbox} />
-        {workspaceId && (
-          <button type="button" className="nav-row" onClick={onOpenPeople}>
-            <Icon name="users" />
-            People &amp; groups
-          </button>
-        )}
-        <button type="button" className="nav-row" onClick={onOpenSettings}>
-          <Icon name="settings" />
-          Settings
-        </button>
-        <button type="button" className="nav-row" onClick={onOpenShortcuts}>
-          <Icon name="keyboard" />
-          Shortcuts
-          <kbd>?</kbd>
-        </button>
-        {user?.role === "admin" && (
-          <button type="button" className="nav-row" onClick={onOpenAdmin}>
-            <Icon name="settings" />
-            Admin
-          </button>
-        )}
       </nav>
 
       <div className="sidebar-scroll">
@@ -201,7 +200,13 @@ export function Sidebar({
             <span className="user-name">{user.name}</span>
             <span className="user-email">{user.email}</span>
           </span>
-          <ThemeToggle />
+          <button type="button"
+            className="row-action"
+            title="Settings" aria-label="Settings"
+            onClick={onOpenSettings}
+          >
+            <Icon name="settings" />
+          </button>
           <button type="button"
             className="row-action"
             title="Sign out" aria-label="Sign out"

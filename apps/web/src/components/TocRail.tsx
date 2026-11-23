@@ -33,7 +33,13 @@ export function TocRail({ editor, hidden }: { editor: Editor | null; hidden: boo
           hs.push({ level: Number(node.attrs.level) || 1, text, key: n === 0 ? text : `${text}#${n}` });
         }
       });
-      setHeadings(hs);
+      // Most edits don't touch a heading: keep the same array so the rail
+      // doesn't re-render on every keystroke.
+      setHeadings((prev) =>
+        prev.length === hs.length && prev.every((h, i) => h.key === hs[i]!.key && h.level === hs[i]!.level)
+          ? prev
+          : hs,
+      );
     };
     compute();
     editor.on("update", compute);

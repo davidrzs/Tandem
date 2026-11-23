@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorLabel } from "./blame.js";
+import { authorLabel } from "./author-label.js";
 
 test("an agent stamp names the agent after the owner's AI", () => {
   assert.equal(

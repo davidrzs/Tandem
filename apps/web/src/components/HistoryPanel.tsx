@@ -1,4 +1,4 @@
-import { authorLabel } from "./blame.js";
+import { authorLabel } from "./author-label.js";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
 import { timeAgo } from "./time.js";

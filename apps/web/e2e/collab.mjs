@@ -29,7 +29,8 @@ try {
   await a.waitForTimeout(800);
 
   // Alice generates an invite link from the People modal.
-  await a.getByRole("button", { name: /People/ }).click();
+  await a.locator(".ws-button").click();
+  await a.getByRole("menuitem", { name: /People/ }).click();
   await a.getByRole("button", { name: "Create invite link" }).click();
   await a.waitForSelector(".invite-link");
   const inviteUrl = await a.inputValue(".invite-link");

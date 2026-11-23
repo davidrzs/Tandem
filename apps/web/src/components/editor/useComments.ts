@@ -1,8 +1,15 @@
+import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { trpc } from "../../trpc.js";
-import { anchorRange, commentsPluginKey, selectionAnchor, type CommentAnchor } from "../comments.js";
+import {
+  anchorRange,
+  commentAt,
+  commentsPluginKey,
+  selectionAnchor,
+  type CommentAnchor,
+} from "../comments.js";
 import type { CommentItem, PendingComment } from "../CommentsPanel.js";
 
 /** Comment threads, their mutations, and the refs the decoration plugin
@@ -61,6 +68,7 @@ export function useCommentNavigation({
   setPending,
   setActiveCommentId,
   setRail,
+  inMargin,
 }: {
   editor: Editor | null;
   ydoc: Y.Doc;
@@ -71,12 +79,32 @@ export function useCommentNavigation({
   setPending: (pending: PendingComment | null) => void;
   setActiveCommentId: (id: string | null) => void;
   setRail: (rail: null | "comments" | "history") => void;
+  /** True while open threads are shown in the page margin, where a new
+   * comment is written too; otherwise they go to the comments panel. */
+  inMargin: () => boolean;
 }) {
   // Redraw comment highlights when threads or the focused thread change.
   useEffect(() => {
     if (!editor) return;
     editor.view.dispatch(editor.state.tr.setMeta(commentsPluginKey, { recompute: true }));
   }, [editor, commentItems, activeCommentId]);
+
+  // Clicking into discussed text opens its thread; clicking elsewhere closes
+  // the open one. Only pointer moves count: a jump to a thread selects its
+  // text programmatically and must keep that thread, resolved or not. This
+  // follows the editor's selection rather than the click event, which fires
+  // before the editor has read where the click put the caret.
+  useEffect(() => {
+    if (!editor) return;
+    const follow = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.getMeta("pointer")) return;
+      setActiveCommentId(commentAt(editor.state, editor.state.selection.from));
+    };
+    editor.on("selectionUpdate", follow);
+    return () => {
+      editor.off("selectionUpdate", follow);
+    };
+  }, [editor, setActiveCommentId]);
 
   const startComment = useCallback(() => {
     if (!editor) return;
@@ -85,8 +113,8 @@ export function useCommentNavigation({
     const { from, to } = editor.state.selection;
     const quote = editor.state.doc.textBetween(from, to, " ").slice(0, 160);
     setPending({ ...anchors, quote });
-    setRail("comments");
-  }, [editor]);
+    if (!inMargin()) setRail("comments");
+  }, [editor, inMargin]);
 
   const jumpToComment = useCallback(
     (comment: CommentItem) => {
@@ -113,13 +141,14 @@ export function useCommentNavigation({
     const thread = target.parentId
       ? commentItems.find((comment) => comment.id === target.parentId) ?? target
       : target;
-    setRail("comments");
+    // The margin shows only open threads still anchored in the text.
+    if (!inMargin() || thread.resolvedAt || !thread.anchor) setRail("comments");
     if (!jumpToComment(thread)) return;
     handledCommentTarget.current = commentTarget;
     // Focus only for deep links: a click in the panel must not pull the
     // caret out of a reply the reader is in the middle of typing.
     editor.commands.focus();
-  }, [commentItems, commentTarget, editor, jumpToComment, synced]);
+  }, [commentItems, commentTarget, editor, inMargin, jumpToComment, synced]);
 
   return { startComment, jumpToComment };
 }

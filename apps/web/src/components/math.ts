@@ -44,7 +44,14 @@ function collect(
     if (selection.from <= to && selection.to >= from) continue;
     const tex = m[1]!;
     decos.push(Decoration.inline(from, to, { class: "math-src-hidden" }));
-    decos.push(Decoration.widget(from, () => renderMath(tex, displayMode), { side: 1 }));
+    // The key lets ProseMirror keep an unchanged formula's rendered DOM when
+    // the set is rebuilt; without it every keystroke re-runs KaTeX on all of them.
+    decos.push(
+      Decoration.widget(from, () => renderMath(tex, displayMode), {
+        side: 1,
+        key: `${displayMode ? "block" : "inline"}:${tex}`,
+      }),
+    );
   }
 }
 

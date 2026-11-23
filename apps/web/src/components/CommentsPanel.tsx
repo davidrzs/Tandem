@@ -126,7 +126,7 @@ export function CommentsPanel({
   );
 }
 
-function Thread({
+export function Thread({
   thread,
   replies,
   meId,
@@ -266,7 +266,7 @@ function CommentBody({
   );
 }
 
-function Composer({
+export function Composer({
   placeholder,
   submitLabel,
   autoFocus,

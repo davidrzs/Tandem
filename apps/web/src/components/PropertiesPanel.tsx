@@ -336,6 +336,9 @@ export function TemplateDefaultsPanel({
   });
   // Fields switched to "A value" whose value isn't chosen yet.
   const [choosing, setChoosing] = useState<string[]>([]);
+  // Closed by default: on the page it's a one-line note, not a form above the writing.
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const focusKeeper = useFocusKeeper();
   const type = types.data?.find((t) => t.id === template.typeId) ?? null;
   const typed = type ? (fields.data ?? []).filter((f) => f.typeId === type.id) : [];
@@ -368,14 +371,22 @@ export function TemplateDefaultsPanel({
     : "Pages made from this template have no type.";
 
   return (
-    <section {...focusKeeper} className="props-panel open" aria-label="Template defaults">
-      <div className="props-summary props-heading">
+    <section {...focusKeeper} className={"props-panel" + (open ? " open" : "")} aria-label="Template defaults">
+      <button
+        type="button"
+        className="props-summary"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name="chevron" size={12} className={"twist" + (open ? " open" : "")} />
         <span className="props-type">Defaults for new pages</span>
         <span className="props-summary-text" title={typeSentence}>
           {typeSentence}
         </span>
-      </div>
-      <div className="props-body">
+      </button>
+      {open && (
+      <div className="props-body" id={bodyId}>
         {!type && <p className="props-empty">Pick a type in the Type menu to give new pages a type and default values.</p>}
         {type && typed.length === 0 && <p className="props-empty">{type.name} has no fields yet.</p>}
         {typed.map((field) => (
@@ -392,6 +403,7 @@ export function TemplateDefaultsPanel({
           />
         ))}
       </div>
+      )}
     </section>
   );
 }

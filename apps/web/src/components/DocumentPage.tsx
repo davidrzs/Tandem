@@ -97,10 +97,12 @@ export function DocumentPage() {
   const archived = !!meta.data.archivedAt;
   const canEdit = (collection?.writable ?? false) && !archived;
 
-  return (
+  // Shown inside the writing column, under the sticky doc bar, so the bar and
+  // everything positioned against it (contents rail, side panels) stay put.
+  const notice = (
     <>
       {archived && (
-        <div className="archived-banner">
+        <div className="archived-banner doc-notice">
           This document is archived — it's hidden from the sidebar and search.
           {collection?.writable && (
             <button type="button"
@@ -114,17 +116,20 @@ export function DocumentPage() {
         </div>
       )}
       {template && (
-        <div className="template-banner">
+        <div className="template-banner doc-notice">
           Template “{template.name}”. New pages copy this page and its sub-pages; it stays out
           of search, tasks and Home.
         </div>
       )}
-      <Editor
-        key={docId}
-        docId={docId}
-        canEdit={canEdit}
-        workspaceId={meta.data.workspaceId}
-      />
     </>
+  );
+  return (
+    <Editor
+      key={docId}
+      docId={docId}
+      canEdit={canEdit}
+      workspaceId={meta.data.workspaceId}
+      notice={archived || template ? notice : null}
+    />
   );
 }

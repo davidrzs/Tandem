@@ -1,6 +1,6 @@
 import type { AuthorInfo, PropertyBlame } from "@tandem/editor";
 import type { RouterOutputs } from "@tandem/server/trpc";
-import { authorLabel } from "./blame.js";
+import { authorLabel } from "./author-label.js";
 
 /** A field definition as the app reads it (`types.fields`). */
 export type Field = RouterOutputs["types"]["fields"][number];

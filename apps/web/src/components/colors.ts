@@ -31,3 +31,10 @@ export function authorColor(key: string): string {
 export function authorTint(key: string): string {
   return isAi(key) ? "var(--ai-wash)" : `hsla(${authorHue(key)} 55% 42% / 0.1)`;
 }
+
+/** One of six tile tones (0-5) for a collection, stable for its id. */
+export function collectionTone(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 6;
+}

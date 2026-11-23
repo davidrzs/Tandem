@@ -2,7 +2,8 @@ import type { Editor } from "@tiptap/react";
 import { getAuthors } from "@tandem/editor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
-import { authorLabel, blamePluginKey } from "../blame.js";
+import { authorLabel } from "../author-label.js";
+import { blamePluginKey } from "../blame.js";
 import { authorKey } from "../colors.js";
 import type { HistorySession } from "../HistoryPanel.js";
 

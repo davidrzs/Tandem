@@ -3,24 +3,39 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { trpc } from "../../trpc.js";
 import { effectiveTheme, setTheme, type ThemeChoice } from "../../theme.js";
-import { Icon } from "../Icon.js";
+import { Icon, type IconName } from "../Icon.js";
 import { RollingNumber } from "../motion.js";
 import { OverflowTooltip } from "../OverflowTooltip.js";
 import { displayTitle } from "../outline.js";
 import type { Workspace } from "./types.js";
 
+/** An entry in the workspace menu above the workspace list. */
+export interface WorkspaceMenuEntry {
+  label: string;
+  icon: IconName;
+  onSelect: () => void;
+  hint?: string;
+}
+
+/** The workspace's name opens its menu: the workspace-wide places that are
+ * visited now and then (people, shortcuts, admin, theme), then the switch to
+ * another workspace. */
 export function WorkspaceSwitcher({
   workspaces,
   workspaceId,
+  entries,
   onSelect,
   onNew,
 }: {
   workspaces: Workspace[];
   workspaceId: string | null;
+  entries: WorkspaceMenuEntry[];
   onSelect: (id: string) => void;
   onNew: () => void;
 }) {
   const active = workspaces.find((w) => w.id === workspaceId);
+  const [theme, setThemeState] = useState<ThemeChoice>(() => effectiveTheme());
+  const nextTheme = theme === "dark" ? "light" : "dark";
 
   return (
     <div className="ws-switcher">
@@ -29,11 +44,34 @@ export function WorkspaceSwitcher({
           <button type="button" className="ws-button">
             <span className="ws-mark">{(active?.name ?? "…").slice(0, 1).toUpperCase()}</span>
             <span className="ws-name">{active?.name ?? "Select a workspace"}</span>
-            <Icon name="chevron" className="ws-chevron" />
+            <Icon name="updown" className="ws-chevron" />
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="menu-pop ws-menu" align="start" sideOffset={4}>
+            {entries.map((e) => (
+              <DropdownMenu.Item key={e.label} className="menu-item" onSelect={e.onSelect}>
+                <span className="menu-check">
+                  <Icon name={e.icon} />
+                </span>
+                {e.label}
+                {e.hint && <kbd className="menu-hint">{e.hint}</kbd>}
+              </DropdownMenu.Item>
+            ))}
+            <DropdownMenu.Item
+              className="menu-item"
+              onSelect={() => {
+                setTheme(nextTheme);
+                setThemeState(nextTheme);
+              }}
+            >
+              <span className="menu-check">
+                <Icon name={theme === "dark" ? "sun" : "moon"} />
+              </span>
+              {theme === "dark" ? "Light theme" : "Dark theme"}
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="menu-sep" />
+            <DropdownMenu.Label className="menu-heading">Workspaces</DropdownMenu.Label>
             {workspaces.map((w) => (
               <DropdownMenu.Item
                 key={w.id}
@@ -48,7 +86,6 @@ export function WorkspaceSwitcher({
                 {w.name}
               </DropdownMenu.Item>
             ))}
-            <DropdownMenu.Separator className="menu-sep" />
             <DropdownMenu.Item className="menu-item" onSelect={onNew}>
               <span className="menu-check">
                 <Icon name="plus" />
@@ -74,26 +111,6 @@ export function InboxNavRow({ onOpen }: { onOpen: () => void }) {
       <Icon name="bell" />
       Inbox
       {count > 0 && <span className="nav-badge">{count > 99 ? "99+" : <RollingNumber value={count} />}</span>}
-    </button>
-  );
-}
-
-/** Light/dark toggle: flips to the opposite of what's currently effective and
- * stores the choice (until then the app follows the system preference). */
-export function ThemeToggle() {
-  const [theme, setThemeState] = useState<ThemeChoice>(() => effectiveTheme());
-  const next = theme === "dark" ? "light" : "dark";
-  return (
-    <button type="button"
-      className="row-action"
-      title={`Switch to ${next} mode`}
-      aria-label={`Switch to ${next} mode`}
-      onClick={() => {
-        setTheme(next);
-        setThemeState(next);
-      }}
-    >
-      <Icon name={theme === "dark" ? "sun" : "moon"} />
     </button>
   );
 }

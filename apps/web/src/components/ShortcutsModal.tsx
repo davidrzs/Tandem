@@ -1,7 +1,6 @@
+import { IS_MAC, MOD } from "./keys.js";
 import { Modal } from "./Modal.js";
 
-const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
-const MOD = IS_MAC ? "⌘" : "Ctrl";
 const ALT = IS_MAC ? "⌥" : "Alt";
 const SHIFT = IS_MAC ? "⇧" : "Shift";
 // The sidebar's keyboard move is Control+Shift+D on every platform.
@@ -23,6 +22,7 @@ const GROUPS: { title: string; rows: [keys: string[], label: string][] }[] = [
   {
     title: "Sidebar",
     rows: [
+      [[MOD, "\\"], "Show or hide on document pages"],
       [["↑", "↓"], "Move between rows"],
       [["←", "→"], "Fold or unfold"],
       [["Enter"], "Open or toggle"],

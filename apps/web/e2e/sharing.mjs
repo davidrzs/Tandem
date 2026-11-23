@@ -36,7 +36,8 @@ try {
   await a.keyboard.press("Escape");
 
   // Invite Bob.
-  await a.getByRole("button", { name: /People/ }).click();
+  await a.locator(".ws-button").click();
+  await a.getByRole("menuitem", { name: /People/ }).click();
   await a.getByRole("button", { name: "Create invite link" }).click();
   await a.waitForSelector(".invite-link");
   const inviteUrl = await a.inputValue(".invite-link");

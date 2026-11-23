@@ -181,6 +181,7 @@ try {
 
     await page.goto(`${BASE}/d/${templateId("Meeting")}`);
     const defaults = '.props-panel[aria-label="Template defaults"]';
+    await page.locator(`${defaults} .props-summary`).click();
     for (const s of [`${defaults} .props-label`, `${defaults} .props-summary-text`]) await checkContrast(theme, s);
 
     await page.goto(`${BASE}/d/${parentId}`);

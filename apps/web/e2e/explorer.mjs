@@ -130,7 +130,7 @@ try {
   const level = await nested.getAttribute("aria-level");
   assert(level === "3", `a sub-document sits at aria-level 3 (got ${level})`);
   const guides = await nested.evaluate((row) => getComputedStyle(row, "::before").width);
-  assert(guides === "16px", `two ancestor guides at 8px per level (got ${guides})`);
+  assert(guides === "24px", `two ancestor guides at 12px per level (got ${guides})`);
 
   const nestedUrl = page.url();
   const collectionRow = page.locator(".collection-row", { hasText: c });

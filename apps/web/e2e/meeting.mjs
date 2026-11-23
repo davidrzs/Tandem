@@ -137,6 +137,7 @@ try {
   await page.goto(`${BASE}/d/${templateId("Meeting")}`);
   const panel = page.locator('.props-panel[aria-label="Template defaults"]');
   await panel.getByText("Pages made from this template are Meeting pages.").waitFor();
+  await panel.locator(".props-summary").click(); // closed by default
   assertEqual(
     await panel.locator('.props-row[data-field="attendees"] .props-label').getAttribute("title"),
     "Attendees",
