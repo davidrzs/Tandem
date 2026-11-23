@@ -232,7 +232,7 @@ button {
 
 /* ---------- app shell ---------- */
 
-/* The react-resizable-panels Group lays out .app inline (flex row, 100vh);
+/* The react-resizable-panels Group lays out .app inline (flex row, 100dvh);
  * the panes' inner divs carry .sidebar-pane / .main-pane.
  *
  * Both shell scrollers are positioned so they contain absolutely positioned
@@ -1760,7 +1760,7 @@ button.doc-twist:hover .twist {
   left: var(--sidebar-width, 248px);
   top: 55px;
   width: 236px;
-  max-height: calc(100vh - 66px);
+  max-height: calc(100dvh - 66px);
   overflow-y: auto;
   padding: 22px 14px 20px 18px;
   font-family: var(--font-ui);
@@ -3584,7 +3584,7 @@ p.live-section-source a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  min-height: 100dvh;
   box-sizing: border-box;
   padding: 16px;
   background: var(--ground);
@@ -3915,7 +3915,7 @@ p.live-section-source a:hover {
   flex: 0 0 320px;
   position: sticky;
   top: 46px;
-  height: calc(100vh - 46px);
+  height: calc(100dvh - 46px);
   overflow-y: auto;
   padding: 20px 20px 60px;
   border-left: 1px solid var(--line-strong);
@@ -5416,6 +5416,79 @@ select.code-lang:hover {
   flex: none;
   color: var(--ink-3);
   font-size: 12px;
+}
+
+/* ---------- phones: touch input and the notch ----------
+ * index.html sets viewport-fit=cover, so the page runs edge to edge and the
+ * fixed chrome below keeps clear of the notch (landscape) and the home
+ * indicator itself. The insets are 0 everywhere else. */
+
+/* iOS zooms the page into any focused field set below 16px and does not zoom
+ * back out. On touch screens no field goes below that; !important because this
+ * is a floor for every field, whatever its own rule says. */
+@media (pointer: coarse) {
+  :is(input:not([type="checkbox"], [type="radio"]), textarea, select):not(.title-input) {
+    font-size: 16px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  }
+
+  .hamburger {
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    left: calc(10px + env(safe-area-inset-left, 0px));
+  }
+
+  .doc-bar {
+    padding-left: calc(60px + env(safe-area-inset-left, 0px));
+    padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  }
+
+  .comments-panel {
+    padding-right: calc(20px + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* On a phone the comments panel is the whole page, not a sheet that leaves a
+ * clipped sliver of the document beside it. The header's actions are tightened
+ * to fit beside the menu button, and a long save status gives way before Share
+ * is pushed off the edge. */
+@media (max-width: 620px) {
+  .comments-panel {
+    left: 0;
+    width: auto;
+    border-left: none;
+    box-shadow: none;
+  }
+
+  .doc-bar {
+    gap: 8px;
+  }
+
+  .doc-bar-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .doc-bar-actions .tool-btn {
+    padding: 5px 7px;
+  }
+
+  .doc-bar-actions .tool-divider {
+    margin: 0 4px;
+  }
+
+  .doc-bar-actions .save-state {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 /* Last on purpose: these out-rank the plain .toc-rail rules above (print

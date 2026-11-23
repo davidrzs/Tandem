@@ -64,7 +64,7 @@ export function useShellLayout(uid: string, onDoc: boolean) {
     group: {
       orientation: "horizontal" as const,
       elementRef: groupEl,
-      style: { height: "100vh" },
+      style: { height: "100dvh" },
       onLayoutChanged: (_layout: Layout, meta: LayoutChangedMeta) => {
         if (!meta.isUserInteraction) return;
         const size = panelRef.current?.getSize().inPixels ?? 0;
