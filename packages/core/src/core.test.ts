@@ -1025,6 +1025,19 @@ test("settings: MCP kill switch and workspace audit trail", async () => {
     () => new SettingsService(db, user("outsider")).auditTrail(ws!.id),
     /not a member/,
   );
+
+  // A member who cannot read the page sees that something happened, not
+  // which page: no id, no title, and no detail (it holds the title).
+  await new CollectionService(db, user("u1")).setDefaultRole(auditCollection.id, "none");
+  const hidden = (await new SettingsService(db, user("u2")).auditTrail(ws!.id)).find(
+    (e) => e.action === "edit_document" && e.sessionId === "1234",
+  );
+  assert.deepEqual(
+    hidden && { documentId: hidden.documentId, documentTitle: hidden.documentTitle, detail: hidden.detail },
+    { documentId: null, documentTitle: null, detail: "" },
+  );
+  const own = (await s1.auditTrail(ws!.id)).find((e) => e.sessionId === "1234");
+  assert.equal(own?.documentTitle, "Paper", "the owner still sees the page");
 });
 
 test("settings: sidebar fold state (per-id merge, inverted doc semantics)", async () => {
@@ -1311,6 +1324,26 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
   await inboxNb.markAllRead();
   assert.equal(await inboxNb.unreadCount(), 0);
   assert.equal(await inboxNa.unreadCount(), 2, "Nia's inbox untouched");
+
+  // A page Ben cannot read never reaches his inbox: the notification would
+  // carry its title and a snippet.
+  const secretCol = await new CollectionService(db, user("na")).create({
+    name: "Secret",
+    slug: "notify-secret",
+    workspaceId: ws.id,
+  });
+  await new CollectionService(db, user("na")).setDefaultRole(secretCol.id, "none");
+  const secret = await docs.create({ collectionId: secretCol.id, title: "Layoffs" });
+  await notify.onDocumentStored({
+    documentId: secret.id,
+    workspaceId: ws.id,
+    documentTitle: "Layoffs",
+    oldMarkdown: null,
+    newMarkdown: "- [ ] @ben read this",
+    actor: { userId: "na", name: "Nia", ai: false },
+    scan: scanTaskItems,
+  });
+  assert.equal(await inboxNb.unreadCount(), 0, "no notification about an unreadable page");
 });
 
 /** A fresh workspace owned by `userId` (named `name`), with one collection. */
