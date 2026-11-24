@@ -8,6 +8,16 @@ const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
+// Exactly the two real formulas render; code and prose dollars stay text.
+async function onlyRealMath(page) {
+  const mathCount = await page.locator(".ProseMirror .math-render").count();
+  if (mathCount !== 2) throw new Error(`expected 2 rendered formulas, got ${mathCount}`);
+  const prose = (await page.textContent(".ProseMirror")) ?? "";
+  for (const s of ["Budget $5 and $10", "a$b$", "// $x$"]) {
+    if (!prose.includes(s)) throw new Error(`"${s}" not shown as text: "${prose}"`);
+  }
+}
+
 try {
   await signUp(page, "Rich User");
   const c = `Rich ${Date.now()}`;
@@ -20,10 +30,13 @@ try {
   // Block/display math on its own line.
   await page.type(".ProseMirror", "$$\\sum_{i=1}^n i = \\frac{n(n+1)}{2}$$");
   await page.keyboard.press("Enter");
+  // Not math: prose money, and dollars inside inline code.
+  await page.type(".ProseMirror", "Budget $5 and $10, `a$b$` here.");
+  await page.keyboard.press("Enter");
 
   // Code block via the ``` input rule → highlight spans appear.
   await page.type(".ProseMirror", "```js ");
-  await page.type(".ProseMirror", "const answer = 42;");
+  await page.type(".ProseMirror", "const answer = 42; // $x$");
   await page.waitForSelector(".ProseMirror pre .hljs-keyword");
   await page.keyboard.press("ArrowDown"); // exit code block
 
@@ -39,6 +52,8 @@ try {
   await page.waitForSelector(".ProseMirror .katex");
   await page.waitForSelector(".ProseMirror .math-render.math-block .katex");
 
+  await onlyRealMath(page);
+
   // Persist (store debounce ~2s server-side), then reload from scratch.
   await page.waitForTimeout(2800);
   await page.reload();
@@ -49,6 +64,8 @@ try {
   await page.waitForSelector(".ProseMirror pre .hljs-keyword"); // highlight survived
   await page.waitForSelector(".ProseMirror .katex"); // inline math survived
   await page.waitForSelector(".ProseMirror .math-render.math-block .katex"); // block math survived
+
+  await onlyRealMath(page);
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log("RICHTEXT PASS — table, code, inline + block math render and persist");
