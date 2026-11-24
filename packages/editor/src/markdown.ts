@@ -5,6 +5,7 @@ import {
   MarkdownSerializer,
 } from "prosemirror-markdown";
 import type { Node } from "@tiptap/pm/model";
+import { mathSpanAt, mathSpans } from "./math.js";
 import { isLiveSectionQuery, schema } from "./schema.js";
 
 const d = defaultMarkdownSerializer.nodes;
@@ -191,7 +192,13 @@ function tableTokensPlugin(md: MarkdownIt) {
     const out: (typeof state.tokens)[number][] = [];
     const paraOpen = () => new state.Token("paragraph_open", "p", 1);
     const paraClose = () => new state.Token("paragraph_close", "p", -1);
-    for (const tok of state.tokens) {
+    // A cell holds inline content (wrapped in a paragraph here) or, once
+    // cellListsPlugin rebuilt a list in it, blocks already.
+    const tokens = state.tokens;
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i]!;
+      const wraps = tokens[i + 1]?.type === "inline";
+      const wrapped = tokens[i - 1]?.type === "inline";
       switch (tok.type) {
         case "thead_open":
         case "thead_close":
@@ -209,19 +216,19 @@ function tableTokensPlugin(md: MarkdownIt) {
           break;
         case "th_open":
           tok.type = "tableHeader_open";
-          out.push(tok, paraOpen());
+          out.push(tok, ...(wraps ? [paraOpen()] : []));
           break;
         case "th_close":
-          out.push(paraClose());
+          if (wrapped) out.push(paraClose());
           tok.type = "tableHeader_close";
           out.push(tok);
           break;
         case "td_open":
           tok.type = "tableCell_open";
-          out.push(tok, paraOpen());
+          out.push(tok, ...(wraps ? [paraOpen()] : []));
           break;
         case "td_close":
-          out.push(paraClose());
+          if (wrapped) out.push(paraClose());
           tok.type = "tableCell_close";
           out.push(tok);
           break;
@@ -390,6 +397,129 @@ function brPlugin(md: MarkdownIt) {
   });
 }
 
+/** markdown-it rule: a math span (see math.ts) is literal text, so nothing
+ * inside it is read as markdown: `$a*b*c$` keeps its stars. */
+function mathPlugin(md: MarkdownIt) {
+  md.inline.ruler.before("escape", "tandem_math", (state, silent) => {
+    const span = mathSpanAt(state.src, state.pos, state.posMax);
+    if (!span) return false;
+    if (!silent) state.push("text", "", 0).content = state.src.slice(span.from, span.to);
+    state.pos = span.to;
+    return true;
+  });
+}
+
+/** Whether a `$` comes later in `parent`'s line after child `index`: in its
+ * text, a mark's attrs (a link's href) or a leaf's attrs. The parser looks
+ * for a closing `$` across node boundaries, so a prose `$` before one must
+ * be escaped. */
+function dollarLater(parent: Node | undefined, index: number): boolean {
+  if (!parent) return false;
+  for (let i = index + 1; i < parent.childCount; i++) {
+    const child = parent.child(i);
+    if (child.type.name === "hardBreak") return false;
+    if (child.text?.includes("$") || JSON.stringify(child.attrs).includes("$")) return true;
+    if (child.marks.some((mk) => JSON.stringify(mk.attrs).includes("$"))) return true;
+  }
+  return false;
+}
+
+/** A footnote marker as Obsidian and GitHub write it, unless it starts a
+ * link (`[^1](url)`) or a reference (`[^1][ref]`). */
+const FOOTNOTE_MARKER = /\[\^[^\]\s]+\](?![([])/g;
+
+/** markdown-it: `[^label]: …` starts a footnote definition, not a link
+ * reference definition. Footnotes aren't modeled, so the line stays text
+ * (written back raw) instead of vanishing and turning `[^label]` into a link. */
+function footnoteTextPlugin(md: MarkdownIt) {
+  type BlockRule = Parameters<typeof md.block.ruler.at>[1];
+  // The original rule is only reachable through the ruler's list.
+  const rules = (md.block.ruler as unknown as { __rules__: Array<{ name: string; fn: BlockRule }> }).__rules__;
+  const reference = rules.find((r) => r.name === "reference")!.fn;
+  md.block.ruler.at("reference", (state, startLine, endLine, silent) => {
+    const start = state.bMarks[startLine]! + state.tShift[startLine]!;
+    return !state.src.startsWith("[^", start) && reference(state, startLine, endLine, silent);
+  });
+}
+
+/** A link or image destination that markdown reads back as written: in
+ * angle brackets when it holds a space or an angle bracket, else with its
+ * backslashes and parentheses escaped. */
+function destination(url: string): string {
+  return /[\s<>]/.test(url) ? `<${url.replace(/[\\<>]/g, "\\$&")}>` : url.replace(/[\\()]/g, "\\$&");
+}
+
+const CELL_LINE_BREAK = /<br\s*\/?>/i;
+/** A list item line as a table cell holds it: `* a`, `- [x] a`, `3. a`. The
+ * serializer escapes a marker that is prose (`\* a`), so it never matches. */
+const CELL_LIST_ITEM = /^\s*(?:([*+-])|(\d{1,9})[.)])[ \t]+(?:\[([ xX])\][ \t]+)?/;
+
+/**
+ * markdown-it rule: a GFM cell holds one line, so a list in a table cell is
+ * written as its items joined with `<br>` (see cellToInline). Rebuild the
+ * list from those lines: runs of item lines become a bullet, ordered or task
+ * list, other lines a paragraph. Nesting is not kept. Runs before the other
+ * inline rules, so the rebuilt items get them too.
+ */
+function cellListsPlugin(md: MarkdownIt) {
+  md.core.ruler.after("inline", "tandem_cell_lists", (state) => {
+    const tokens = state.tokens;
+    const out: Token[] = [];
+    const block = (type: string, tag: string, nesting: 1 | -1) => {
+      const tok = new state.Token(type, tag, nesting);
+      tok.block = true;
+      return tok;
+    };
+    const inline = (content: string) => {
+      const tok = new state.Token("inline", "", 0);
+      tok.content = content;
+      tok.children = [];
+      state.md.inline.parse(content, state.md, state.env, tok.children);
+      return [block("paragraph_open", "p", 1), tok, block("paragraph_close", "p", -1)];
+    };
+    let touched = false;
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i]!;
+      out.push(tok);
+      const cell = tokens[i + 1];
+      if ((tok.type !== "td_open" && tok.type !== "th_open") || cell?.type !== "inline") continue;
+      const lines = cell.content.split(CELL_LINE_BREAK);
+      if (!lines.some((line) => CELL_LIST_ITEM.test(line))) continue;
+      touched = true;
+      i++;
+      let prose: string[] = [];
+      const flush = () => {
+        if (prose.length > 0) out.push(...inline(prose.join("<br>")));
+        prose = [];
+      };
+      for (let j = 0; j < lines.length; ) {
+        const first = CELL_LIST_ITEM.exec(lines[j]!);
+        if (!first) {
+          prose.push(lines[j++]!);
+          continue;
+        }
+        flush();
+        const kind = first[2] ? "ordered" : first[3] ? "task" : "bullet";
+        const [list, item] =
+          kind === "ordered" ? ["ordered_list", "list_item"] : kind === "task" ? ["taskList", "taskItem"] : ["bullet_list", "list_item"];
+        const open = block(`${list}_open`, kind === "ordered" ? "ol" : "ul", 1);
+        if (kind === "ordered" && first[2] !== "1") open.attrSet("start", first[2]!);
+        out.push(open);
+        for (let m: RegExpExecArray | null; j < lines.length && (m = CELL_LIST_ITEM.exec(lines[j]!)); j++) {
+          const mKind = m[2] ? "ordered" : m[3] ? "task" : "bullet";
+          if (mKind !== kind) break;
+          const itemOpen = block(`${item}_open`, "li", 1);
+          if (kind === "task") itemOpen.attrSet("checked", String(m[3] !== " "));
+          out.push(itemOpen, ...inline(lines[j]!.slice(m[0].length)), block(`${item}_close`, "li", -1));
+        }
+        out.push(block(`${list}_close`, kind === "ordered" ? "ol" : "ul", -1));
+      }
+      flush();
+    }
+    if (touched) state.tokens = out;
+  });
+}
+
 const LIVE_SECTION_RE = /^\s*<!--\s*live-section:\s*([\w-]+)\s*-->\s*$/;
 
 /** markdown-it rule: a `<!-- live-section: <query> -->` comment on its own
@@ -437,7 +567,37 @@ export function inlineToMarkdown(node: Node): string {
 // TipTap-specific attrs (codeBlock.language, orderedList.start).
 const serializer = new MarkdownSerializer(
   {
-    text: d.text!,
+    // Math spans and footnote markers (`[^1]`) are written raw (TeX keeps its
+    // backslashes and underscores; footnotes stay footnotes for other tools);
+    // the prose around them is escaped as usual. Inline code and code blocks
+    // never reach this: they are written verbatim.
+    text(state, node, parent, index) {
+      if ((state as unknown as { inAutolink?: boolean }).inAutolink) return d.text!(state, node, parent, index);
+      const text = node.text!;
+      const escapeDollars = text.includes("$") && dollarLater(parent, index);
+      const dollars = (s: string) => {
+        s.split("$").forEach((part, i) => {
+          if (i > 0) state.text(escapeDollars ? "\\$" : "$", false);
+          if (part) state.text(part, true);
+        });
+      };
+      const prose = (s: string) => {
+        let from = 0;
+        for (const m of s.matchAll(FOOTNOTE_MARKER)) {
+          dollars(s.slice(from, m.index));
+          state.text(m[0], false);
+          from = m.index + m[0].length;
+        }
+        dollars(s.slice(from));
+      };
+      let at = 0;
+      for (const span of mathSpans(text)) {
+        prose(text.slice(at, span.from));
+        state.text(text.slice(span.from, span.to), false);
+        at = span.to;
+      }
+      prose(text.slice(at));
+    },
     paragraph: d.paragraph!,
     heading: d.heading!,
     blockquote: d.blockquote!,
@@ -551,7 +711,7 @@ const serializer = new MarkdownSerializer(
         state.write(`<img ${parts.join(" ")}>`);
       } else {
         state.write(
-          `![${state.esc(alt ?? "")}](${src}${title ? ` ${JSON.stringify(title)}` : ""})`,
+          `![${state.esc(alt ?? "")}](${destination(src)}${title ? ` ${JSON.stringify(title)}` : ""})`,
         );
       }
     },
@@ -560,7 +720,15 @@ const serializer = new MarkdownSerializer(
     bold: m.strong!,
     italic: m.em!,
     code: m.code!,
-    link: m.link!,
+    link: {
+      ...m.link!,
+      close(state, mark, parent, index) {
+        const close = m.link!.close as (...args: unknown[]) => string;
+        if ((state as unknown as { inAutolink?: boolean }).inAutolink) return close(state, mark, parent, index);
+        const { href, title } = mark.attrs as { href: string; title: string | null };
+        return `](${destination(href)}${title ? ` "${title.replace(/"/g, '\\"')}"` : ""})`;
+      },
+    },
     strike: {
       open: "~~",
       close: "~~",
@@ -583,7 +751,10 @@ const parser = new MarkdownParser(
     .use(calloutPlugin)
     .use(detailsPlugin)
     .use(brPlugin)
-    .use(liveSectionPlugin),
+    .use(liveSectionPlugin)
+    .use(mathPlugin)
+    .use(footnoteTextPlugin)
+    .use(cellListsPlugin),
   {
   blockquote: { block: "blockquote" },
   callout: {
@@ -661,26 +832,12 @@ const parser = new MarkdownParser(
   html_block: { ignore: true, noCloseToken: true },
 });
 
-/**
- * Reverse markdown escaping inside math spans (`$…$`, `$$…$$`). Math is stored
- * as plain text, so the serializer escapes its backslashes/underscores/etc.;
- * that would leave `$\\frac{a}{b}$` in the derived markdown, which breaks TeX
- * for export and MCP reads. Undo the escaping within delimiters so the source
- * stays clean. (Block first so `$$…$$` isn't split by the inline pass.)
- */
-function unescapeMath(md: string): string {
-  const undo = (tex: string) => tex.replace(/\\(.)/g, "$1");
-  return md
-    .replace(/\$\$([^$]+?)\$\$/g, (_m, tex: string) => `$$${undo(tex)}$$`)
-    .replace(/(?<!\$)\$([^\n$]+?)\$(?!\$)/g, (_m, tex: string) => `$${undo(tex)}$`);
-}
-
 /** Serialize a ProseMirror node (this schema) to canonical markdown. */
 export function nodeToMarkdown(node: Node): string {
   // Tight lists: no blank line between items (the GitHub-typical form, and
   // what task lists must look like). Loose/tight isn't represented in the
   // document model, so serialization normalizes it.
-  return unescapeMath(serializer.serialize(node, { tightLists: true }));
+  return serializer.serialize(node, { tightLists: true });
 }
 
 /** Serialize ProseMirror JSON to markdown. */

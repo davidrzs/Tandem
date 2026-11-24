@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import {
+  collections as collectionsTable,
   createDatabase,
   documents,
   documents as documentsTable,
@@ -503,6 +504,34 @@ test("invite role can't exceed the inviter's: an admin cannot grant owner", asyn
     () => w3.createInvite({ workspaceId: ws!.id, role: "owner" }),
     /only an owner can grant the owner role/,
   );
+});
+
+test("collections: a writer renames and reorders, but RLS keeps sharing and deletion for admins", async () => {
+  // u2 is a regular member of u1's workspace (joined via the invite test above).
+  const c1 = new CollectionService(db, user("u1"));
+  const c2 = new CollectionService(db, user("u2"));
+  const col = await c1.create({ name: "Shared desk", slug: "shared-desk" });
+  assert.equal((await c2.update(col.id, { name: "Shared desk 2" }))?.name, "Shared desk 2");
+  assert.ok(await c2.move(col.id, 42));
+
+  // Straight through RLS, as the writer: no sharing, no soft or hard delete.
+  const asU2 = <T>(fn: (d: typeof db) => Promise<T>) => runAsActor(db, user("u2"), fn);
+  const byId = eq(collectionsTable.id, col.id);
+  await assert.rejects(
+    () => asU2((d) => d.update(collectionsTable).set({ defaultRole: "none" }).where(byId)),
+    /permission denied/,
+  );
+  await assert.rejects(
+    () => asU2((d) => d.update(collectionsTable).set({ deletedAt: new Date() }).where(byId)),
+    /permission denied/,
+  );
+  assert.deepEqual(await asU2((d) => d.delete(collectionsTable).where(byId).returning()), []);
+  await assert.rejects(() => c2.softDelete(col.id), /owner|admin|forbidden/i);
+
+  const [row] = await runAsActor(db, SYSTEM, (d) => d.select().from(collectionsTable).where(byId));
+  assert.equal(row?.defaultRole, "read_write");
+  assert.equal(row?.deletedAt, null);
+  await c1.softDelete(col.id);
 });
 
 test("per-collection ACLs: default none, explicit read, read_write, and groups", async () => {
@@ -1025,6 +1054,19 @@ test("settings: MCP kill switch and workspace audit trail", async () => {
     () => new SettingsService(db, user("outsider")).auditTrail(ws!.id),
     /not a member/,
   );
+
+  // A member who cannot read the page sees that something happened, not
+  // which page: no id, no title, and no detail (it holds the title).
+  await new CollectionService(db, user("u1")).setDefaultRole(auditCollection.id, "none");
+  const hidden = (await new SettingsService(db, user("u2")).auditTrail(ws!.id)).find(
+    (e) => e.action === "edit_document" && e.sessionId === "1234",
+  );
+  assert.deepEqual(
+    hidden && { documentId: hidden.documentId, documentTitle: hidden.documentTitle, detail: hidden.detail },
+    { documentId: null, documentTitle: null, detail: "" },
+  );
+  const own = (await s1.auditTrail(ws!.id)).find((e) => e.sessionId === "1234");
+  assert.equal(own?.documentTitle, "Paper", "the owner still sees the page");
 });
 
 test("settings: sidebar fold state (per-id merge, inverted doc semantics)", async () => {
@@ -1311,6 +1353,26 @@ test("notifications: replies, mentions, resolves, new-task assignment, inbox", a
   await inboxNb.markAllRead();
   assert.equal(await inboxNb.unreadCount(), 0);
   assert.equal(await inboxNa.unreadCount(), 2, "Nia's inbox untouched");
+
+  // A page Ben cannot read never reaches his inbox: the notification would
+  // carry its title and a snippet.
+  const secretCol = await new CollectionService(db, user("na")).create({
+    name: "Secret",
+    slug: "notify-secret",
+    workspaceId: ws.id,
+  });
+  await new CollectionService(db, user("na")).setDefaultRole(secretCol.id, "none");
+  const secret = await docs.create({ collectionId: secretCol.id, title: "Layoffs" });
+  await notify.onDocumentStored({
+    documentId: secret.id,
+    workspaceId: ws.id,
+    documentTitle: "Layoffs",
+    oldMarkdown: null,
+    newMarkdown: "- [ ] @ben read this",
+    actor: { userId: "na", name: "Nia", ai: false },
+    scan: scanTaskItems,
+  });
+  assert.equal(await inboxNb.unreadCount(), 0, "no notification about an unreadable page");
 });
 
 /** A fresh workspace owned by `userId` (named `name`), with one collection. */

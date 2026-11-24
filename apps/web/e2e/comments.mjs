@@ -43,12 +43,25 @@ try {
     throw new Error(`comment deep link selected the wrong text: ${selected}`);
   }
 
+  // Deleting the thread's first comment would take the reply with it, so it
+  // asks; Cancel keeps both. Deleting the reply alone doesn't ask.
+  await thread.locator(':scope > .comment-body .row-action[title="Delete comment"]').click();
+  const dialog = page.getByRole("dialog", { name: "Delete thread" });
+  await dialog.getByText("This also deletes its reply.").waitFor();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await dialog.waitFor({ state: "detached" });
+  await thread.locator(".comment-reply .comment-text", { hasText: "Yes — ship it." }).waitFor();
+  await thread.locator(".comment-reply").hover();
+  await thread.locator('.comment-reply .row-action[title="Delete comment"]').click();
+  await thread.locator(".comment-reply").waitFor({ state: "detached" });
+  if (await page.getByRole("dialog").count()) throw new Error("deleting a reply asked for confirmation");
+
   // Resolve it — the thread moves behind the "Show N resolved" toggle.
   await thread.locator('.row-action[title="Resolve"]').click();
   await panel.getByText(/Show 1 resolved/).waitFor();
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
-  console.log("COMMENTS PASS — comment, reply, and resolve all work");
+  console.log("COMMENTS PASS — comment, reply, delete confirmation, and resolve all work");
 } finally {
   await browser.close();
 }

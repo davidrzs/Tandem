@@ -168,33 +168,35 @@ export class SettingsService {
     });
   }
 
-  /** Recent agent actions in a workspace. RLS scopes to members; the caller's
-   * membership is additionally asserted so a non-member gets an error rather
-   * than an empty list. */
+  /** Recent agent actions in a workspace. The caller must be a member. Rows
+   * are read as the caller, so an entry about a page they cannot read keeps
+   * its action and actor but not the page: no id, no title, and no detail
+   * (which holds the title as it was when the entry was written). */
   async auditTrail(workspaceId: string): Promise<AuditView[]> {
     const me = this.userId();
-    const rows = await this.system(async (db) => {
-      const [member] = await db
+    const [member] = await this.system((db) =>
+      db
         .select({ id: workspaceMembers.id })
         .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, workspaceId),
-            eq(workspaceMembers.userId, me),
-          ),
-        );
-      if (!member) throw new ForbiddenError("not a member of this workspace");
-      // The title is joined rather than parsed back out of `detail`, which is
-      // a display string. Both name the same document to the same members.
-      return db
-        .select({ entry: auditLog, documentTitle: documents.title })
+        .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, me))),
+    );
+    if (!member) throw new ForbiddenError("not a member of this workspace");
+    const rows = await runAsActor(this.db, this.actor, (db) =>
+      db
+        .select({ entry: auditLog, readableId: documents.id, documentTitle: documents.title })
         .from(auditLog)
         .leftJoin(documents, eq(documents.id, auditLog.documentId))
         .where(eq(auditLog.workspaceId, workspaceId))
         .orderBy(desc(auditLog.createdAt))
-        .limit(100);
-    });
-    return this.withNames(rows);
+        .limit(100),
+    );
+    return this.withNames(
+      rows.map(({ entry, readableId, documentTitle }) =>
+        entry.documentId && !readableId
+          ? { entry: { ...entry, documentId: null, detail: "" }, documentTitle: null }
+          : { entry, documentTitle },
+      ),
+    );
   }
 
   /** Recent instance-level administration actions (entries with no workspace).

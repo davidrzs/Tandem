@@ -153,6 +153,76 @@ test("math ($…$ / $$…$$) round-trips with its backslashes intact", () => {
   assert.equal(normalizeMarkdown("It cost $5, then $10."), "It cost $5, then $10.");
 });
 
+/** The text and marks of every inline node, in order: what a round trip must keep. */
+function inlineShape(json: unknown): string[] {
+  const out: string[] = [];
+  const walk = (n: { type: string; text?: string; marks?: Array<{ type: string }>; content?: unknown[] }) => {
+    if (n.text !== undefined) out.push(`${(n.marks ?? []).map((m) => m.type).join("+")}:${n.text}`);
+    for (const c of n.content ?? []) walk(c as never);
+  };
+  walk(json as never);
+  return out;
+}
+
+test("dollar signs never change code, escapes or marks on a round trip", () => {
+  const cases = [
+    '```sh\necho "$HOME\\n$PATH"\n```',
+    "Run `echo $HOME\\n$PATH` first.",
+    "Pay $5 \\*per\\* seat, $6 total",
+    "Budget $5 and $10, `a$b` and $x_1$.",
+    "Escaped \\$5 and \\$6 stay prose.",
+    "Math $a*b*c$ keeps its stars and $\\$5$ its dollar.",
+    "Display $$a_1 * b_2 * c$$ stays raw.",
+    "| a | b |\n| --- | --- |\n| $\\alpha$ | $5 and $6 |",
+  ];
+  for (const md of cases) {
+    const once = normalizeMarkdown(md);
+    assert.equal(normalizeMarkdown(once), once, `not stable: ${md}`);
+    assert.deepEqual(inlineShape(markdownToJSON(once)), inlineShape(markdownToJSON(md)), `changed: ${md}`);
+  }
+  assert.equal(normalizeMarkdown('```sh\necho "$HOME\\n$PATH"\n```'), '```sh\necho "$HOME\\n$PATH"\n```');
+  assert.equal(normalizeMarkdown("Run `echo $HOME\\n$PATH` first."), "Run `echo $HOME\\n$PATH` first.");
+  // A code span binds tighter than math: the `$` inside it closes nothing.
+  assert.deepEqual(inlineShape(markdownToJSON("Budget $5 and $10, `a$b` and $x_1$.")), [
+    ":Budget $5 and $10, ",
+    "code:a$b",
+    ": and $x_1$.",
+  ]);
+  // The document model has no literal dollar pair: `$…$` text is math. So an
+  // escaped pair that reads as math comes back as math.
+  assert.equal(normalizeMarkdown("\\$\\alpha\\$"), "$\\alpha$");
+});
+
+test("math is read as text: markdown inside it is not parsed", () => {
+  assert.deepEqual(inlineShape(markdownToJSON("A $a*b*c$ and $$x_1 * y_1$$.")), [":A $a*b*c$ and $$x_1 * y_1$$."]);
+  // Not math (space after the opening $, digit after the closing one), so
+  // the stars are emphasis as usual.
+  assert.deepEqual(inlineShape(markdownToJSON("$ 5 *per* seat$1")), [":$ 5 ", "italic:per", ": seat$1"]);
+});
+
+test("a dollar that would pair with one in a later node is escaped", () => {
+  const p = (...content: unknown[]) => ({ type: "doc", content: [{ type: "paragraph", content }] });
+  const t = (text: string, ...marks: string[]) => ({ type: "text", text, marks: marks.map((type) => ({ type })) });
+  for (const doc of [
+    p(t("x $a "), t("b$", "bold")),
+    p(t("price $5 "), t("code$", "code"), t(" more")),
+    p(t("see $x "), { type: "text", text: "link", marks: [{ type: "link", attrs: { href: "https://a.test/$y" } }] }),
+  ]) {
+    const md = jsonToMarkdown(doc);
+    assert.deepEqual(inlineShape(markdownToJSON(md)), inlineShape(doc), `changed via ${JSON.stringify(md)}`);
+  }
+});
+
+test("math in task text and table cells keeps its backslashes", () => {
+  assert.equal(normalizeMarkdown("- [ ] check $\\alpha_1$"), "- [ ] check $\\alpha_1$");
+  assert.match(normalizeMarkdown("| a |\n| --- |\n| $\\beta$ |"), /\| \$\\beta\$ \|/);
+  // A pipe in math is escaped for the row and comes back as a pipe.
+  const cell = (text: string) => ({ type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+  const row = (text: string) => ({ type: "tableRow", content: [cell(text)] });
+  const table = { type: "doc", content: [{ type: "table", content: [row("h"), row("$|x|$")] }] };
+  assert.deepEqual(inlineShape(markdownToJSON(jsonToMarkdown(table))), inlineShape(table));
+});
+
 test("multi-line table cells keep their line structure via <br>", () => {
   // Two paragraphs in one cell survive as a <br>, not a flattened space.
   const md = "| A |\n| --- |\n| one<br>two |";
@@ -311,4 +381,56 @@ test("a live section round-trips as an HTML comment; unknown queries are dropped
     attrs: { query: "meeting_series" },
   });
   assert.equal(normalizeMarkdown(series), series.trimEnd());
+});
+
+test("image and link destinations with spaces or parentheses survive", () => {
+  const p = (...content: unknown[]) => ({ type: "doc", content: [{ type: "paragraph", content }] });
+  for (const src of ["my image (1).png", "a(.png", "back\\slash.png", "plain.png"]) {
+    const doc = p({ type: "image", attrs: { src, alt: "a" } });
+    const back = markdownToJSON(jsonToMarkdown(doc)) as { content: [{ content: [{ type: string; attrs: { src: string } }] }] };
+    const node = back.content[0].content[0];
+    assert.equal(node.type, "image", `image lost for ${src}`);
+    assert.equal(decodeURI(node.attrs.src), src);
+  }
+  const link = p({ type: "text", text: "doc", marks: [{ type: "link", attrs: { href: "notes/my file (draft).md" } }] });
+  const md = jsonToMarkdown(link);
+  assert.equal(md, "[doc](<notes/my file (draft).md>)");
+  assert.deepEqual(inlineShape(markdownToJSON(md)), ["link:doc"]);
+  assert.equal(normalizeMarkdown("[x](https://a.test/b_(c))"), "[x](https://a.test/b_\\(c\\))");
+});
+
+test("footnotes stay footnotes: markers and definitions are written back raw", () => {
+  for (const md of ["Text[^1] here.\n\n[^1]: Note", "See[^long-name].\n\n[^long-name]: https://example.com"]) {
+    assert.equal(normalizeMarkdown(md), md);
+    assert.ok(!JSON.stringify(markdownToJSON(md)).includes('"link"'), `became a link: ${md}`);
+  }
+  // A marker that starts a real link is a link, not a footnote.
+  assert.deepEqual(inlineShape(markdownToJSON("[^1](https://a.test)")), ["link:^1"]);
+  assert.equal(normalizeMarkdown("[^1](https://a.test)"), "[^1](https://a.test)");
+});
+
+test("lists in table cells round-trip as lists", () => {
+  const md = (cell: string) => `| h |\n| --- |\n| ${cell} |`;
+  const cellBlocks = (markdown: string) => {
+    const json = markdownToJSON(markdown) as { content: [{ content: Array<{ content: [{ content: Array<{ type: string; attrs?: Record<string, unknown> }> }] }> }] };
+    return json.content[0].content[1]!.content[0].content.map((b) => b.type + (b.attrs?.start ? `@${b.attrs.start}` : ""));
+  };
+  for (const [cell, blocks] of [
+    ["* one<br>* two", ["bulletList"]],
+    ["3. one<br>4. two", ["orderedList@3"]],
+    ["- [ ] open<br>- [x] done", ["taskList"]],
+    ["intro<br>* one<br>* two<br>after", ["paragraph", "bulletList", "paragraph"]],
+    ["\\* not a list<br>text", ["paragraph"]],
+  ] as const) {
+    assert.deepEqual(cellBlocks(md(cell)), blocks, cell);
+    const once = normalizeMarkdown(md(cell));
+    assert.equal(normalizeMarkdown(once), once, `not stable: ${cell}`);
+    assert.deepEqual(cellBlocks(once), blocks, `changed on a round trip: ${cell}`);
+  }
+  assert.equal(normalizeMarkdown(md("* one<br>* two")), md("* one<br>* two"));
+  assert.equal(normalizeMarkdown(md("- [ ] open<br>- [x] done")), md("- [ ] open<br>- [x] done"));
+  // A task's checkbox state and an item's marks survive.
+  const tasks = JSON.stringify(markdownToJSON(md("- [x] **done**")));
+  assert.match(tasks, /"checked":true/);
+  assert.match(tasks, /"bold"/);
 });

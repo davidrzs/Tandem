@@ -2,6 +2,7 @@ import { markdownToHtml } from "@tandem/editor";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { authorColor, authorKey } from "./colors.js";
 import { Icon } from "./Icon.js";
+import { ConfirmDialog } from "./Modal.js";
 import { prefersReducedMotion } from "./motion.js";
 import { timeAgo } from "./time.js";
 
@@ -155,6 +156,12 @@ export function Thread({
   const canResolve = canEdit || thread.authorId === meId;
   const resolve = (resolved: boolean) =>
     void onResolve(thread.id, resolved).catch(() => setResolving(null));
+  // Deleting a thread's first comment deletes its replies too, other
+  // people's included, and nothing brings them back: ask first.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const othersReplied = replies.some((r) => r.authorId !== thread.authorId);
+  const deleteComment = (id: string) =>
+    id === thread.id && replies.length > 0 ? setConfirmDelete(true) : onDelete(id);
 
   return (
     <div
@@ -169,9 +176,19 @@ export function Thread({
       onAnimationEnd={(e) => {
         if (e.animationName === "thread-resolve") resolve(true);
       }}
-      onClick={() => onJumpTo(thread)}
+      // The dialog renders in a portal, but its clicks still bubble here.
+      onClick={() => !confirmDelete && onJumpTo(thread)}
     >
-      <CommentBody comment={thread} mine={thread.authorId === meId} onDelete={onDelete}>
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete thread"
+          body={`This also deletes ${replies.length === 1 ? "its reply" : `its ${replies.length} replies`}${othersReplied ? ", including other people's" : ""}. This can't be undone.`}
+          confirmLabel="Delete thread"
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={() => onDelete(thread.id)}
+        />
+      )}
+      <CommentBody comment={thread} mine={thread.authorId === meId} onDelete={deleteComment}>
         {canResolve && (
           <button type="button"
             className="row-action resolve-btn"

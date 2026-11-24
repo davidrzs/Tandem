@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { rowsOf, templateDocumentIds } from "./document-tree-internals.js";
 import {
   comments,
+  documents,
   notifications,
   runAsActor,
   SYSTEM,
@@ -145,6 +146,16 @@ export class NotificationService {
     snippet: string;
   }): Promise<void> {
     if (entry.userId === entry.actor.userId) return;
+    // A notification carries the page's title and a snippet of it, so only
+    // someone who can read the page gets one (an @mention in a page they
+    // cannot open, or a thread they have since lost access to).
+    if (entry.documentId) {
+      const documentId = entry.documentId;
+      const [readable] = await runAsActor(this.db, { kind: "user", userId: entry.userId }, (db) =>
+        db.select({ id: documents.id }).from(documents).where(eq(documents.id, documentId)),
+      );
+      if (!readable) return;
+    }
     await this.system(async (db) => {
       await db.insert(notifications).values({
         userId: entry.userId,

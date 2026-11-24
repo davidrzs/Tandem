@@ -246,6 +246,13 @@
       "when": 1795467924022,
       "tag": "0034_documents_link_targets",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795521731040,
+      "tag": "0035_collections_admin_only",
+      "breakpoints": true
     }
   ]
 }
