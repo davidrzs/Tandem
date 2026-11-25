@@ -99,6 +99,20 @@ export async function runAsActor<T>(
   });
 }
 
+/** The Postgres error behind a failed query: drizzle wraps it (a
+ * DrizzleQueryError whose message is the SQL) and keeps it as the cause.
+ * Its `code` is the SQLSTATE (23505 unique violation, ...); null when the
+ * error didn't come from Postgres. */
+export function postgresError(err: unknown): { code: string; message: string } | null {
+  for (let e: unknown = err, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) {
+      return { code, message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  return null;
+}
+
 export * from "./schema.js";
 export * from "./auth-schema.js";
 export { migrateDatabase } from "./migrate.js";

@@ -22,7 +22,7 @@ import {
   templateVariablesSchema,
   titleSchema,
 } from "@tandem/core";
-import { FIELD_KINDS, type FieldKind, type FieldOption } from "@tandem/db";
+import { FIELD_KINDS, type FieldKind, type FieldOption, postgresError } from "@tandem/db";
 import { LIVE_SECTION_QUERIES, stateToJSON, type PropertyOp } from "@tandem/editor";
 import type { Services } from "./services.js";
 import type { CollabWriter } from "./collab-writer.js";
@@ -81,9 +81,8 @@ function mapError(err: unknown): TRPCError {
   if (err instanceof InvalidInputError) {
     return new TRPCError({ code: "BAD_REQUEST", message: err.message, cause: err });
   }
-  const code = (err as { code?: string }).code;
   const message = err instanceof Error ? err.message : String(err);
-  if (code === "23505" || /unique|duplicate key/i.test(message)) {
+  if (postgresError(err)?.code === "23505") {
     return new TRPCError({ code: "CONFLICT", message: "That name or slug is already taken." });
   }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: err });

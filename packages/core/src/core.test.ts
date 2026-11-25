@@ -21,6 +21,7 @@ import {
   type FieldKind,
   type TemplateDefault,
   type TypeField,
+  postgresError,
 } from "@tandem/db";
 import { eq, sql } from "drizzle-orm";
 import { scanTaskItems, stateProperties } from "@tandem/editor";
@@ -48,6 +49,11 @@ import {
 } from "./services/types.js";
 import { WorkspaceService } from "./services/workspaces.js";
 import { normalizeMarkdown } from "./markdown.js";
+
+/** An assert.rejects check for a refusal by Postgres itself: drizzle wraps
+ * the database error (its message is the SQL), so match the error inside. */
+const dbRefuses = (pattern: RegExp) => (err: unknown) =>
+  pattern.test(postgresError(err)?.message ?? (err instanceof Error ? err.message : String(err)));
 
 const db = createDatabase("memory://");
 const user = (userId: string): Actor => ({ kind: "user", userId });
@@ -519,11 +525,11 @@ test("collections: a writer renames and reorders, but RLS keeps sharing and dele
   const byId = eq(collectionsTable.id, col.id);
   await assert.rejects(
     () => asU2((d) => d.update(collectionsTable).set({ defaultRole: "none" }).where(byId)),
-    /permission denied/,
+    dbRefuses(/permission denied/),
   );
   await assert.rejects(
     () => asU2((d) => d.update(collectionsTable).set({ deletedAt: new Date() }).where(byId)),
-    /permission denied/,
+    dbRefuses(/permission denied/),
   );
   assert.deepEqual(await asU2((d) => d.delete(collectionsTable).where(byId).returning()), []);
   await assert.rejects(() => c2.softDelete(col.id), /owner|admin|forbidden/i);
@@ -1162,7 +1168,7 @@ test("snapshots: byte-dedupe, interval gating, RLS reads, and no client writes",
           ydocState: new Uint8Array([0]),
         }),
       ),
-    /permission denied/i,
+    dbRefuses(/permission denied/i),
   );
 });
 
@@ -1714,7 +1720,7 @@ test("types: owners and admins define types and fields, members only read them",
       runAsActor(db, user("ty-member"), (tx) =>
         tx.insert(documentTypes).values({ workspaceId: ws.id, name: "Sneaky", createdBy: "ty-member" }),
       ),
-    /row-level security/,
+    dbRefuses(/row-level security/),
   );
   assert.deepEqual(
     (await asMember.listTypes(ws.id)).map((t) => [t.name, t.fields.map((f) => [f.key, f.kind])]),
@@ -2052,9 +2058,9 @@ test("templates: the database keeps a template's type and defaults to owners and
     runAsActor(db, user("tg-member"), (tx) =>
       tx.update(templatesTable).set(set).where(eq(templatesTable.documentId, page.id)),
     );
-  await assert.rejects(() => memberSets({ defaultTypeId: meeting.id }), /only a workspace owner or admin/);
+  await assert.rejects(() => memberSets({ defaultTypeId: meeting.id }), dbRefuses(/only a workspace owner or admin/));
   await new TemplateService(db, user("tg-owner")).setDefaultType(page.id, meeting.id);
-  await assert.rejects(() => memberSets({ defaultTypeId: null }), /only a workspace owner or admin/);
+  await assert.rejects(() => memberSets({ defaultTypeId: null }), dbRefuses(/only a workspace owner or admin/));
   assert.equal((await asMember.templatize(page.id, "Renamed")).typeId, meeting.id, "a member still renames a typed template");
 });
 

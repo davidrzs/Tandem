@@ -88,6 +88,33 @@ export async function mcpAuthor(
  * mounts Hocuspocus (/collab) and the MCP HTTP transport (/mcp) here too.
  * One db instance is shared by services and auth (PGlite = one connection).
  */
+/** Proxies trusted for X-Forwarded-For when none are configured: anything on
+ * a private network, which is where Caddy (compose) or a platform proxy talks
+ * to the app from. The app port itself must not be reachable from there by
+ * clients, or they could claim any IP. */
+const PRIVATE_PROXIES = "loopback,linklocal,uniquelocal";
+
+/**
+ * Fastify's `trustProxy` from TRUST_PROXY: the proxies whose X-Forwarded-For
+ * is believed, as IPs, CIDRs or the names loopback, linklocal and
+ * uniquelocal (comma-separated). Unset means PRIVATE_PROXIES; "0" or "false"
+ * means none (the app port is exposed directly). A hop count ("1", "2") was
+ * the old format: Fastify now ignores counts, since they can't tell a proxy
+ * from a client, so they read as PRIVATE_PROXIES, with a warning.
+ */
+export function trustProxyFrom(value: string | undefined): string | false {
+  const v = value?.trim();
+  if (v === undefined || v === "") return PRIVATE_PROXIES;
+  if (v === "0" || v.toLowerCase() === "false") return false;
+  if (/^\d+$/.test(v)) {
+    console.warn(
+      `TRUST_PROXY=${v} is a hop count, which is no longer supported; trusting proxies on private networks (${PRIVATE_PROXIES}). Set TRUST_PROXY to your proxies' addresses to silence this.`,
+    );
+    return PRIVATE_PROXIES;
+  }
+  return v;
+}
+
 export async function buildHttpServer(
   injectedDb?: ReturnType<typeof createDatabase>,
   opts?: { mailer?: Mailer | null },
@@ -116,11 +143,8 @@ export async function buildHttpServer(
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
     // Behind a reverse proxy every request would otherwise come from the
-    // proxy's IP, so all users would share one rate-limit bucket. TRUST_PROXY
-    // is the number of proxy hops in front of the app (Caddy or Traefik: 1;
-    // Traefik -> Caddy: 2); 0 when the app is exposed directly, so clients
-    // can't spoof X-Forwarded-For.
-    trustProxy: Number(process.env.TRUST_PROXY ?? 1),
+    // proxy's IP, so all users would share one rate-limit bucket.
+    trustProxy: trustProxyFrom(process.env.TRUST_PROXY),
     // tRPC batches procedures into one path segment; the 100-char default
     // 404s any page that batches more than a handful of queries.
     maxParamLength: 5000,

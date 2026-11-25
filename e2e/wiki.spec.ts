@@ -342,11 +342,11 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await dave.reload();
   await expect(dave.getByText("Read only")).toBeVisible();
   await expect(dave.locator(".doc-body")).toContainText("method section");
-  const before = await dave.locator(".doc-body").innerText();
+  const before = await dave.locator(".doc-body").textContent();
   await dave.locator(".doc-body").click();
   await dave.keyboard.type("SNEAKY EDIT");
   await expect(dave.locator(".doc-body")).not.toContainText("SNEAKY EDIT");
-  expect(await dave.locator(".doc-body").innerText()).toBe(before);
+  expect(await dave.locator(".doc-body").textContent()).toBe(before);
 
   // --- comments sync live over the collab channel ---
   await carol.locator(".doc-body").dblclick({ position: { x: 40, y: 12 } });

@@ -44,10 +44,14 @@ so on a large instance plan a maintenance window and run it as the release
 step (`MIGRATE_ON_BOOT=0`). The first boot afterwards also backfills task rows
 once, page by page.
 
-Rate limits key on the client IP from `X-Forwarded-For`. `TRUST_PROXY` is the
-number of proxies in front of the app: 1 for this compose (Caddy) or a platform
-proxy like Traefik alone, 2 for Traefik in front of Caddy, 0 if the app port is
-exposed directly.
+Rate limits key on the client IP from `X-Forwarded-For`, believed only when the
+request comes from a trusted proxy. `TRUST_PROXY` lists the proxies' addresses
+(IPs, CIDRs, or `loopback`, `linklocal`, `uniquelocal`, comma-separated).
+Unset, it trusts proxies on private networks, which fits this compose (Caddy
+reaches the app over the Docker network) and a platform proxy like Traefik, as
+long as clients can't reach the app port from a private network themselves.
+Set it to `0` if the app port is exposed directly. The old hop counts (`1`,
+`2`) still start the app, as the private-network default, with a warning.
 Caddy obtains a certificate for `$DOMAIN` automatically and reverse-proxies to
 the app (WebSockets upgrade transparently, so `/collab` works over `wss://`).
 
