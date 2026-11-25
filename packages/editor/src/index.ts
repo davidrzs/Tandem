@@ -6,4 +6,5 @@ export * from "./markdown-ops.js";
 export * from "./properties.js";
 export * from "./tasks.js";
 export * from "./math.js";
+export * from "./entries.js";
 export * from "./title.js";
