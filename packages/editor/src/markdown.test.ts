@@ -121,6 +121,63 @@ test("nested task lists round-trip", () => {
   assert.equal(normalizeMarkdown(normalized), normalized, "stable after one pass");
 });
 
+/** JSON as plain objects (attrs come back with a null prototype). */
+const plain = (json: unknown): unknown => JSON.parse(JSON.stringify(json));
+
+test("an empty task item keeps its list a task list", () => {
+  // Enter at the end of a task list leaves an empty item; writing it as the
+  // bare marker must not turn the whole list into bullets with "[ ]" text.
+  const json = {
+    type: "doc",
+    content: [
+      {
+        type: "taskList",
+        content: [
+          { type: "taskItem", attrs: { checked: false, blockId: null }, content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }] },
+          { type: "taskItem", attrs: { checked: true, blockId: null }, content: [{ type: "paragraph" }] },
+        ],
+      },
+    ],
+  };
+  const md = jsonToMarkdown(json);
+  assert.equal(md, "- [ ] a\n- [x] ");
+  assert.deepEqual(plain(markdownToJSON(md)), json);
+  // A marker glued to text is still not one.
+  assert.equal((markdownToJSON("- [ ]x") as { content: Array<{ type: string }> }).content[0]!.type, "bulletList");
+});
+
+test("a list item that starts with a heading, list or code block keeps it inside", () => {
+  // The schema puts an empty paragraph first; written as a blank marker line
+  // it would end the item, and the block would leave the list on the next read.
+  for (const [md, written] of [
+    ["- ## 2026-11-01 notes", "* ## 2026-11-01 notes"],
+    ["1. ## Step\n\n   body", "1. ## Step\n\n   body"],
+    ["- - nested", "* * nested"],
+    ["- ```\n  code\n  ```", "* ```\n  code\n  ```"],
+    ["- [ ] a\n\n  ## under a task", "- [ ] a\n\n  ## under a task"],
+  ] as const) {
+    const json = markdownToJSON(md);
+    assert.equal(jsonToMarkdown(json), written, md);
+    assert.deepEqual(plain(markdownToJSON(jsonToMarkdown(json))), plain(json), md);
+  }
+  const taskThenHeading = {
+    type: "doc",
+    content: [
+      {
+        type: "taskList",
+        content: [
+          {
+            type: "taskItem",
+            attrs: { checked: false, blockId: null },
+            content: [{ type: "paragraph" }, { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "x" }] }],
+          },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual(plain(markdownToJSON(jsonToMarkdown(taskThenHeading))), taskThenHeading);
+});
+
 test("GFM tables round-trip and build a real table node tree", () => {
   const md = "| Name | Role |\n| --- | --- |\n| Ada | Lead |\n| Bo | Eng |";
   assert.equal(normalizeMarkdown(md), md, "canonical GFM round-trips exactly");
