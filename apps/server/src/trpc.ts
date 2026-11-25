@@ -419,6 +419,8 @@ export const appRouter = t.router({
     delete: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(async ({ ctx, input }) => {
+        // Pages open right now save what they hold first (see flush).
+        await ctx.collabWriter?.flush(await ctx.services.documentTree.subtreeIds(input.id));
         const deleted = await ctx.services.documentTree.softDelete(input.id);
         if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
       }),

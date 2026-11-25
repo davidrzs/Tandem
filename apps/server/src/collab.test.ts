@@ -12,7 +12,7 @@ import {
   schema,
   titleOf,
 } from "@tandem/editor";
-import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
+import { CollectionService, DocumentService, DocumentTreeService, WorkspaceService } from "@tandem/core";
 import { type Connection, OutgoingMessage } from "@hocuspocus/server";
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
@@ -169,6 +169,23 @@ test("a page from before titles lived in the doc takes its column's title, once"
   const conn = await hocuspocus.openDirectConnection(id, { userId: "u1" });
   await conn.disconnect();
   assert.equal((await new DocumentService(db, u1).getMeta(id))!.title, "Old page");
+});
+
+test("trashing a page stores what its live doc holds first", async () => {
+  // A long debounce: the rename below is still waiting to be stored.
+  const slow = createHocuspocus(db, createAuth(db), { debounce: 60_000 });
+  const docs = new DocumentService(db, u1);
+  const id = (await docs.create({ collectionId, title: "Draft" })).id;
+  const open = await slow.openDirectConnection(id, { userId: "u1" });
+  try {
+    await open.transact((doc) => replaceTitle(doc, "Beta"));
+    assert.equal((await docs.getMeta(id))!.title, "Draft", "not stored yet");
+    const writer = createCollabWriter(slow, docs, { userId: "u1", name: "U1", ai: false });
+    await writer.flush(await new DocumentTreeService(db, u1).subtreeIds(id));
+    assert.equal((await docs.getMeta(id))!.title, "Beta");
+  } finally {
+    await open.disconnect();
+  }
 });
 
 /** A sync-update message as a websocket client would send it. */

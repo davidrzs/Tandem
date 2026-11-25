@@ -420,10 +420,12 @@ export function Editor({
   focusTitleRef.current = () => (titleEditor?.isEditable ? focusAt(titleEditor, "end") : false);
   const title = liveTitle ?? doc.data?.title ?? "";
   // The sidebar reads the stored title, which follows the live one when the
-  // doc is next stored (a couple of seconds). Show the live one there now.
+  // doc is next stored (a couple of seconds). Show the live one there now,
+  // and again after every refetch that still brings the stored one.
   const collectionId = doc.data?.collectionId;
+  const tree = trpc.documents.tree.useQuery({ collectionId: collectionId ?? "" }, { enabled: !!collectionId });
   useEffect(() => {
-    if (liveTitle === null || !collectionId) return;
+    if (liveTitle === null || !collectionId || !tree.data) return;
     type Node = { id: string; title: string; children: Node[] };
     // Only the path to this page is copied; other rows keep their identity.
     const retitle = (nodes: Node[]): Node[] => {
@@ -442,7 +444,7 @@ export function Editor({
       return changed ? next : nodes;
     };
     utils.documents.tree.setData({ collectionId }, (nodes) => nodes && (retitle(nodes) as typeof nodes));
-  }, [liveTitle, collectionId, docId, utils]);
+  }, [liveTitle, collectionId, docId, utils, tree.data]);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const myRole = members.data?.find((m) => m.userId === uid)?.role;
   const canDefine = myRole === "owner" || myRole === "admin";

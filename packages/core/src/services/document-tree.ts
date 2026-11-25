@@ -119,6 +119,23 @@ export class DocumentTreeService extends DocumentServiceBase {
     });
   }
 
+  /** Ids of a document and its active descendants the actor can see. */
+  async subtreeIds(id: string): Promise<string[]> {
+    return this.exec(async (db) => {
+      const result = await db.execute(sql`
+        WITH RECURSIVE subtree AS (
+          SELECT id FROM documents WHERE id = ${id} AND deleted_at IS NULL
+          UNION
+          SELECT d.id FROM documents d JOIN subtree s ON d.parent_document_id = s.id
+          WHERE d.deleted_at IS NULL
+        )
+        SELECT id FROM subtree
+      `);
+      const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
+      return (rows as Array<{ id: string }>).map((r) => r.id);
+    });
+  }
+
   /** Stamp a column on a document AND all its descendants (subtree ops keep
    * the tree consistent: a child can't stay active under an archived parent).
    * Runs RLS-scoped, so it only touches rows the actor may write. */

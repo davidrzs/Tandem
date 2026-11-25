@@ -119,6 +119,18 @@ export function createCollabWriter(
       }
     },
 
+    /** Store the live docs among `docIds` now instead of after the store
+     * debounce. Run before trashing them: a trashed doc is never stored, so
+     * edits still waiting for the debounce (a title typed a second ago)
+     * would be lost. */
+    async flush(docIds: readonly string[]): Promise<void> {
+      for (const docId of docIds) {
+        if (!hocuspocus.documents.has(docId)) continue;
+        const connection = await hocuspocus.openDirectConnection(docId, { userId: author.userId });
+        await connection.disconnect();
+      }
+    },
+
     /**
      * Restore a document to a snapshot's state. Applies the snapshot's
      * ProseMirror JSON as an attributed edit (structural diff) and its
