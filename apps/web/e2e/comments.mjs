@@ -13,8 +13,8 @@ try {
   await createCollection(page, c);
   await newDocument(page, c);
 
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "The quick brown fox jumps.");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "The quick brown fox jumps.");
   await page.keyboard.press("Control+a"); // non-empty selection → comment bubble
 
   await page.locator(".bubble-btn", { hasText: "Comment" }).click();

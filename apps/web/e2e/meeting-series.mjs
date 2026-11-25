@@ -78,14 +78,14 @@ try {
   );
 
   await page.goto(`${BASE}/d/${meetings}`);
-  const series = page.locator('.ProseMirror .live-section[data-live-section="meeting_series"]');
+  const series = page.locator('.doc-body .live-section[data-live-section="meeting_series"]');
   const entries = series.locator(".series-entry");
   await eventually(() => entries.count(), (n) => n === 3, "three meetings in the series");
   const titles = await entries.locator(".series-entry-head h3").allTextContents();
   if (!sameList(titles, NEWEST_FIRST)) {
     throw new Error(`series order reads ${JSON.stringify(titles)}`);
   }
-  const bodies = await entries.locator(".ProseMirror").allTextContents();
+  const bodies = await entries.locator(".doc-body").allTextContents();
   if (!bodies[0].includes("Oct body") || !bodies[1].includes("Sep body") || !bodies[2].includes("Aug body")) {
     throw new Error(`series bodies read ${JSON.stringify(bodies)}`);
   }

@@ -146,18 +146,18 @@ test.describe.serial("wiki journey", () => {
     await expect(page).toHaveURL(/\/d\//);
 
     // --- title + body over the live collab channel ---
-    await page.locator(".title-input").fill("Onboarding");
+    await page.locator(".title-input[contenteditable=true]").fill("Onboarding");
     await expect(page.locator(".save-state").last()).toHaveText(/Live|Saving/);
-    await page.locator(".ProseMirror").click();
+    await page.locator(".doc-body").click();
     await page.keyboard.type("Welcome to the team wiki.");
     await page.keyboard.press("Enter");
     // "[ ] " at line start is the checkbox input rule (also: /to-do).
     await page.keyboard.type("[ ] @alice review the handbook");
     // The @ mention suggestion may be open; close it before continuing.
     await page.keyboard.press("Escape");
-    await expect(page.locator(".ProseMirror")).toContainText("review the handbook");
+    await expect(page.locator(".doc-body")).toContainText("review the handbook");
     // Task list markdown became a real checkbox item.
-    await expect(page.locator('.ProseMirror ul[data-type="taskList"] li')).toHaveCount(1);
+    await expect(page.locator('.doc-body ul[data-type="taskList"] li')).toHaveCount(1);
     // The @mention resolves to a member and gets its identity tint.
     await expect(page.locator(".mention")).toContainText("@alice");
 
@@ -172,8 +172,8 @@ test.describe.serial("wiki journey", () => {
     // --- deep link survives a full reload ---
     const docUrl = page.url();
     await page.reload();
-    await expect(page.locator(".ProseMirror")).toContainText("Welcome to the team wiki.");
-    await expect(page.locator(".title-input")).toHaveValue("Onboarding");
+    await expect(page.locator(".doc-body")).toContainText("Welcome to the team wiki.");
+    await expect(page.locator(".title-input")).toHaveText("Onboarding");
 
     // --- history: my typing is attributed to me, calmly hidden by default ---
     await expect(page.locator(".blame-span")).toHaveCount(0);
@@ -223,7 +223,7 @@ test.describe.serial("wiki journey", () => {
     await expect(page.locator(".doc-row", { hasText: "Onboarding" })).toBeVisible();
 
     // --- ticking the checkbox completes the task on the start page ---
-    await page.locator('.ProseMirror ul[data-type="taskList"] input[type="checkbox"]').click();
+    await page.locator('.doc-body ul[data-type="taskList"] input[type="checkbox"]').click();
     // Debounced store persisted the ticked state.
     await expect
       .poll(async () => (await trpcQuery<Todo[]>(page, "documents.myTodos")).map((t) => t.done), {
@@ -290,8 +290,8 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await carol.getByRole("button", { name: /Research/ }).click();
   await carol.locator(".collection-row", { hasText: "Research" }).hover();
   await carol.getByTitle("New document").first().click();
-  await carol.locator(".title-input").fill("Paper draft");
-  await carol.locator(".ProseMirror").click();
+  await carol.locator(".title-input[contenteditable=true]").fill("Paper draft");
+  await carol.locator(".doc-body").click();
   await carol.keyboard.type("Carol wrote the abstract.");
   await expect(carol.locator(".save-state").last()).toHaveText(/Live/);
 
@@ -311,15 +311,15 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   // --- Dave opens the same doc; both see presence; Dave's text is his ---
   const docUrl = carol.url();
   await dave.goto(docUrl);
-  await expect(dave.locator(".ProseMirror")).toContainText("Carol wrote the abstract.");
+  await expect(dave.locator(".doc-body")).toContainText("Carol wrote the abstract.");
   await expect(carol.locator(".presence-avatar")).toHaveText("D");
   await expect(dave.locator(".presence-avatar")).toHaveText("C");
 
-  await dave.locator(".ProseMirror").click();
+  await dave.locator(".doc-body").click();
   await dave.keyboard.press("ControlOrMeta+End");
   await dave.keyboard.press("Enter");
   await dave.keyboard.type("Dave added the method section.");
-  await expect(carol.locator(".ProseMirror")).toContainText("Dave added the method section.");
+  await expect(carol.locator(".doc-body")).toContainText("Dave added the method section.");
 
   // History on Carol's screen attributes each part to its author.
   await carol.getByRole("button", { name: "History", exact: true }).click();
@@ -341,15 +341,15 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
 
   await dave.reload();
   await expect(dave.getByText("Read only")).toBeVisible();
-  await expect(dave.locator(".ProseMirror")).toContainText("method section");
-  const before = await dave.locator(".ProseMirror").innerText();
-  await dave.locator(".ProseMirror").click();
+  await expect(dave.locator(".doc-body")).toContainText("method section");
+  const before = await dave.locator(".doc-body").innerText();
+  await dave.locator(".doc-body").click();
   await dave.keyboard.type("SNEAKY EDIT");
-  await expect(dave.locator(".ProseMirror")).not.toContainText("SNEAKY EDIT");
-  expect(await dave.locator(".ProseMirror").innerText()).toBe(before);
+  await expect(dave.locator(".doc-body")).not.toContainText("SNEAKY EDIT");
+  expect(await dave.locator(".doc-body").innerText()).toBe(before);
 
   // --- comments sync live over the collab channel ---
-  await carol.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
+  await carol.locator(".doc-body").dblclick({ position: { x: 40, y: 12 } });
   await carol.locator(".bubble-btn", { hasText: "Comment" }).click();
   await carol.locator(".comment-composer textarea").fill("Can we cite this?");
   await carol.locator(".comment-composer").getByRole("button", { name: "Comment" }).click();
@@ -382,12 +382,12 @@ test("two users: invite, presence, second-author blame, read-only", async ({ bro
   await carol.locator(".modal-close").click();
 
   await dave.reload();
-  await expect(dave.locator(".ProseMirror")).toContainText("method section");
+  await expect(dave.locator(".doc-body")).toContainText("method section");
   await expect(dave.getByText("Read only")).toHaveCount(0);
-  await dave.locator(".ProseMirror").click();
+  await dave.locator(".doc-body").click();
   await dave.keyboard.press("ControlOrMeta+End");
   await dave.keyboard.type(" Group access works.");
-  await expect(carol.locator(".ProseMirror")).toContainText("Group access works.");
+  await expect(carol.locator(".doc-body")).toContainText("Group access works.");
 
   await carolCtx.close();
   await daveCtx.close();
@@ -404,7 +404,7 @@ test("drag and drop nests a document under another", async ({ page }) => {
     await page.getByTitle("New document").first().click();
     // Wait for the new doc's editor — filling early would rename the old one.
     await expect(page).not.toHaveURL(before);
-    await page.locator(".title-input").fill(title);
+    await page.locator(".title-input[contenteditable=true]").fill(title);
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
   }
 
@@ -427,7 +427,7 @@ test("undo: archive and drag-move are reversible from the toast", async ({ page 
     await row.hover();
     await page.getByTitle("New document").first().click();
     await expect(page).not.toHaveURL(before);
-    await page.locator(".title-input").fill(title);
+    await page.locator(".title-input[contenteditable=true]").fill(title);
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
   }
 
@@ -457,7 +457,7 @@ test("trash: delete with undo, restore from trash, delete forever", async ({ pag
     await row.hover();
     await page.getByTitle("New document").first().click();
     await expect(page).not.toHaveURL(before);
-    await page.locator(".title-input").fill(title);
+    await page.locator(".title-input[contenteditable=true]").fill(title);
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
   }
   const betaUrl = page.url();
@@ -507,7 +507,7 @@ test("recents show current titles and drop documents that are gone", async ({ pa
     await row.hover();
     await page.getByTitle("New document").first().click();
     await expect(page).not.toHaveURL(before);
-    await page.locator(".title-input").fill(title);
+    await page.locator(".title-input[contenteditable=true]").fill(title);
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
     urls.push(page.url());
   }
@@ -536,7 +536,7 @@ test("recents show current titles and drop documents that are gone", async ({ pa
   // Renamed: the new title shows.
   await page.keyboard.press("Escape");
   await page.goto(urls[1]!);
-  await page.locator(".title-input").fill("Draft two, renamed");
+  await page.locator(".title-input[contenteditable=true]").fill("Draft two, renamed");
   await expect
     .poll(async () => (await trpcQuery<{ title: string }>(page, "documents.getMeta", { id: twoId })).title)
     .toBe("Draft two, renamed");
@@ -584,7 +584,7 @@ test("offline edits survive a reload and sync when back online", async ({ page, 
   await page.getByRole("button", { name: /Field/ }).click();
   await page.locator(".collection-row", { hasText: "Field" }).hover();
   await page.getByTitle("New document").first().click();
-  await page.locator(".title-input").fill("Notes");
+  await page.locator(".title-input[contenteditable=true]").fill("Notes");
   const docUrl = page.url();
   // y-indexeddb stores one record per update (one per keystroke here). "Live"
   // doesn't wait for those writes, so each reload below first waits for them.
@@ -607,7 +607,7 @@ test("offline edits survive a reload and sync when back online", async ({ page, 
   await expect.poll(storedUpdates).toBeGreaterThan(0);
   const written = "Written online.";
   const initial = await storedUpdates();
-  await page.locator(".ProseMirror").click();
+  await page.locator(".doc-body").click();
   await page.keyboard.type(written);
   await expect(page.locator(".save-state").last()).toHaveText(/Live/);
   await expect.poll(storedUpdates).toBeGreaterThanOrEqual(initial + written.length);
@@ -615,18 +615,18 @@ test("offline edits survive a reload and sync when back online", async ({ page, 
   // The collab server becomes unreachable (HTTP still works, so the page loads).
   await page.routeWebSocket(/\/collab/, (ws) => ws.close());
   await page.reload();
-  await expect(page.locator(".ProseMirror")).toContainText(written);
+  await expect(page.locator(".doc-body")).toContainText(written);
   await expect(page.locator(".save-state").last()).toHaveText(/Offline · saved on this device/);
   const typed = " Zebracorn typed offline.";
   const before = await storedUpdates();
-  await page.locator(".ProseMirror").click();
+  await page.locator(".doc-body").click();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type(typed);
   await expect.poll(storedUpdates).toBeGreaterThanOrEqual(before + typed.length);
 
   // Still unreachable: the offline edit comes back from this device.
   await page.reload();
-  await expect(page.locator(".ProseMirror")).toContainText("Zebracorn typed offline.");
+  await expect(page.locator(".doc-body")).toContainText("Zebracorn typed offline.");
 
   // Back online in a fresh tab: the edit reaches the server.
   await page.close();
@@ -650,13 +650,13 @@ test("comments: select text, discuss, reply, resolve", async ({ page }) => {
   await page.getByRole("button", { name: /Reviews/ }).click();
   await page.locator(".collection-row", { hasText: "Reviews" }).hover();
   await page.getByTitle("New document").first().click();
-  await page.locator(".title-input").fill("Draft");
-  await page.locator(".ProseMirror").click();
+  await page.locator(".title-input[contenteditable=true]").fill("Draft");
+  await page.locator(".doc-body").click();
   await page.keyboard.type("The methods section needs work.");
   await expect(page.locator(".save-state").last()).toHaveText(/Live/);
 
   // Select a word -> bubble -> comment.
-  await page.locator(".ProseMirror").dblclick({ position: { x: 40, y: 12 } });
+  await page.locator(".doc-body").dblclick({ position: { x: 40, y: 12 } });
   await page.locator(".bubble-btn", { hasText: "Comment" }).click();
   const composer = page.locator(".comment-composer textarea");
   await composer.fill("Please **expand** this before Friday.");
@@ -699,8 +699,8 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
     await expect(page).not.toHaveURL(before);
     // The editor is keyed by docId: wait for the NEW (empty) title input to
     // replace the old doc's before typing, or the fill renames the old doc.
-    await expect(page.locator(".title-input")).toHaveValue("");
-    await page.locator(".title-input").fill(title);
+    await expect(page.locator(".title-input")).toHaveText("");
+    await page.locator(".title-input[contenteditable=true]").fill(title);
     await expect(page.locator(".doc-row", { hasText: title })).toBeVisible();
     return page.url();
   };
@@ -713,7 +713,7 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
 
   // In Alpha, "@" links the Beta page as a first-class reference chip.
   await page.locator(".doc-row", { hasText: "Alpha notes" }).click();
-  await page.locator(".ProseMirror").click();
+  await page.locator(".doc-body").click();
   await page.keyboard.type("Compare with @beta");
   await page.getByRole("button", { name: /Beta results/ }).click();
   await expect(page.locator(".page-ref")).toContainText("Beta results");
@@ -733,8 +733,8 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   await expect(page).toHaveURL(urlB);
 
   // Rename the target -> the reference shows the new title (live, no edit).
-  await expect(page.locator(".title-input")).toHaveValue("Beta results");
-  await page.locator(".title-input").fill("Beta results v2");
+  await expect(page.locator(".title-input")).toHaveText("Beta results");
+  await page.locator(".title-input[contenteditable=true]").fill("Beta results v2");
   await expect
     .poll(async () => (await trpcQuery<{ title: string }>(page, "documents.getMeta", { id: docIdOf(urlB) })).title)
     .toBe("Beta results v2");
@@ -749,7 +749,7 @@ test("cross-references: @-link a page, rename and move survive, backlinks", asyn
   // Backlinks: Beta lists Alpha under "Linked from".
   await expect(page.locator(".backlinks")).toContainText("Alpha notes");
   await page.locator(".backlink", { hasText: "Alpha notes" }).click();
-  await expect(page.locator(".title-input")).toHaveValue("Alpha notes");
+  await expect(page.locator(".title-input")).toHaveText("Alpha notes");
 });
 
 // ---------- server administration (Alice became the admin via the wizard) ----------

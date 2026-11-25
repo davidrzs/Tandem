@@ -46,5 +46,5 @@ export async function newDocument(page, collectionName) {
   await row.hover();
   await row.locator('.row-action[title="New document"]').click();
   await page.waitForURL((url) => url.pathname !== before && url.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
 }

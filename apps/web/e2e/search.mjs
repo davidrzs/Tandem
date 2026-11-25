@@ -12,9 +12,9 @@ try {
   const c = `Search ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  await page.fill(".title-input", "Findable Document");
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "Contains a rare token: zonkelberry.");
+  await page.fill(".title-input[contenteditable=true]", "Findable Document");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "Contains a rare token: zonkelberry.");
 
   await page.keyboard.press("Control+k");
   await page.waitForSelector(".search-box");
@@ -43,7 +43,7 @@ try {
   await hit.click();
   await page.waitForURL(/\/d\//);
   await page.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.textContent?.includes("zonkelberry"),
+    () => document.querySelector(".doc-body")?.textContent?.includes("zonkelberry"),
   );
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);

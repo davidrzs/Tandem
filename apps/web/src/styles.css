@@ -1250,30 +1250,6 @@ button.doc-twist:hover .twist {
 
 
 
-.title-input {
-  width: 100%;
-  border: none;
-  outline: none;
-  font-family: var(--font-heading);
-  font-size: 40px;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
-  color: var(--ink);
-  background: transparent;
-  padding: 0;
-}
-
-/* Keyboard focus needs an indicator even though the caret usually suffices. */
-.title-input:focus-visible {
-  outline: none;
-  box-shadow: 0 2px 0 var(--accent);
-}
-
-.title-input::placeholder {
-  color: var(--ink-3);
-}
-
 .doc-meta {
   margin-top: 12px;
   font-size: 13px;
@@ -4698,6 +4674,23 @@ p.live-section-source a:hover {
   pointer-events: none;
 }
 
+/* The title is the page's first line: a one-paragraph editor (useTitleEditor)
+ * that wraps like the body. The caret is its focus indicator, as in the body. */
+.ProseMirror.title-input {
+  min-height: 0;
+  font-family: var(--font-heading);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.ProseMirror.title-input p {
+  margin: 0;
+}
+
 /* Find in document. */
 .find-bar {
   position: sticky;
@@ -5055,10 +5048,6 @@ select.code-lang:hover {
   .editor {
     max-width: none;
     padding: 0;
-  }
-
-  .title-input {
-    border: none;
   }
 
   .ProseMirror pre {
@@ -5427,7 +5416,7 @@ select.code-lang:hover {
  * back out. On touch screens no field goes below that; !important because this
  * is a floor for every field, whatever its own rule says. */
 @media (pointer: coarse) {
-  :is(input:not([type="checkbox"], [type="radio"]), textarea, select):not(.title-input) {
+  :is(input:not([type="checkbox"], [type="radio"]), textarea, select) {
     font-size: 16px !important;
   }
 }

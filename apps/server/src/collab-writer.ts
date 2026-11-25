@@ -1,6 +1,7 @@
 import {
   applyAttributedEdit,
   applyAttributedProperties,
+  applyAttributedTitle,
   COLLAB_FIELD,
   diffProperties,
   jsonToMarkdown,
@@ -93,6 +94,39 @@ export function createCollabWriter(
         });
         return clientId;
       } finally {
+        await connection.disconnect();
+      }
+    },
+
+    /** Set the live doc's title as one attributed session; the store that
+     * follows projects it to the title column. Returns the session's
+     * clientID, or null when the title was already `title`. */
+    async setTitle(docId: string, title: string): Promise<number | null> {
+      if (!(await documents.canWrite(docId))) {
+        throw new DocumentWriteDeniedError();
+      }
+      const connection = await hocuspocus.openDirectConnection(docId, {
+        userId: author.userId,
+      });
+      try {
+        let clientId: number | null = null;
+        await connection.transact((doc) => {
+          clientId = applyAttributedTitle(doc, title, { ...author, at: Date.now() });
+        });
+        return clientId;
+      } finally {
+        await connection.disconnect();
+      }
+    },
+
+    /** Store the live docs among `docIds` now instead of after the store
+     * debounce. Run before trashing them: a trashed doc is never stored, so
+     * edits still waiting for the debounce (a title typed a second ago)
+     * would be lost. */
+    async flush(docIds: readonly string[]): Promise<void> {
+      for (const docId of docIds) {
+        if (!hocuspocus.documents.has(docId)) continue;
+        const connection = await hocuspocus.openDirectConnection(docId, { userId: author.userId });
         await connection.disconnect();
       }
     },

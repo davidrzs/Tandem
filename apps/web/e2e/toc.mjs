@@ -16,8 +16,8 @@ try {
   const c = `Toc ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  await page.fill(".title-input", "Protocol");
-  const pm = ".ProseMirror";
+  await page.fill(".title-input[contenteditable=true]", "Protocol");
+  const pm = ".doc-body";
   await page.click(pm);
 
   // Several sections with filler so the document actually scrolls.
@@ -41,7 +41,7 @@ try {
   await page.click(".toc-entry:has-text('Method')");
   await page.waitForTimeout(900); // smooth scroll
   const top = await page.evaluate(() => {
-    const h = [...document.querySelectorAll(".ProseMirror h1")].find((e) => e.textContent === "Method");
+    const h = [...document.querySelectorAll(".doc-body h1")].find((e) => e.textContent === "Method");
     return h ? h.getBoundingClientRect().top : 9999;
   });
   if (top > 140) throw new Error(`clicking a TOC entry did not scroll to it (top=${top})`);

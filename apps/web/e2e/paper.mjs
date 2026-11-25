@@ -35,7 +35,7 @@ try {
   await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.locator(".sidebar").waitFor({ state: "visible" });
   await page.reload();
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   if (!(await page.locator(".sidebar").isVisible())) throw new Error("pinned sidebar not kept across reload");
   await page.getByRole("button", { name: "Hide sidebar" }).click();
   await page.locator(".sidebar").waitFor({ state: "hidden" });
@@ -51,11 +51,11 @@ try {
     "sidebar open at full width off a document page",
   );
   await page.goto(docUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await page.locator(".sidebar").waitFor({ state: "hidden" });
 
   // --- "+" on an empty line opens the block menu ---
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
   await page.keyboard.type("Alpha beta gamma.");
   await page.keyboard.press("Enter");
   const plus = page.getByRole("button", { name: "Insert block" });
@@ -63,7 +63,7 @@ try {
   await plus.click();
   await page.waitForSelector(".slash-menu");
   await page.keyboard.press("Enter"); // Heading 1
-  await page.waitForSelector(".ProseMirror h1");
+  await page.waitForSelector(".doc-body h1");
   await page.keyboard.type("Next part");
   if (await plus.isVisible()) throw new Error("inserter shown on a non-empty line");
 
@@ -74,7 +74,7 @@ try {
   await expect(() => !document.querySelector(".doc-page.is-typing"), "header returns on pointer move");
 
   // --- margin comments ---
-  const para = page.locator(".ProseMirror p", { hasText: "Alpha beta gamma." });
+  const para = page.locator(".doc-body p", { hasText: "Alpha beta gamma." });
   await para.click({ clickCount: 3 });
   await page.locator(".bubble-btn", { hasText: "Comment" }).click();
   const margin = page.locator(".margin-comments");
@@ -99,7 +99,7 @@ try {
 
   // Clicking other text folds the thread to a summary; clicking its
   // highlighted text opens it again.
-  await page.locator(".ProseMirror h1").click();
+  await page.locator(".doc-body h1").click();
   const summary = margin.locator(".margin-summary");
   await summary.waitFor();
   if (!(await summary.textContent()).includes("1 reply")) throw new Error("summary lacks reply count");

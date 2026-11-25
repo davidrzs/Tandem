@@ -138,7 +138,7 @@ try {
   const planning = await trpcMutation("documents.create", { collectionId, parentDocumentId: parentId, title: "Planning" });
 
   await page.goto(`${BASE}/d/${retro.id}`);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await page.getByRole("button", { name: "Page type: none" }).click();
   await page.getByRole("menuitem", { name: "Meeting" }).click();
   await page.locator(".props-summary[aria-expanded=true]").waitFor();
@@ -347,13 +347,13 @@ try {
   const newPoints = await field("points", "number");
 
   await page.goto(`${BASE}/d/${retro.id}`);
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
   await page.keyboard.type("Agenda for today.");
   await waitForMarkdown(retro.id, (md) => md.includes("Agenda for today."), "saved the typed text");
   await trpcMutation("documents.setProperties", { id: retro.id, set: { status: "open" } });
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
   await page.keyboard.press("Control+z");
-  await page.waitForFunction(() => !document.querySelector(".ProseMirror")?.textContent?.includes("Agenda"));
+  await page.waitForFunction(() => !document.querySelector(".doc-body")?.textContent?.includes("Agenda"));
   await waitForMarkdown(retro.id, (md) => !md.includes("Agenda"), "dropped the undone text");
   const after = await valuesOf(retro.id);
   if (after[status.id] !== "Open") throw new Error(`undo in the body reverted the property: ${JSON.stringify(after)}`);

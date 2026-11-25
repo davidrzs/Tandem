@@ -26,18 +26,18 @@ try {
 
   // Editor mounts.
   await page.waitForSelector(".title-input");
-  await page.fill(".title-input", title);
+  await page.fill(".title-input[contenteditable=true]", title);
 
   // Type a markdown heading (input rule) + a body paragraph in the editor.
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "# Heading One");
-  await page.press(".ProseMirror", "Enter");
-  await page.type(".ProseMirror", "Install pnpm first.");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "# Heading One");
+  await page.press(".doc-body", "Enter");
+  await page.type(".doc-body", "Install pnpm first.");
 
   // Body persists via Yjs/Hocuspocus (debounced ~2s server-side). Confirm the
   // heading rendered, then settle well past the store debounce before reload
   // (so a fresh load from the DB has the content, not just Hocuspocus memory).
-  await page.waitForSelector(".ProseMirror h1");
+  await page.waitForSelector(".doc-body h1");
   await page.waitForTimeout(4000);
 
   // Reload: a fresh page load re-reads the document from the DB (and re-syncs
@@ -47,17 +47,17 @@ try {
 
   // Body arrives via Yjs sync after the provider reconnects — wait for it.
   await page.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.textContent?.includes("Install pnpm first."),
+    () => document.querySelector(".doc-body")?.textContent?.includes("Install pnpm first."),
     { timeout: 10000 },
   );
-  const persistedTitle = await page.inputValue(".title-input");
-  const body = (await page.textContent(".ProseMirror")) ?? "";
+  const persistedTitle = await page.textContent(".title-input");
+  const body = (await page.textContent(".doc-body")) ?? "";
 
   if (persistedTitle !== title) throw new Error(`title not persisted: "${persistedTitle}"`);
   if (!body.includes("Heading One")) throw new Error(`heading not persisted: "${body}"`);
 
   // Confirm the markdown heading actually round-tripped to an <h1>.
-  const h1 = await page.textContent(".ProseMirror h1");
+  const h1 = await page.textContent(".doc-body h1");
   if (!h1 || !h1.includes("Heading One")) throw new Error("markdown heading did not become an <h1>");
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);

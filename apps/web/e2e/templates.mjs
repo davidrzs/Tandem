@@ -37,7 +37,7 @@ async function waitForBody(id, text) {
 }
 
 async function fillTitle(id, title) {
-  await page.fill(".title-input", title);
+  await page.fill(".title-input[contenteditable=true]", title);
   for (let i = 0; i < 40; i++) {
     if ((await trpcQuery("documents.getMeta", { id })).title === title) return;
     await page.waitForTimeout(250);
@@ -56,7 +56,7 @@ async function createdPage(action) {
   const before = new URL(page.url()).pathname;
   await action();
   await page.waitForURL((url) => url.pathname !== before && url.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   return docIdOf(page.url());
 }
 
@@ -74,7 +74,7 @@ try {
   await newDocument(page, c);
   const templateId = docIdOf(page.url());
   await fillTitle(templateId, "Sync {{date}}");
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
   await page.keyboard.type("Notes by {{me}} with {{client}} about quokkaplan");
   await waitForBody(templateId, "{{client}}");
 
@@ -82,7 +82,7 @@ try {
   await templateRow.hover();
   const childId = await createdPage(() => templateRow.locator('.row-action[title="New sub-document"]').click());
   await fillTitle(childId, "Action items");
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
   await page.keyboard.type("For {{parent}} quokkaplan");
   await waitForBody(childId, "{{parent}}");
 
@@ -104,10 +104,10 @@ try {
   await page.getByLabel("client").fill("Acme");
   const fromDefault = await createdPage(() => page.getByRole("button", { name: "Create page" }).click());
   await page.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.textContent === "Notes by Tess Template with Acme about quokkaplan",
+    () => document.querySelector(".doc-body")?.textContent === "Notes by Tess Template with Acme about quokkaplan",
   );
-  if ((await page.inputValue(".title-input")) !== `Sync ${today}`) {
-    throw new Error(`title was ${await page.inputValue(".title-input")}`);
+  if ((await page.textContent(".title-input")) !== `Sync ${today}`) {
+    throw new Error(`title was ${await page.textContent(".title-input")}`);
   }
   const originLine = await page.locator(".doc-bar .doc-origin").textContent();
   if (originLine !== "From template Weekly sync") throw new Error(`header origin line was ${JSON.stringify(originLine)}`);
@@ -131,8 +131,8 @@ try {
   await meetingsRow.locator('.row-action[title="New from template"]').click();
   await createdPage(() => page.getByRole("menuitem", { name: "Blank page" }).click());
   page.off("request", recordInstantiate);
-  if ((await page.inputValue(".title-input")) !== "") throw new Error("blank page got a title");
-  if ((await page.textContent(".ProseMirror"))?.trim()) throw new Error("blank page got a body");
+  if ((await page.textContent(".title-input")) !== "") throw new Error("blank page got a title");
+  if ((await page.textContent(".doc-body"))?.trim()) throw new Error("blank page got a body");
   if (JSON.stringify(instantiateCalls) !== '["create"]') {
     throw new Error(`a blank page made these requests: ${JSON.stringify(instantiateCalls)}`);
   }
@@ -150,7 +150,7 @@ try {
   await page.keyboard.press("Enter");
   await page.getByLabel("client").fill("Globex");
   await createdPage(() => page.getByRole("button", { name: "Create page" }).click());
-  await page.waitForFunction(() => document.querySelector(".ProseMirror")?.textContent?.includes("with Globex"));
+  await page.waitForFunction(() => document.querySelector(".doc-body")?.textContent?.includes("with Globex"));
 
   // The sidebar row menu asks which template to start from.
   const collectionRow = page.locator(".collection-row", { hasText: c });
@@ -163,7 +163,7 @@ try {
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await page.getByLabel("client").fill("Initech");
   await createdPage(() => page.getByRole("button", { name: "Create page" }).click());
-  await page.waitForFunction(() => document.querySelector(".ProseMirror")?.textContent?.includes("with Initech"));
+  await page.waitForFunction(() => document.querySelector(".doc-body")?.textContent?.includes("with Initech"));
 
   // Search finds the pages made from the template, never the template itself.
   const hits = (await trpcQuery("documents.search", { query: "quokkaplan" })).map((h) => h.id);

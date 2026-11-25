@@ -57,7 +57,7 @@ export function useCollabDoc(docId: string, uid: string | undefined, canEdit: bo
             } else if (message.topic === "snapshots") {
               void utilsRef.current.documents.listSnapshots.invalidate({ documentId: docId });
             } else if (message.topic === "meta") {
-              // Someone renamed the doc (the title lives outside the CRDT).
+              // The stored title (or other metadata) changed: refetch it.
               void utilsRef.current.documents.getMeta.invalidate({ id: docId });
               void utilsRef.current.documents.tree.invalidate();
             } else if (message.topic === "fields") {

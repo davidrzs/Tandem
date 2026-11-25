@@ -39,7 +39,7 @@ async function eventually(read, check, what) {
 
 async function openPage(id) {
   await page.goto(`${BASE}/d/${id}`);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
 }
 
 /** Whether the editor's own selection (TipTap keeps the editor on its DOM
@@ -47,7 +47,7 @@ async function openPage(id) {
  * alone is not enough: ProseMirror reads it back asynchronously. */
 const caretAtEndOf = (text) =>
   page.evaluate((text) => {
-    const { selection } = document.querySelector(".ProseMirror").editor.state;
+    const { selection } = document.querySelector(".doc-body").editor.state;
     const { $from, empty } = selection;
     return empty && $from.parent.type.name === "heading" && $from.parent.textContent === text && $from.parentOffset === $from.parent.content.size;
   }, text);
@@ -56,7 +56,7 @@ const caretAtEndOf = (text) =>
  * still be growing when it is clicked, so the click is retried until the
  * caret really sits at the heading's end. */
 async function lineAfter(text) {
-  const heading = page.locator(".ProseMirror h2", { hasText: text });
+  const heading = page.locator(".doc-body h2", { hasText: text });
   await heading.waitFor();
   const deadline = Date.now() + 20_000;
   for (;;) {
@@ -100,7 +100,7 @@ try {
   ).waitFor();
   await lineAfter("Actions");
   await page.keyboard.type(`- [ ] ${SLIDES}`);
-  await page.waitForSelector('.ProseMirror li[data-checked="false"]');
+  await page.waitForSelector('.doc-body li[data-checked="false"]');
   await eventually(
     () => fromLastTime(second),
     (s) => s.tasks.some((t) => t.text === SLIDES),
@@ -133,8 +133,8 @@ try {
   }
 
   await openPage(first);
-  await page.locator('.ProseMirror li[data-checked="false"]', { hasText: SLIDES }).locator('input[type="checkbox"]').click();
-  await page.waitForSelector('.ProseMirror li[data-checked="true"]');
+  await page.locator('.doc-body li[data-checked="false"]', { hasText: SLIDES }).locator('input[type="checkbox"]').click();
+  await page.waitForSelector('.doc-body li[data-checked="true"]');
   await eventually(
     () => fromLastTime(second),
     (s) => s.tasks.length === 0,
