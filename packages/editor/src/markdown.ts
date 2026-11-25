@@ -27,6 +27,8 @@ const escHtml = (s: string) =>
  * marker as literal text). The marker is stripped from the item's inline
  * content and stored as the item's `checked` attribute.
  */
+const TASK_MARKER = /^\[([ xX])\](?: |$)/;
+
 function taskListPlugin(md: MarkdownIt) {
   md.core.ruler.after("block", "task_lists", (state) => {
     const tokens = state.tokens;
@@ -37,7 +39,8 @@ function taskListPlugin(md: MarkdownIt) {
       if (tokens[i]!.type !== "list_item_open") continue;
       const inline = tokens[i + 2];
       if (tokens[i + 1]?.type === "paragraph_open" && inline?.type === "inline") {
-        const marker = /^\[([ xX])\] /.exec(inline.content);
+        // An empty item is the bare marker: markdown-it trims the space.
+        const marker = TASK_MARKER.exec(inline.content);
         if (marker) checkedAt.set(i, marker[1] !== " ");
       }
     }
@@ -85,9 +88,9 @@ function taskListPlugin(md: MarkdownIt) {
           }
         }
         const inline = tokens[itemOpen + 2]!;
-        inline.content = inline.content.replace(/^\[[ xX]\] /, "");
+        inline.content = inline.content.replace(TASK_MARKER, "");
         const firstText = inline.children?.find((c) => c.type === "text");
-        if (firstText) firstText.content = firstText.content.replace(/^\[[ xX]\] /, "");
+        if (firstText) firstText.content = firstText.content.replace(TASK_MARKER, "");
       }
     }
   });
@@ -604,7 +607,21 @@ const serializer = new MarkdownSerializer(
     horizontalRule: d.horizontal_rule!,
     hardBreak: d.hard_break!,
     bulletList: d.bullet_list!,
-    listItem: d.list_item!,
+    // The schema makes an item start with a paragraph, so `- ## Notes` parses
+    // to an empty paragraph and then the heading. Written out, that empty
+    // paragraph leaves the marker line blank, and an item starting with a
+    // blank line ends there: the heading would fall out of the list on the
+    // next read. Start the item with the block after it instead.
+    listItem(state, node) {
+      const first = node.firstChild;
+      if (node.childCount > 1 && first?.type.name === "paragraph" && first.content.size === 0) {
+        node.forEach((child, _offset, i) => {
+          if (i > 0) state.render(child, node, i);
+        });
+      } else {
+        state.renderContent(node);
+      }
+    },
     // GitHub-style task list: `- [ ] open` / `- [x] done`.
     taskList(state, node) {
       state.renderList(node, "  ", () => "- ");
