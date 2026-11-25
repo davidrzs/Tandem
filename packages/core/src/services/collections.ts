@@ -5,6 +5,7 @@ import {
   collections,
   groups,
   runAsActor,
+  postgresError,
   SYSTEM,
   workspaceMembers,
   workspaces,
@@ -98,8 +99,7 @@ export class CollectionService {
           .returning();
         return row!;
       } catch (err) {
-        const code = (err as { code?: string })?.code;
-        if (code !== "23505") throw err;
+        if (postgresError(err)?.code !== "23505") throw err;
         throw Object.assign(
           new Error(`a collection with slug "${input.slug}" already exists in this workspace`),
           { code: "23505" },

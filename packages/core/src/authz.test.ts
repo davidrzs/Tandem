@@ -12,6 +12,7 @@ import {
   workspaceMembers,
   workspaces,
   type Actor,
+  postgresError,
 } from "@tandem/db";
 import { eq } from "drizzle-orm";
 import { CollectionService } from "./services/collections.js";
@@ -29,7 +30,11 @@ import { WorkspaceService } from "./services/workspaces.js";
  */
 const db = createDatabase("memory://");
 const actor = (userId: string): Actor => ({ kind: "user", userId });
-const DENIED = /row-level security|permission denied/i;
+/** An assert.rejects check for a refusal by Postgres itself: drizzle wraps
+ * the database error (its message is the SQL), so match the error inside. */
+const dbRefuses = (pattern: RegExp) => (err: unknown) =>
+  pattern.test(postgresError(err)?.message ?? (err instanceof Error ? err.message : String(err)));
+const DENIED = dbRefuses(/row-level security|permission denied/i);
 
 let wsO = ""; // owner's workspace
 let colO = ""; // a collection in wsO

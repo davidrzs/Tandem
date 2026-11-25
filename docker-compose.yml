@@ -31,8 +31,8 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       # Uploaded image bytes live on this volume so they survive rebuilds.
       UPLOADS_DIR: /data/uploads
-      # Proxy hops in front of the app (see DEPLOY.md); 0 if exposed directly.
-      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Proxies trusted for client IPs (see DEPLOY.md); 0 if exposed directly.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       MIGRATE_ON_BOOT: ${MIGRATE_ON_BOOT:-1}
     volumes:
       - uploads:/data/uploads

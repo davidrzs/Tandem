@@ -14,7 +14,7 @@ import {
   workspaceMembers,
 } from "@tandem/db";
 import { eq } from "drizzle-orm";
-import { buildHttpServer, mcpAccessError } from "./http.js";
+import { buildHttpServer, mcpAccessError, trustProxyFrom } from "./http.js";
 import { mintImageUploadToken, readImageBytes } from "./images.js";
 import { createServices } from "./services.js";
 
@@ -87,6 +87,40 @@ test("behind a proxy, rate limits are per client IP, not per proxy", async () =>
     await app.close();
     await db.$dispose();
   }
+});
+
+test("a client reaching the app directly cannot pick its IP with X-Forwarded-For", async () => {
+  const db = createDatabase("memory://");
+  await migrateDatabase(db);
+  const app = await buildHttpServer(db);
+  try {
+    await app.ready();
+    // Not from a private network, so not a trusted proxy: the header is ignored
+    // and every attempt counts against the real address.
+    const attempt = (claimed: string, i: number) =>
+      app.inject({
+        method: "POST",
+        url: "/api/auth/request-password-reset",
+        remoteAddress: "198.51.100.7",
+        headers: { "x-forwarded-for": claimed },
+        payload: { email: `spoof-${i}@x.com` },
+      });
+    for (let i = 0; i < 5; i++) await attempt(`203.0.113.${i + 10}`, i);
+    assert.equal((await attempt("203.0.113.99", 5)).statusCode, 429);
+  } finally {
+    await app.close();
+    await db.$dispose();
+  }
+});
+
+test("TRUST_PROXY lists trusted proxies; hop counts read as the private-network default", () => {
+  const privateNets = "loopback,linklocal,uniquelocal";
+  assert.equal(trustProxyFrom(undefined), privateNets);
+  assert.equal(trustProxyFrom(""), privateNets);
+  assert.equal(trustProxyFrom("0"), false);
+  assert.equal(trustProxyFrom("false"), false);
+  assert.equal(trustProxyFrom("10.0.0.2, 10.0.0.3"), "10.0.0.2, 10.0.0.3");
+  assert.equal(trustProxyFrom("2"), privateNets);
 });
 
 test("sign-up attempts are rate limited per IP", async () => {

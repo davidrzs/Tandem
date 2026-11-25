@@ -45,6 +45,7 @@ try {
 
   // Deleting the thread's first comment would take the reply with it, so it
   // asks; Cancel keeps both. Deleting the reply alone doesn't ask.
+  await thread.locator(":scope > .comment-body").hover(); // actions show on hover
   await thread.locator(':scope > .comment-body .row-action[title="Delete comment"]').click();
   const dialog = page.getByRole("dialog", { name: "Delete thread" });
   await dialog.getByText("This also deletes its reply.").waitFor();
