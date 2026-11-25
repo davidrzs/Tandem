@@ -15,35 +15,37 @@ try {
 
   // Target document.
   await newDocument(page, c);
-  await page.fill(".title-input", "Target Page");
-  await page.waitForTimeout(800); // title-save debounce, so search can find it
+  await page.fill(".title-input[contenteditable=true]", "Target Page");
+  // Search reads the stored title, written when the live doc is stored
+  // (2 s debounce after the last edit).
+  await page.waitForTimeout(2600);
   const targetUrl = page.url();
 
   // Source document that @-links the target.
   await newDocument(page, c);
-  await page.fill(".title-input", "Source Page");
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "See ");
-  await page.type(".ProseMirror", "@Tar"); // @ + >=2 chars → documents appear
+  await page.fill(".title-input[contenteditable=true]", "Source Page");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "See ");
+  await page.type(".doc-body", "@Tar"); // @ + >=2 chars → documents appear
   await page.waitForSelector(".slash-menu");
   await page.locator(".slash-item", { hasText: "Target Page" }).click();
 
   // The chip renders with the target's title.
-  await page.locator(".ProseMirror .page-ref", { hasText: "Target Page" }).waitFor();
+  await page.locator(".doc-body .page-ref", { hasText: "Target Page" }).waitFor();
   await page.waitForTimeout(2800); // persist the link into content_md for backlinks
 
   // The target shows the source under "Linked from".
   await page.goto(targetUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await page.locator(".backlinks .backlink", { hasText: "Source Page" }).waitFor();
 
   // Rename the target; the chip in the source reflects the new title on reload.
-  await page.fill(".title-input", "Renamed Target");
+  await page.fill(".title-input[contenteditable=true]", "Renamed Target");
   await page.waitForTimeout(900);
   await page.reload();
   await page.waitForSelector(".backlinks .backlink");
   await page.locator(".backlink", { hasText: "Source Page" }).click();
-  await page.waitForSelector(".ProseMirror .page-ref");
+  await page.waitForSelector(".doc-body .page-ref");
   await page.locator(".page-ref", { hasText: "Renamed Target" }).waitFor();
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);

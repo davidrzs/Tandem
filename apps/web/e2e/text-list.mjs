@@ -51,7 +51,7 @@ try {
     kind: "text",
   });
   await page.reload();
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await page.getByRole("button", { name: "Page type: none" }).click();
   await page.getByRole("menuitem", { name: "Person" }).click();
   await page.locator(".props-summary[aria-expanded=true]").waitFor();

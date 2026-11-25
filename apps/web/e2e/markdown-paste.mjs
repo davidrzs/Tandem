@@ -9,7 +9,7 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(String(error)));
 
 async function paste(data) {
-  await page.locator(".ProseMirror").click();
+  await page.locator(".doc-body").click();
   await page.evaluate((clipboard) => {
     const transfer = new DataTransfer();
     for (const [type, value] of Object.entries(clipboard)) {
@@ -19,7 +19,7 @@ async function paste(data) {
     // Chromium's ClipboardEvent constructor ignores a clipboardData init
     // member, so attach the synthetic transfer explicitly.
     Object.defineProperty(event, "clipboardData", { value: transfer });
-    document.querySelector(".ProseMirror")?.dispatchEvent(event);
+    document.querySelector(".doc-body")?.dispatchEvent(event);
   }, data);
 }
 
@@ -29,7 +29,7 @@ try {
   await createCollection(page, collection);
   await newDocument(page, collection);
   await page.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.getAttribute("contenteditable") === "true",
+    () => document.querySelector(".doc-body")?.getAttribute("contenteditable") === "true",
   );
 
   await paste({
@@ -49,11 +49,11 @@ try {
     ].join("\n"),
   });
 
-  await page.waitForSelector(".ProseMirror h2", { state: "visible" });
-  await page.waitForSelector(".ProseMirror strong", { state: "visible" });
-  await page.waitForSelector('.ProseMirror ul[data-type="taskList"]');
-  await page.waitForSelector(".ProseMirror table");
-  await page.waitForSelector(".ProseMirror .callout-note");
+  await page.waitForSelector(".doc-body h2", { state: "visible" });
+  await page.waitForSelector(".doc-body strong", { state: "visible" });
+  await page.waitForSelector('.doc-body ul[data-type="taskList"]');
+  await page.waitForSelector(".doc-body table");
+  await page.waitForSelector(".doc-body .callout-note");
 
   // When a source offers rich HTML, retain it instead of interpreting its
   // plain-text fallback as Markdown.
@@ -63,7 +63,7 @@ try {
     "text/plain": "## Plain fallback",
     "text/html": "<p><em>Rich HTML source</em></p>",
   });
-  await page.waitForSelector(".ProseMirror em", { state: "visible" });
+  await page.waitForSelector(".doc-body em", { state: "visible" });
   if (await page.getByRole("heading", { name: "Plain fallback" }).count()) {
     throw new Error("rich HTML paste was replaced by its Markdown-looking fallback");
   }
@@ -77,13 +77,13 @@ try {
     "text/plain": "Explicit Markdown",
     "text/html": "<p>Explicit Markdown</p>",
   });
-  await page.waitForSelector(".ProseMirror h3", { state: "visible" });
+  await page.waitForSelector(".doc-body h3", { state: "visible" });
 
   await page.waitForTimeout(2800);
   await page.reload();
-  await page.waitForSelector(".ProseMirror h2", { state: "visible" });
-  await page.waitForSelector(".ProseMirror h3", { state: "visible" });
-  await page.waitForSelector(".ProseMirror .callout-note");
+  await page.waitForSelector(".doc-body h2", { state: "visible" });
+  await page.waitForSelector(".doc-body h3", { state: "visible" });
+  await page.waitForSelector(".doc-body .callout-note");
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log("MARKDOWN PASTE PASS — plain Markdown parses, rich HTML stays rich, content persists");

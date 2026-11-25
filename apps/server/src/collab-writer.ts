@@ -1,6 +1,7 @@
 import {
   applyAttributedEdit,
   applyAttributedProperties,
+  applyAttributedTitle,
   COLLAB_FIELD,
   diffProperties,
   jsonToMarkdown,
@@ -90,6 +91,27 @@ export function createCollabWriter(
         let clientId: number | null = null;
         await connection.transact((doc) => {
           clientId = applyAttributedProperties(doc, ops, { ...author, at: Date.now() });
+        });
+        return clientId;
+      } finally {
+        await connection.disconnect();
+      }
+    },
+
+    /** Set the live doc's title as one attributed session; the store that
+     * follows projects it to the title column. Returns the session's
+     * clientID, or null when the title was already `title`. */
+    async setTitle(docId: string, title: string): Promise<number | null> {
+      if (!(await documents.canWrite(docId))) {
+        throw new DocumentWriteDeniedError();
+      }
+      const connection = await hocuspocus.openDirectConnection(docId, {
+        userId: author.userId,
+      });
+      try {
+        let clientId: number | null = null;
+        await connection.transact((doc) => {
+          clientId = applyAttributedTitle(doc, title, { ...author, at: Date.now() });
         });
         return clientId;
       } finally {

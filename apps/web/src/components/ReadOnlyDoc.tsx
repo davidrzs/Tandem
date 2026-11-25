@@ -20,6 +20,7 @@ export function ReadOnlyDoc({
       editable: false,
       content: contentJson as object,
       extensions: contentExtensions(liveSection),
+      editorProps: { attributes: { class: "doc-body" } },
     },
     [contentJson],
   );

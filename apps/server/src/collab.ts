@@ -17,7 +17,9 @@ import {
   sanitizeClientAuthorsWrites,
   scanTaskItems,
   seedAttributedDoc,
+  seedTitle,
   stampMissingFromUpdate,
+  titleOf,
   UNKNOWN_AUTHOR,
 } from "@tandem/editor";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
@@ -129,6 +131,10 @@ export function createHocuspocus(
         );
         Y.applyUpdate(document, canonical);
       }
+      // A page from before titles lived in the doc takes its column's. Every
+      // load writes the identical seed, so loads that race, or a browser
+      // merging an offline copy back, still end up with one title.
+      seedTitle(document, doc.title);
       return document;
     },
 
@@ -194,13 +200,20 @@ export function createHocuspocus(
       const state = Y.encodeStateAsUpdate(document);
       const services = servicesFor(storeContext.userId);
       const contentMd = jsonToMarkdown(json);
+      const title = titleOf(document);
       const saved = await services.documents.saveCollabSnapshot(documentName, {
         ydocState: state,
         contentJson: json,
         contentMd,
         properties: propertiesToJSON(document),
         tasks: projectTasks(document, getAuthors(document)),
+        title,
       });
+      // Lists and links read the title column: tell the page's viewers it
+      // changed so they refetch it (the title itself already reached them).
+      if (saved && title !== null && title !== saved.title) {
+        document.broadcastStateless(JSON.stringify({ topic: "meta" }));
+      }
       // Long-session version capture (fire-and-forget; deduped + rate-limited).
       if (saved) {
         void services.snapshots
@@ -216,9 +229,9 @@ export function createHocuspocus(
           .onDocumentStored({
             documentId: documentName,
             workspaceId: saved.workspaceId,
+            documentTitle: title ?? saved.title,
             // Baseline = the row this very write replaced (read under its
             // row lock), so racing stores can't diff against the same state.
-            documentTitle: saved.title,
             oldMarkdown: saved.previousMd,
             newMarkdown: contentMd,
             actor: {

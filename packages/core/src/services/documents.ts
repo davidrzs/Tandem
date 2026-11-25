@@ -11,6 +11,7 @@ import {
 } from "@tandem/db";
 import {
   applyEditToState,
+  cleanTitle,
   diffProperties,
   stateProperties,
   SYSTEM_AUTHOR,
@@ -244,12 +245,22 @@ function backfillPage(db: Database, id: string): Promise<boolean> {
   return db.transaction(async (tx) => {
     const page = tx as unknown as Database;
     const [doc] = await page
-      .select({ ydocState: documents.ydocState, contentMd: documents.contentMd, updatedAt: documents.updatedAt })
+      .select({
+        ydocState: documents.ydocState,
+        contentMd: documents.contentMd,
+        title: documents.title,
+        updatedAt: documents.updatedAt,
+      })
       .from(documents)
       .where(eq(documents.id, id))
       .for("update");
     if (!doc) return false;
-    const edited = applyEditToState(doc.ydocState, {}, { ...SYSTEM_AUTHOR, at: Date.now() }, doc.contentMd);
+    const edited = applyEditToState(
+      doc.ydocState,
+      {},
+      { ...SYSTEM_AUTHOR, at: Date.now() },
+      { markdown: doc.contentMd, title: doc.title },
+    );
     if (edited.tasks.length === 0) return false;
     await page.update(documents).set({ ydocState: edited.ydocState }).where(eq(documents.id, id));
     await writeTaskRows(page, id, edited.tasks, doc.updatedAt);
@@ -305,9 +316,10 @@ export async function insertDocument(
   // Seed the Yjs write model at creation so the initial content is
   // attributed to its creator (not to whoever opens the doc first).
   const body = input.markdown?.trim() ? () => input.markdown! : undefined;
+  const title = cleanTitle(input.title ?? "");
   const seeded =
-    body || input.properties?.length
-      ? applyEditToState(null, { body, properties: input.properties }, author)
+    body || input.properties?.length || title
+      ? applyEditToState(null, { body, properties: input.properties, title: title || undefined }, author)
       : null;
   const { contentMd, contentJson } = seeded ?? deriveContent("");
   const projected = await projectionColumns(db, col.workspaceId, seeded?.properties ?? {});
@@ -317,7 +329,7 @@ export async function insertDocument(
       workspaceId: col.workspaceId,
       collectionId: input.collectionId,
       parentDocumentId: parentId,
-      title: input.title ?? "",
+      title,
       tags: input.tags ? normalizeTags(input.tags) : [],
       position,
       contentMd,
@@ -454,10 +466,21 @@ export class DocumentService extends DocumentServiceBase {
     });
   }
 
+  /** Tags, and the title for writers without a live collaboration session:
+   * the title lives in the Yjs state (title.ts), so it is written there and
+   * projected, like editBody. Null when the actor can't write the document.
+   * The HTTP server renames through the collab writer instead. */
   async update(id: string, patch: UpdateDocumentInput): Promise<Document | null> {
+    if (patch.title !== undefined) {
+      try {
+        await this.editState(id, { title: patch.title });
+      } catch (err) {
+        if (err instanceof DocumentWriteDeniedError || err instanceof NotFoundError) return null;
+        throw err;
+      }
+    }
     return this.exec(async (db) => {
       const set: Record<string, unknown> = { updatedAt: new Date() };
-      if (patch.title !== undefined) set.title = patch.title;
       if (patch.tags !== undefined) set.tags = normalizeTags(patch.tags);
       const [row] = await db
         .update(documents)
@@ -499,6 +522,7 @@ export class DocumentService extends DocumentServiceBase {
           workspaceId: documents.workspaceId,
           ydocState: documents.ydocState,
           contentMd: documents.contentMd,
+          title: documents.title,
           tasks: storedTasks(id),
         })
         .from(documents)
@@ -514,11 +538,15 @@ export class DocumentService extends DocumentServiceBase {
         if (readable) throw new DocumentWriteDeniedError();
         throw new NotFoundError("document not found");
       }
-      const edited = applyEditToState(doc.ydocState, edit, this.authorInfo(), doc.contentMd);
+      const edited = applyEditToState(doc.ydocState, edit, this.authorInfo(), {
+        markdown: doc.contentMd,
+        title: doc.title,
+      });
       const [row] = await db
         .update(documents)
         .set({
           ydocState: edited.ydocState,
+          ...(edited.title !== null ? { title: edited.title } : {}),
           contentMd: edited.contentMd,
           contentJson: edited.contentJson,
           ...(await projectionColumns(db, doc.workspaceId, edited.properties)),
@@ -565,6 +593,8 @@ export class DocumentService extends DocumentServiceBase {
       contentJson: unknown;
       properties: PropertiesJSON;
       tasks: readonly ProjectedTask[];
+      /** The doc's title (title.ts); null or absent leaves the column. */
+      title?: string | null;
     },
   ): Promise<{ workspaceId: string; previousMd: string; title: string } | null> {
     return this.execTx(async (db) => {
@@ -596,6 +626,7 @@ export class DocumentService extends DocumentServiceBase {
           ydocState: snapshot.ydocState,
           contentMd: snapshot.contentMd,
           contentJson: snapshot.contentJson,
+          ...(snapshot.title != null ? { title: snapshot.title } : {}),
           ...(await projectionColumns(db, prev.workspaceId, snapshot.properties)),
           updatedAt: new Date(),
         })

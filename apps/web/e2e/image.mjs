@@ -16,7 +16,7 @@ try {
   const collectionName = `Imgs ${stamp}`;
   await createCollection(page, collectionName);
   await newDocument(page, collectionName);
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
 
   // Simulate dropping an image file onto the editor (canonical Playwright
   // recipe: build the DataTransfer in-page, pass the handle to dispatchEvent).
@@ -27,16 +27,16 @@ try {
     return dt;
   }, PNG_1x1);
   // ProseMirror bails unless the drop coords map to a position in the editor.
-  const pm = await page.locator(".ProseMirror").boundingBox();
-  await page.dispatchEvent(".ProseMirror", "drop", {
+  const pm = await page.locator(".doc-body").boundingBox();
+  await page.dispatchEvent(".doc-body", "drop", {
     dataTransfer,
     clientX: Math.round(pm.x + 20),
     clientY: Math.round(pm.y + 10),
   });
 
   // The uploaded image renders from the private endpoint.
-  await page.waitForSelector(".ProseMirror .img-node img", { timeout: 10000 });
-  const src = await page.getAttribute(".ProseMirror .img-node img", "src");
+  await page.waitForSelector(".doc-body .img-node img", { timeout: 10000 });
+  const src = await page.getAttribute(".doc-body .img-node img", "src");
   if (!src || !src.includes("/api/images/")) throw new Error(`bad image src: ${src}`);
   // The served bytes actually load (private endpoint, same session).
   const status = await page.evaluate(async (u) => (await fetch(u)).status, src);
@@ -44,7 +44,7 @@ try {
 
   // Resize via the drag handle and confirm the width changes.
   const before = await page.evaluate(
-    () => document.querySelector(".ProseMirror .img-node img").getBoundingClientRect().width,
+    () => document.querySelector(".doc-body .img-node img").getBoundingClientRect().width,
   );
   const handle = page.locator(".img-resize-handle");
   const box = await handle.boundingBox();
@@ -53,7 +53,7 @@ try {
   await page.mouse.move(box.x + 120, box.y + 6, { steps: 8 });
   await page.mouse.up();
   await page.waitForFunction(
-    (w) => document.querySelector(".ProseMirror .img-node img")?.getBoundingClientRect().width > w + 20,
+    (w) => document.querySelector(".doc-body .img-node img")?.getBoundingClientRect().width > w + 20,
     before,
     { timeout: 5000 },
   );

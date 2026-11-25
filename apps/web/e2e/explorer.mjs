@@ -85,7 +85,7 @@ try {
   const c = `Explorer ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  await page.fill(".title-input", "Short");
+  await page.fill(".title-input[contenteditable=true]", "Short");
   const short = page.locator(".doc-row", { hasText: "Short" });
   await short.waitFor();
   const titleGap = () =>
@@ -110,7 +110,7 @@ try {
   const long = `A deliberately long document title that cannot fit ${"in a sidebar row ".repeat(4)}`.trim();
   await newDocument(page, c);
   const longUrl = page.url();
-  await page.fill(".title-input", long);
+  await page.fill(".title-input[contenteditable=true]", long);
   const longRow = page.locator(".doc-row", { hasText: long.slice(0, 30) });
   await longRow.waitFor();
   await page.mouse.move(900, 400);
@@ -123,8 +123,8 @@ try {
   await short.hover();
   await short.locator('.row-action[title="New sub-document"]').click();
   await page.waitForURL((url) => url.pathname !== before && url.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
-  await page.fill(".title-input", "Nested");
+  await page.waitForSelector(".doc-body");
+  await page.fill(".title-input[contenteditable=true]", "Nested");
   const nested = page.locator(".doc-row", { hasText: "Nested" });
   await nested.waitFor();
   const level = await nested.getAttribute("aria-level");
@@ -166,7 +166,7 @@ try {
   await treeDocs.first().waitFor({ state: "detached" });
 
   await page.goto(nestedUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await nested.waitFor();
   await page.getByTitle("Collapse all").click();
   await nested.waitFor({ state: "detached" });
@@ -181,13 +181,13 @@ try {
   assert((await nested.getAttribute("tabindex")) === "0", "the revealed row is the tree's tab stop");
 
   await page.goto(longUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await longRow.hover();
   await longRow.getByTitle("More actions").click();
   await page.getByRole("menuitem", { name: "Archive" }).click();
   await page.waitForURL((url) => url.pathname === "/");
   await page.goto(longUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   // Collapse all folds only the documents the sidebar has loaded.
   await short.waitFor();
   const archivedRow = page.locator(".archived-row", { hasText: long.slice(0, 30) });
@@ -241,7 +241,7 @@ try {
 
   await newDocument(page, c);
   const parentUrl = page.url();
-  await page.fill(".title-input", "Research");
+  await page.fill(".title-input[contenteditable=true]", "Research");
   const research = page.locator(".doc-row", { hasText: "Research" });
   await research.waitFor();
   assert((await page.locator(".sub-pages").count()) === 0, "a document without children shows no Pages section");
@@ -249,15 +249,15 @@ try {
   await research.locator('.row-action[title="New sub-document"]').click();
   await page.waitForURL((url) => url.href !== parentUrl && url.pathname.startsWith("/d/"));
   const findingsUrl = page.url();
-  await page.waitForSelector(".ProseMirror");
-  await page.fill(".title-input", "Findings");
+  await page.waitForSelector(".doc-body");
+  await page.fill(".title-input[contenteditable=true]", "Findings");
   const findings = page.locator(".doc-row", { hasText: "Findings" });
   await findings.waitFor();
   await findings.hover();
   await findings.locator('.row-action[title="New sub-document"]').click();
   await page.waitForURL((url) => url.href !== findingsUrl && url.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
-  await page.fill(".title-input", "Evidence");
+  await page.waitForSelector(".doc-body");
+  await page.fill(".title-input[contenteditable=true]", "Evidence");
   await page.locator(".doc-row", { hasText: "Evidence" }).waitFor();
 
   await page.goto(parentUrl);
@@ -300,8 +300,8 @@ try {
   await page.goto(parentUrl);
   await pages.getByRole("button", { name: "New page" }).click();
   await page.waitForURL((url) => url.href !== parentUrl && url.href !== findingsUrl && url.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
-  await page.fill(".title-input", "Fresh page");
+  await page.waitForSelector(".doc-body");
+  await page.fill(".title-input[contenteditable=true]", "Fresh page");
   const fresh = page.locator(".doc-row", { hasText: "Fresh page" });
   await fresh.waitFor();
   const freshLevel = await fresh.getAttribute("aria-level");
@@ -341,7 +341,7 @@ try {
   await onCollectionPage("the collection crumb opens the collection page");
 
   await page.goto(parentUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   const openCollectionPage = async (row) => {
     await row.hover();
     await row.getByTitle("More actions").click();
@@ -369,7 +369,7 @@ try {
   const treeSnapshot = await page.locator(".tree").ariaSnapshot();
   assert(!treeSnapshot.includes("No documents yet"), `the tree owns only tree items (got ${treeSnapshot})`);
   await newDocument(page, other);
-  await page.fill(".title-input", "Elsewhere");
+  await page.fill(".title-input[contenteditable=true]", "Elsewhere");
   await page.locator(".doc-row", { hasText: "Elsewhere" }).waitFor();
   await openCollectionPage(collectionRow);
   await onCollectionPage("the collection menu opens the collection page from another collection");

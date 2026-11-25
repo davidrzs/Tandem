@@ -5,6 +5,7 @@ import { jsonToMarkdown, markdownToJSON } from "./markdown.js";
 import { applyPropertyPatch, propertiesToJSON, type PropertiesJSON, type PropertyOp } from "./properties.js";
 import { COLLAB_FIELD, schema } from "./schema.js";
 import { fillTaskBlockIds, projectTasks, withTaskBlockIds, type ProjectedTask } from "./tasks.js";
+import { cleanTitle, replaceTitle, TITLE_FIELD, titleOf, writeTitle } from "./title.js";
 
 /**
  * Authorship (blame) model. Every Yjs client session that inserts content gets
@@ -127,6 +128,12 @@ export function applyAttributedProperties(
   return runAttributed(doc, author, () => applyPropertyPatch(doc, ops) > 0);
 }
 
+/** Set the doc's title as one attributed session. Returns the session's
+ * clientID, or null when the title was already `title`. */
+export function applyAttributedTitle(doc: Y.Doc, title: string, author: AuthorInfo): number | null {
+  return runAttributed(doc, author, () => replaceTitle(doc, title));
+}
+
 /** Apply a property patch to a persisted state as one attributed session,
  * leaving the body alone. The new state, or null when nothing changed. */
 export function applyPropertiesToState(
@@ -164,18 +171,44 @@ export const UNKNOWN_AUTHOR: AuthorInfo = { userId: "", name: "Unknown", ai: fal
  * upgrades, conversions after a field's kind changes. */
 export const SYSTEM_AUTHOR: AuthorIdentity = { userId: "system", name: "System", ai: true };
 
+/** The clientID every title seed is written as. Seeds must be identical
+ * wherever they are made: a page can be seeded by several loads before one of
+ * them is stored, and a browser keeps its copy offline and merges it back
+ * later. Two seeds with different clientIDs would merge into the title
+ * twice; two identical ones are the same items and merge into one. */
+const SEED_CLIENT = 0x7469746c;
+
+/** Give a doc that holds no title the column's `title`, written as the
+ * shared seed (no one's edit: blamed on Unknown). No-op when the doc holds a
+ * title, even an empty one, or when `title` is empty. */
+export function seedTitle(doc: Y.Doc, title: string): void {
+  if (!cleanTitle(title) || doc.getXmlFragment(TITLE_FIELD).length > 0) return;
+  const seed = new Y.Doc();
+  seed.clientID = SEED_CLIENT;
+  seed.transact(() => {
+    writeTitle(seed.getXmlFragment(TITLE_FIELD), cleanTitle(title));
+    seed.getMap<AuthorInfo>(AUTHORS_KEY).set(String(SEED_CLIENT), UNKNOWN_AUTHOR);
+  });
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed));
+}
+
+
 export interface EditedState {
   ydocState: Uint8Array;
   contentMd: string;
   contentJson: unknown;
   properties: PropertiesJSON;
   tasks: ProjectedTask[];
+  /** The doc's title; null when it holds none (see title.ts). */
+  title: string | null;
 }
 
-/** A body transform (markdown in, markdown out), a property patch, or both. */
+/** A body transform (markdown in, markdown out), a property patch, a new
+ * title, or any of them together. */
 export interface StateEdit {
   body?: (currentMd: string) => string;
   properties?: readonly PropertyOp[];
+  title?: string;
 }
 
 /**
@@ -189,16 +222,18 @@ export function applyEditToState(
   state: Uint8Array | null,
   edit: StateEdit,
   author: AuthorInfo,
-  legacyMd = "",
+  /** The row's markdown and title, for a doc that predates holding them. */
+  legacy: { markdown?: string; title?: string } = {},
 ): EditedState {
   const doc = new Y.Doc();
   if (state && state.length > 0) Y.applyUpdate(doc, state);
   const fragment = doc.getXmlFragment(COLLAB_FIELD);
   // A doc from before Yjs persistence: seed its markdown as pre-blame content
   // so the edit lands on the real body and existing text isn't re-attributed.
-  if (fragment.length === 0 && legacyMd) {
-    applyAttributedEdit(doc, markdownToJSON(legacyMd), UNKNOWN_AUTHOR);
+  if (fragment.length === 0 && legacy.markdown) {
+    applyAttributedEdit(doc, markdownToJSON(legacy.markdown), UNKNOWN_AUTHOR);
   }
+  seedTitle(doc, legacy.title ?? "");
   if (edit.body) {
     const currentMd =
       fragment.length > 0 ? jsonToMarkdown(yXmlFragmentToProsemirrorJSON(fragment)) : "";
@@ -206,6 +241,7 @@ export function applyEditToState(
   } else if (edit.properties) {
     applyAttributedProperties(doc, edit.properties, author);
   }
+  if (edit.title !== undefined) applyAttributedTitle(doc, edit.title, author);
   // A state from before block ids gets them here, so its tasks project. Ids
   // are bookkeeping, not writing: no session is stamped for them.
   doc.transact(() => fillTaskBlockIds(doc));
@@ -217,6 +253,7 @@ export function applyEditToState(
     contentJson,
     properties: propertiesToJSON(doc),
     tasks: projectTasks(doc, getAuthors(doc)),
+    title: titleOf(doc),
   };
 }
 

@@ -1,12 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { documentUpdateShape, markdownSchema, titleSchema } from "@tandem/core";
+import { DocumentWriteDeniedError, documentUpdateShape, markdownSchema, titleSchema } from "@tandem/core";
 import { appendMarkdown, insertAfterHeading, replaceSection, replaceText } from "@tandem/editor";
 import { frontMatterError, toolError, type ToolContext } from "../shared.js";
 
 /** Metadata updates and targeted body edits. */
 export function registerEditTools(server: McpServer, ctx: ToolContext): void {
-  const { documents, notify, logAudit, editBody, writeResult } = ctx;
+  const { documents, writer, logAudit, editBody, writeResult } = ctx;
 
   server.registerTool(
     "update_document",
@@ -23,12 +23,19 @@ export function registerEditTools(server: McpServer, ctx: ToolContext): void {
       if (title === undefined && tags === undefined) {
         return toolError("provide a title and/or tags to update");
       }
-      const doc = await documents.update(id, { title, tags });
-      if (doc) {
-        logAudit(title !== undefined ? "rename_document" : "tag_document", doc);
-        // Titles live outside the CRDT body: ping open editors to refetch.
-        if (title !== undefined) notify?.(id, "meta");
+      let sessionId: number | null = null;
+      // The title lives in the live doc: rename through it (see trpc update).
+      if (title !== undefined && writer) {
+        if (!(await documents.get(id))) return writeResult(id, null);
+        try {
+          sessionId = await writer.setTitle(id, title);
+        } catch (err) {
+          if (err instanceof DocumentWriteDeniedError) return writeResult(id, null);
+          throw err;
+        }
       }
+      const doc = await documents.update(id, { title: writer ? undefined : title, tags });
+      if (doc) logAudit(title !== undefined ? "rename_document" : "tag_document", doc, undefined, sessionId);
       return writeResult(id, doc);
     },
   );

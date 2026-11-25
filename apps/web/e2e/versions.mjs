@@ -11,7 +11,7 @@ page.on("pageerror", (e) => errors.push(String(e)));
 
 const waitForBody = (text) =>
   page.waitForFunction(
-    (t) => document.querySelector(".ProseMirror")?.textContent?.includes(t),
+    (t) => document.querySelector(".doc-body")?.textContent?.includes(t),
     text,
   );
 
@@ -22,20 +22,20 @@ try {
   await newDocument(page, c);
 
   // Version 1, persist, reload (onLoadDocument captures a boundary snapshot).
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "Version one.");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "Version one.");
   await page.waitForTimeout(2800);
   await page.reload();
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await waitForBody("Version one.");
 
   // Version 2, persist, reload (second boundary snapshot).
-  await page.click(".ProseMirror");
+  await page.click(".doc-body");
   await page.keyboard.press("Control+End");
-  await page.type(".ProseMirror", " Version two.");
+  await page.type(".doc-body", " Version two.");
   await page.waitForTimeout(2800);
   await page.reload();
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await waitForBody("Version two.");
 
   // Open History → the Versions section lists the captured versions.
@@ -55,7 +55,7 @@ try {
   await page.getByRole("button", { name: "Restore this version" }).click();
   await page.waitForSelector(".preview-banner", { state: "detached" });
   await page.waitForFunction(() => {
-    const t = document.querySelector(".ProseMirror")?.textContent ?? "";
+    const t = document.querySelector(".doc-body")?.textContent ?? "";
     return t.includes("Version one.") && !t.includes("Version two.");
   });
 

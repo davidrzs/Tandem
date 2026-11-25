@@ -26,20 +26,20 @@ try {
   const c = `Crash ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  await page.fill(".title-input", "Everything doc");
+  await page.fill(".title-input[contenteditable=true]", "Everything doc");
 
   // Rich content: math, a code block, a table, and a tag — the surfaces most
   // likely to break a render.
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "Math $E=mc^2$ here.");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "Math $E=mc^2$ here.");
   await page.keyboard.press("Enter");
-  await page.type(".ProseMirror", "```js ");
-  await page.type(".ProseMirror", "const x = 1;");
+  await page.type(".doc-body", "```js ");
+  await page.type(".doc-body", "const x = 1;");
   await page.keyboard.press("ArrowDown");
-  await page.type(".ProseMirror", "/table");
+  await page.type(".doc-body", "/table");
   await page.waitForSelector(".slash-menu");
   await page.keyboard.press("Enter");
-  await page.waitForSelector(".ProseMirror table");
+  await page.waitForSelector(".doc-body table");
   await page.getByRole("button", { name: "Add tag" }).click();
   await page.locator(".tag-input").fill("check");
   await page.keyboard.press("Enter");

@@ -16,20 +16,20 @@ try {
 
   // Type a dash (→ bullet), then "[ ] " (→ checkbox), then content. The input
   // rule fires on the space after "]" while the item holds only the marker.
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "- [ ] Buy milk");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "- [ ] Buy milk");
 
-  await page.waitForSelector('.ProseMirror ul[data-type="taskList"]');
-  const checkbox = await page.$('.ProseMirror ul[data-type="taskList"] input[type="checkbox"]');
+  await page.waitForSelector('.doc-body ul[data-type="taskList"]');
+  const checkbox = await page.$('.doc-body ul[data-type="taskList"] input[type="checkbox"]');
   if (!checkbox) throw new Error("no checkbox rendered — marker did not convert");
 
-  const itemText = (await page.textContent(".ProseMirror li[data-checked]")) ?? "";
+  const itemText = (await page.textContent(".doc-body li[data-checked]")) ?? "";
   if (!itemText.includes("Buy milk")) throw new Error(`task text missing: "${itemText}"`);
   if (itemText.includes("[ ]")) throw new Error(`marker text leaked into the item: "${itemText}"`);
 
   // Checking it must persist (controlled checkbox + optimistic round-trip).
   await checkbox.click();
-  await page.waitForSelector('.ProseMirror li[data-checked="true"]');
+  await page.waitForSelector('.doc-body li[data-checked="true"]');
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log("TASKS PASS — '- [ ] ' converts to a checkbox and toggles");

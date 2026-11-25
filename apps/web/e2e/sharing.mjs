@@ -21,9 +21,9 @@ try {
   const a = await signUp(await browser.newContext(), "Alice", "Alice");
   await createCollection(a, collectionName);
   await newDocument(a, collectionName);
-  await a.fill(".title-input", title);
-  await a.click(".ProseMirror");
-  await a.type(".ProseMirror", "Read me, do not edit.");
+  await a.fill(".title-input[contenteditable=true]", title);
+  await a.click(".doc-body");
+  await a.type(".doc-body", "Read me, do not edit.");
   await a.waitForTimeout(800);
 
   // Share & access → default role "Can view".
@@ -50,11 +50,11 @@ try {
   await b.getByRole("menuitem", { name: "Alice workspace" }).click();
   await b.locator(".collection-row").getByText(collectionName, { exact: true }).click();
   await b.getByText(title, { exact: true }).click();
-  await b.waitForSelector(".ProseMirror");
+  await b.waitForSelector(".doc-body");
 
   // Bob sees the content...
   await b.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.textContent?.includes("Read me, do not edit."),
+    () => document.querySelector(".doc-body")?.textContent?.includes("Read me, do not edit."),
     { timeout: 10000 },
   );
   // ...but the editor is read-only.
@@ -62,7 +62,7 @@ try {
     () => document.querySelector(".save-state")?.textContent === "Read only",
     { timeout: 5000 },
   );
-  const editable = await b.getAttribute(".ProseMirror", "contenteditable");
+  const editable = await b.getAttribute(".doc-body", "contenteditable");
   if (editable !== "false") throw new Error(`editor should be read-only, got contenteditable=${editable}`);
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);

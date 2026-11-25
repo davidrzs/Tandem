@@ -2,12 +2,22 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createDatabase, documents, migrateDatabase, SYSTEM, tasks, workspaceMembers } from "@tandem/db";
 import { eq } from "drizzle-orm";
-import { COLLAB_FIELD, jsonToMarkdown, markdownToJSON, PROPERTIES_KEY, schema } from "@tandem/editor";
+import {
+  COLLAB_FIELD,
+  getAuthors,
+  jsonToMarkdown,
+  markdownToJSON,
+  PROPERTIES_KEY,
+  replaceTitle,
+  schema,
+  titleOf,
+} from "@tandem/editor";
 import { CollectionService, DocumentService, WorkspaceService } from "@tandem/core";
 import { type Connection, OutgoingMessage } from "@hocuspocus/server";
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 import { createAuth } from "./auth.js";
+import { createCollabWriter } from "./collab-writer.js";
 import { createHocuspocus } from "./collab.js";
 
 const db = createDatabase("memory://");
@@ -100,6 +110,65 @@ test("a legacy markdown-only doc gets one canonical Yjs state across read-only l
   Y.applyUpdate(merged, first);
   const md = jsonToMarkdown(yXmlFragmentToProsemirrorJSON(merged.getXmlFragment(COLLAB_FIELD)));
   assert.equal(md.match(/Legacy body\./g)?.length, 1, md);
+});
+
+test("a title edited in the live doc is projected to the title column", async () => {
+  const id = (await new DocumentService(db, u1).create({ collectionId, title: "Advisor" })).id;
+  const connection = await hocuspocus.openDirectConnection(id, { userId: "u1" });
+  await connection.transact((doc) => {
+    assert.equal(titleOf(doc), "Advisor", "a new page holds its title");
+    replaceTitle(doc, "Advisor 1:1");
+  });
+  await connection.disconnect();
+  assert.equal((await new DocumentService(db, u1).getMeta(id))!.title, "Advisor 1:1");
+});
+
+test("a rename through the writer reaches an open session and the column", async () => {
+  const id = (await new DocumentService(db, u1).create({ collectionId, title: "Draft" })).id;
+  const open = await hocuspocus.openDirectConnection(id, { userId: "u1" });
+  try {
+    const writer = createCollabWriter(hocuspocus, new DocumentService(db, u1), { userId: "u1", name: "U1", ai: false });
+    assert.equal(typeof (await writer.setTitle(id, "Final")), "number");
+    assert.equal(await writer.setTitle(id, "Final"), null, "an unchanged title is no edit");
+    await open.transact((doc) => assert.equal(titleOf(doc), "Final"));
+    assert.equal((await new DocumentService(db, u1).getMeta(id))!.title, "Final");
+  } finally {
+    await open.disconnect();
+  }
+});
+
+test("a page from before titles lived in the doc takes its column's title, once", async () => {
+  // Read-only to u2, so loads don't store: each one seeds afresh.
+  const cols = new CollectionService(db, u1);
+  const ro = await cols.create({ name: "RO titles", slug: "ro-titles" });
+  await cols.setDefaultRole(ro.id, "read");
+  const id = (await new DocumentService(db, u1).create({ collectionId: ro.id, title: "Old page" })).id;
+  const bodyOnly = new Y.Doc();
+  prosemirrorJSONToYXmlFragment(schema, markdownToJSON("Body."), bodyOnly.getXmlFragment(COLLAB_FIELD));
+  await db.update(documents).set({ ydocState: Y.encodeStateAsUpdate(bodyOnly) }).where(eq(documents.id, id));
+
+  const load = async (): Promise<Uint8Array> => {
+    const conn = await hocuspocus.openDirectConnection(id, { userId: "u2" });
+    let state: Uint8Array = new Uint8Array();
+    await conn.transact((doc) => {
+      state = Y.encodeStateAsUpdate(doc);
+    });
+    await conn.disconnect();
+    return state;
+  };
+  const first = await load();
+  const second = await load();
+  // A browser that kept the first load offline merges it into the second.
+  const merged = new Y.Doc();
+  Y.applyUpdate(merged, second);
+  Y.applyUpdate(merged, first);
+  assert.equal(titleOf(merged), "Old page");
+  assert.deepEqual([...getAuthors(merged).values()].map((a) => a.name), ["Unknown"]);
+
+  // A writer's visit stores the seed; the column keeps its title.
+  const conn = await hocuspocus.openDirectConnection(id, { userId: "u1" });
+  await conn.disconnect();
+  assert.equal((await new DocumentService(db, u1).getMeta(id))!.title, "Old page");
 });
 
 /** A sync-update message as a websocket client would send it. */
