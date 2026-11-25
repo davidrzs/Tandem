@@ -34,6 +34,8 @@ not an entry
 ### 2026-11-03 level three
 
 > ## 2026-11-02 in a quote
+
+- ## 2026-11-01 in a list
 `);
 
 /** Both readings of the same page: the markdown text of each entry and its
