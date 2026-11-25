@@ -369,13 +369,25 @@ export const appRouter = t.router({
         z.object(documentUpdateShape),
       )
       .mutation(async ({ ctx, input }) => {
-        const { id, ...patch } = input;
-        const doc = await ctx.services.documents.update(id, patch);
+        const { id, title, tags } = input;
+        // The title lives in the live doc: rename through it, so open
+        // editors see it and its store projects the column.
+        if (title !== undefined && ctx.collabWriter) {
+          try {
+            await ctx.collabWriter.setTitle(id, title);
+          } catch (err) {
+            if (err instanceof DocumentWriteDeniedError) {
+              throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
+            }
+            throw err;
+          }
+        }
+        const doc = await ctx.services.documents.update(id, {
+          tags,
+          title: ctx.collabWriter ? undefined : title,
+        });
         // A null row on an RLS-scoped write means denied, not "not found".
         if (!doc) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot edit this document." });
-        // The title lives outside the CRDT body, so collaborators viewing the
-        // doc need a ping to refetch it — otherwise a rename stays stale.
-        if (patch.title !== undefined) ctx.notifyDocument?.(id, "meta");
         return doc;
       }),
 
@@ -407,6 +419,8 @@ export const appRouter = t.router({
     delete: protectedProcedure
       .input(z.object({ id: uuid }))
       .mutation(async ({ ctx, input }) => {
+        // Pages open right now save what they hold first (see flush).
+        await ctx.collabWriter?.flush(await ctx.services.documentTree.subtreeIds(input.id));
         const deleted = await ctx.services.documentTree.softDelete(input.id);
         if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot delete this document." });
       }),

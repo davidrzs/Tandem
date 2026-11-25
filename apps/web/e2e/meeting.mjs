@@ -30,7 +30,7 @@ async function createdPage(action) {
   const before = new URL(page.url()).pathname;
   await action();
   await page.waitForURL((url) => url.pathname !== before && url.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   return docIdOf(page.url());
 }
 
@@ -95,7 +95,7 @@ try {
   await page.waitForURL((url) => url.pathname === `/d/${meetings}`);
   const first = await newUnder(meetings);
   assertEqual((await trpcQuery("documents.getMeta", { id: first })).title, `Meeting ${today}`, "the first meeting's title");
-  await page.waitForFunction((t) => document.querySelector(".title-input")?.value === t, `Meeting ${today}`);
+  await page.waitForFunction((t) => document.querySelector(".title-input")?.textContent === t, `Meeting ${today}`);
   const firstView = await trpcQuery("documents.properties", { id: first });
   assertEqual(firstView.type?.name, "Meeting", "the first meeting's type");
   const key = (view) => Object.fromEntries(view.fields.filter((f) => f.id in view.values).map((f) => [f.key, view.values[f.id]]));
@@ -103,7 +103,7 @@ try {
   await trpcMutation("documents.setProperties", { id: first, set: { attendees: [ann, bob] } });
 
   await page.goto(`${BASE}/d/${meetings}`);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   const second = await newUnder(meetings);
   await page.locator(".props-summary-text", { hasText: "Attendees: Ann, Bob" }).waitFor();
   const secondView = await trpcQuery("documents.properties", { id: second });

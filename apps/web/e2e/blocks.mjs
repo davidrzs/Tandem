@@ -14,7 +14,7 @@ try {
   const c = `Blocks ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  const pm = ".ProseMirror";
+  const pm = ".doc-body";
   await page.click(pm);
 
   // Callout via slash menu.

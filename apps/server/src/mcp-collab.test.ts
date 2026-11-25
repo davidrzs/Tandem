@@ -18,6 +18,8 @@ import {
   propertiesToJSON,
   propertyBlame,
   schema,
+  TITLE_FIELD,
+  titleOf,
 } from "@tandem/editor";
 import { CollectionService, TypeService, WorkspaceService } from "@tandem/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
@@ -327,6 +329,35 @@ test("set_properties writes through the live doc; get_document, search, get_auth
   );
   const after = payload(await client.callTool({ name: "get_document", arguments: { id: docId } }));
   assert.deepEqual(after.properties.attendees, ["Ann", "Bob", "Cy"]);
+});
+
+test("update_document renames through the live doc, attributed to the agent", async () => {
+  const id = (await services.documents.create({ collectionId, title: "Notes" })).id;
+  const renamed = payload(await client.callTool({ name: "update_document", arguments: { id, title: "Advisor notes" } }));
+  assert.equal(renamed.title, "Advisor notes");
+  const conn = await hocuspocus.openDirectConnection(id, { userId: "u1" });
+  let title: string | null = null;
+  const writers = new Set<string>();
+  await conn.transact((doc) => {
+    title = titleOf(doc as unknown as Y.Doc);
+    const authors = getAuthors(doc as unknown as Y.Doc);
+    doc.getXmlFragment(TITLE_FIELD).forEach((paragraph) => {
+      (paragraph as Y.XmlElement).forEach((text) => {
+        let item = (text as Y.XmlText)._start;
+        for (; item; item = item.right) {
+          if (item.deleted) continue;
+          const who = authors.get(item.id.client);
+          writers.add(`${(item.content as Y.ContentString).str}:${who?.ai ? "ai" : "human"}`);
+        }
+      });
+    });
+  });
+  await conn.disconnect();
+  assert.equal(title, "Advisor notes");
+  // Only what changed is the agent's: "Notes" -> "Advisor notes" keeps "otes".
+  assert.deepEqual([...writers], ["Advisor n:ai", "otes:human"]);
+  const audited = auditEntries.at(-1)!;
+  assert.deepEqual([audited.action, typeof audited.sessionId], ["rename_document", "number"]);
 });
 
 test("a write to a read-only document is a permission error, not silent success", async () => {

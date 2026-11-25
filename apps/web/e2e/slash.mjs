@@ -15,8 +15,8 @@ try {
   await newDocument(page, collectionName);
 
   // Open the slash menu and filter to a heading.
-  await page.click(".ProseMirror");
-  await page.type(".ProseMirror", "/head");
+  await page.click(".doc-body");
+  await page.type(".doc-body", "/head");
   await page.waitForSelector(".slash-menu");
   const firstItem = await page.textContent(".slash-item");
   if (!firstItem || !firstItem.includes("Heading 1"))
@@ -24,15 +24,15 @@ try {
 
   // Apply it and type into the heading.
   await page.keyboard.press("Enter");
-  await page.type(".ProseMirror", "Slash Heading");
+  await page.type(".doc-body", "Slash Heading");
 
-  await page.waitForSelector(".ProseMirror h1");
-  const h1 = await page.textContent(".ProseMirror h1");
+  await page.waitForSelector(".doc-body h1");
+  const h1 = await page.textContent(".doc-body h1");
   if (!h1 || !h1.includes("Slash Heading"))
     throw new Error(`heading not applied via slash menu: "${h1}"`);
 
   // The "/head" trigger text must be gone (deleteRange ran).
-  const body = (await page.textContent(".ProseMirror")) ?? "";
+  const body = (await page.textContent(".doc-body")) ?? "";
   if (body.includes("/head")) throw new Error(`slash trigger text leaked: "${body}"`);
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);

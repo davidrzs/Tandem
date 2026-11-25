@@ -1,5 +1,7 @@
 import { BubbleMenu, EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
+import { Selection } from "@tiptap/pm/state";
+import type { Editor as TiptapEditor } from "@tiptap/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useSearchParams } from "react-router-dom";
 import { authClient } from "../auth-client.js";
@@ -32,6 +34,7 @@ import { useCommentNavigation, useComments } from "./editor/useComments.js";
 import { useDocActions } from "./editor/useDocActions.js";
 import { usePresence } from "./editor/usePresence.js";
 import { useSnapshots } from "./editor/useSnapshots.js";
+import { useTitleEditor } from "./editor/useTitleEditor.js";
 import { useLiveSectionGuard } from "./editor/useLiveSectionGuard.js";
 
 /** Upload a pasted/dropped image and insert it at the current selection. */
@@ -52,21 +55,19 @@ async function uploadAndInsert(view: EditorView, file: File, docId: string) {
 /** Room a margin comment needs to the right of the text: gap, card, edge. */
 const MARGIN_NEEDS = 36 + 248 + 20;
 
-function imageFiles(list: FileList | null | undefined): File[] {
-  return Array.from(list ?? []).filter((f) => f.type.startsWith("image/"));
+/** Put the caret at the start or end of `editor` and focus it now. TipTap's
+ * focus command waits a frame, and keys typed meanwhile land in the editor
+ * being left. */
+function focusAt(editor: TiptapEditor, where: "start" | "end"): boolean {
+  const { state, view } = editor;
+  const selection = where === "start" ? Selection.atStart(state.doc) : Selection.atEnd(state.doc);
+  view.dispatch(state.tr.setSelection(selection).scrollIntoView());
+  view.focus();
+  return true;
 }
 
-function useDebounced<A extends unknown[]>(fn: (...args: A) => void, delay: number) {
-  const ref = useRef(fn);
-  ref.current = fn;
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  return useCallback(
-    (...args: A) => {
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => ref.current(...args), delay);
-    },
-    [delay],
-  );
+function imageFiles(list: FileList | null | undefined): File[] {
+  return Array.from(list ?? []).filter((f) => f.type.startsWith("image/"));
 }
 
 export function Editor({
@@ -90,19 +91,11 @@ export function Editor({
   // Metadata only — the body arrives over Yjs, so we don't fetch it here.
   const doc = trpc.documents.getMeta.useQuery({ id: docId });
   const tagOptions = trpc.documents.listTags.useQuery();
+  // Tags only: the title is edited in the doc itself (useTitleEditor).
   const update = trpc.documents.update.useMutation({
-    onSuccess: (_data, input) => {
-      // Only this document's collection tree shows its title.
-      const collectionId = doc.data?.collectionId;
-      void (collectionId
-        ? utils.documents.tree.invalidate({ collectionId })
-        : utils.documents.tree.invalidate());
-      // Anything showing this doc's title (page-reference chips, headers)
-      // re-reads it after a rename.
+    onSuccess: () => {
       void utils.documents.getMeta.invalidate({ id: docId });
-      // The tag pool is a workspace-wide aggregate: refresh it only when tags
-      // changed, not on every debounced title save.
-      if (input.tags) void utils.documents.listTags.invalidate();
+      void utils.documents.listTags.invalidate();
     },
   });
   const members = trpc.workspaces.members.useQuery(
@@ -174,6 +167,8 @@ export function Editor({
   // editorProps are captured once at editor creation.
   const [findOpen, setFindOpen] = useState(false);
   const openFindRef = useRef<() => void>();
+  // Moves the caret from the body up into the title; false when it can't.
+  const focusTitleRef = useRef<() => boolean>();
   openFindRef.current = () => setFindOpen(true);
   // Link bubble state: null = closed, string = draft href being edited.
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
@@ -203,7 +198,25 @@ export function Editor({
       // own: the format bubble below, the contents rail, the block inserter.
       shouldRerenderOnTransaction: false,
       editorProps: {
-        handleKeyDown(_view, event) {
+        // A document body, as opposed to the title editor above it.
+        attributes: { class: "doc-body" },
+        handleKeyDown(view, event) {
+          // The title is the line above the body: ArrowUp on the first line,
+          // and ArrowLeft or Backspace at the very start, move up into it.
+          const { selection } = view.state;
+          const { $from } = selection;
+          const inFirstBlock = selection.empty && $from.depth >= 1 && $from.before(1) === 0;
+          const atStart = inFirstBlock && $from.depth === 1 && $from.parentOffset === 0;
+          if (
+            (event.key === "ArrowUp" && inFirstBlock && view.endOfTextblock("up")) ||
+            (event.key === "ArrowLeft" && atStart) ||
+            (event.key === "Backspace" && atStart && $from.parent.type.name === "paragraph")
+          ) {
+            if (focusTitleRef.current?.()) {
+              event.preventDefault();
+              return true;
+            }
+          }
           // Mod+F finds within the document (the browser's find can't see
           // into collapsed toggles or track live edits).
           if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "f") {
@@ -396,37 +409,48 @@ export function Editor({
     [canEdit, navigate],
   );
 
-  // Title is independent of the Yjs body; persist it via tRPC. A collaborator's
-  // rename arrives as a refetched getMeta (via the "meta" ping): adopt it unless
-  // this input is focused or holds unsaved local edits — then local wins
-  // (last-writer, like the save itself).
-  const [title, setTitle] = useState("");
-  const titleLoaded = useRef(false);
-  const titleDirty = useRef(false);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  // The title lives in the doc next to the body (title.ts).
+  const { titleEditor, title: liveTitle } = useTitleEditor({
+    ydoc,
+    canEdit,
+    synced,
+    fallback: doc.data?.title ?? "",
+    onExit: () => editor && focusAt(editor, "start"),
+  });
+  focusTitleRef.current = () => (titleEditor?.isEditable ? focusAt(titleEditor, "end") : false);
+  const title = liveTitle ?? doc.data?.title ?? "";
+  // The sidebar reads the stored title, which follows the live one when the
+  // doc is next stored (a couple of seconds). Show the live one there now,
+  // and again after every refetch that still brings the stored one.
+  const collectionId = doc.data?.collectionId;
+  const tree = trpc.documents.tree.useQuery({ collectionId: collectionId ?? "" }, { enabled: !!collectionId });
+  useEffect(() => {
+    if (liveTitle === null || !collectionId || !tree.data) return;
+    type Node = { id: string; title: string; children: Node[] };
+    // Only the path to this page is copied; other rows keep their identity.
+    const retitle = (nodes: Node[]): Node[] => {
+      let changed = false;
+      const next = nodes.map((n) => {
+        const out =
+          n.id === docId
+            ? n.title === liveTitle ? n : { ...n, title: liveTitle }
+            : (() => {
+                const children = retitle(n.children);
+                return children === n.children ? n : { ...n, children };
+              })();
+        if (out !== n) changed = true;
+        return out;
+      });
+      return changed ? next : nodes;
+    };
+    utils.documents.tree.setData({ collectionId }, (nodes) => nodes && (retitle(nodes) as typeof nodes));
+  }, [liveTitle, collectionId, docId, utils, tree.data]);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const myRole = members.data?.find((m) => m.userId === uid)?.role;
   const canDefine = myRole === "owner" || myRole === "admin";
   const templates = trpc.templates.list.useQuery({ workspaceId });
   const template = templates.data?.find((t) => t.id === docId) ?? null;
   useLiveSectionGuard(editor, template !== null);
-  useEffect(() => {
-    if (!doc.data) return;
-    if (!titleLoaded.current) {
-      setTitle(doc.data.title);
-      titleLoaded.current = true;
-    } else if (!titleDirty.current && document.activeElement !== titleInputRef.current) {
-      setTitle(doc.data.title);
-    }
-  }, [doc.data]);
-
-  const saveTitle = useDebounced((t: string) => {
-    update.mutate(
-      { id: docId, title: t },
-      { onSuccess: () => (titleDirty.current = false) },
-    );
-  }, 500);
-
   if (doc.isLoading) return <div className="empty"><span className="shimmer">Loading…</span></div>;
   if (doc.error)
     return <div className="empty">{friendlyError(doc.error, "Couldn't load this document.")}</div>;
@@ -720,19 +744,7 @@ export function Editor({
         />
       )}
       {notice}
-      <input
-        ref={titleInputRef}
-        className="title-input"
-        value={title}
-        placeholder="Untitled"
-        readOnly={!canEdit}
-        onChange={(e) => {
-          if (!canEdit) return;
-          titleDirty.current = true;
-          setTitle(e.target.value);
-          saveTitle(e.target.value);
-        }}
-      />
+      <EditorContent editor={titleEditor} className="title-editor" />
       <div
         className="doc-meta"
         title={`Created ${new Date(doc.data.createdAt).toLocaleString()}`}

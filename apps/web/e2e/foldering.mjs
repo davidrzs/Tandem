@@ -15,7 +15,7 @@ try {
   await createCollection(page, c);
 
   await newDocument(page, c);
-  await page.fill(".title-input", "Parent Doc");
+  await page.fill(".title-input[contenteditable=true]", "Parent Doc");
   await page.waitForTimeout(700);
 
   // Nest a child via the parent row's action; we land on the child page.
@@ -25,8 +25,8 @@ try {
   await parentRow.hover();
   await parentRow.locator('.row-action[title="New sub-document"]').click();
   await page.waitForURL((u) => u.pathname !== parentPath && u.pathname.startsWith("/d/"));
-  await page.waitForSelector(".ProseMirror");
-  await page.fill(".title-input", "Child Doc");
+  await page.waitForSelector(".doc-body");
+  await page.fill(".title-input[contenteditable=true]", "Child Doc");
   await page.waitForTimeout(700);
   const childUrl = page.url();
 
@@ -69,7 +69,7 @@ try {
 
   // Opening the child directly reveals its ancestors in the tree.
   await page.goto(childUrl);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
   await childRow.waitFor();
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);

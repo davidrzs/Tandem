@@ -15,10 +15,10 @@ try {
   const c = `DnD ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  await page.fill(".title-input", "Parent Doc");
+  await page.fill(".title-input[contenteditable=true]", "Parent Doc");
   await page.waitForTimeout(700);
   await newDocument(page, c);
-  await page.fill(".title-input", "Child Doc");
+  await page.fill(".title-input[contenteditable=true]", "Child Doc");
   await page.waitForTimeout(700);
 
   const child = page.locator(".doc-row", { hasText: "Child Doc" });

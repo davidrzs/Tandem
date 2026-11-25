@@ -23,9 +23,9 @@ try {
   const a = await signUp(await browser.newContext(), "Alice", "Alice");
   await createCollection(a, collectionName);
   await newDocument(a, collectionName);
-  await a.fill(".title-input", title);
-  await a.click(".ProseMirror");
-  await a.type(".ProseMirror", "Hello from Alice.");
+  await a.fill(".title-input[contenteditable=true]", title);
+  await a.click(".doc-body");
+  await a.type(".doc-body", "Hello from Alice.");
   await a.waitForTimeout(800);
 
   // Alice generates an invite link from the People modal.
@@ -44,20 +44,20 @@ try {
   await b.getByRole("menuitem", { name: "Alice workspace" }).click();
   await b.locator(".collection-row").getByText(collectionName, { exact: true }).click();
   await b.getByText(title, { exact: true }).click();
-  await b.waitForSelector(".ProseMirror");
+  await b.waitForSelector(".doc-body");
 
   // Bob sees Alice's text live.
   await b.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.textContent?.includes("Hello from Alice."),
+    () => document.querySelector(".doc-body")?.textContent?.includes("Hello from Alice."),
     { timeout: 10000 },
   );
 
   // Bob appends; Alice sees it live (bidirectional, cross-user).
-  await b.click(".ProseMirror");
+  await b.click(".doc-body");
   await b.keyboard.press("End");
-  await b.type(".ProseMirror", " And hi from Bob.");
+  await b.type(".doc-body", " And hi from Bob.");
   await a.waitForFunction(
-    () => document.querySelector(".ProseMirror")?.textContent?.includes("And hi from Bob."),
+    () => document.querySelector(".doc-body")?.textContent?.includes("And hi from Bob."),
     { timeout: 10000 },
   );
 

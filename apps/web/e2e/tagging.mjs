@@ -14,8 +14,10 @@ try {
   await createCollection(page, collectionName);
   await newDocument(page, collectionName);
 
-  await page.fill(".title-input", "Quantum notes");
-  await page.waitForTimeout(800); // let the title-save debounce (500ms) flush
+  await page.fill(".title-input[contenteditable=true]", "Quantum notes");
+  // Search reads the stored title, written when the live doc is stored
+  // (2 s debounce after the last edit).
+  await page.waitForTimeout(2600);
 
   // Add a tag via the inline "Add tag" affordance.
   await page.getByRole("button", { name: "Add tag" }).click();

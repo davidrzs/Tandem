@@ -37,12 +37,12 @@ async function eventually(read, ok, what) {
 
 async function openPage(id) {
   await page.goto(`${BASE}/d/${id}`);
-  await page.waitForSelector(".ProseMirror");
+  await page.waitForSelector(".doc-body");
 }
 
 async function deleteSection(query) {
   const section = page.locator(`.live-section[data-live-section="${query}"]`);
-  await page.locator(".ProseMirror h2", { hasText: "Agenda" }).click();
+  await page.locator(".doc-body h2", { hasText: "Agenda" }).click();
   await section.locator(".live-section-head").click();
   await page.locator(`.live-section.selected[data-live-section="${query}"]`).waitFor();
   await page.keyboard.press("Backspace");

@@ -13,7 +13,7 @@ try {
   const c = `Life ${Date.now()}`;
   await createCollection(page, c);
   await newDocument(page, c);
-  await page.fill(".title-input", "Archive Me");
+  await page.fill(".title-input[contenteditable=true]", "Archive Me");
   await page.waitForTimeout(700);
   const docUrl = page.url();
 
