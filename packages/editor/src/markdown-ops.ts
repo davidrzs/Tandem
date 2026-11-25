@@ -55,7 +55,7 @@ export function replaceText(
     : markdown.replace(oldString, newString);
 }
 
-interface HeadingLine {
+export interface HeadingLine {
   line: number;
   level: number;
   text: string;
@@ -82,7 +82,7 @@ function eachUnfencedLine(lines: string[], visit: (line: string, index: number) 
 
 /** ATX headings outside code fences (the canonical serializer emits no setext
  * headings and no headings inside fences). */
-function scanHeadings(lines: string[]): HeadingLine[] {
+export function scanHeadings(lines: string[]): HeadingLine[] {
   const headings: HeadingLine[] = [];
   eachUnfencedLine(lines, (line, i) => {
     const heading = /^(#{1,6})\s+(.*?)\s*$/.exec(line);
